@@ -1,12 +1,12 @@
-# JSM Plan
+# Regesta Plan
 
-JSM is a source-native, verifiable package registry for modern JavaScript and TypeScript modules.
+Regesta is a source-native, verifiable package registry for modern JavaScript and TypeScript modules.
 
-This document captures the product direction, architecture, governance model, and staged implementation plan for JSM. The goal is not to build a prettier npm UI, a security SaaS, or another thin registry clone. The goal is to design a modern registry kernel that can serve as trustworthy public infrastructure for the next decade of JavaScript.
+This document captures the product direction, architecture, governance model, and staged implementation plan for Regesta. The goal is not to build a prettier npm UI, a security SaaS, or another thin registry clone. The goal is to design a modern registry kernel that can serve as trustworthy public infrastructure for the next decade of JavaScript.
 
 ## 1. Mission
 
-JSM exists to make JavaScript package distribution:
+Regesta exists to make JavaScript package distribution:
 
 - source-native;
 - runtime-neutral;
@@ -35,7 +35,7 @@ A package registry for the next decade should answer:
 
 Traditional registries are usually internal databases exposed through public APIs.
 
-JSM should instead be a public, verifiable state machine:
+Regesta should instead be a public, verifiable state machine:
 
 ```text
 append-only event log
@@ -52,7 +52,7 @@ This is the key architectural distinction.
 
 ## 3. Non-Goals for v0
 
-JSM v0 should not attempt to replace all of npm.
+Regesta v0 should not attempt to replace all of npm.
 
 It should not initially support:
 
@@ -73,7 +73,7 @@ The first version should prove the registry kernel, not imitate every legacy beh
 
 ## 4. Product Positioning
 
-JSM is not a "more secure npm" in the narrow security-vendor sense.
+Regesta is not a "more secure npm" in the narrow security-vendor sense.
 
 It is:
 
@@ -91,48 +91,64 @@ The initial target is high-quality modern packages:
 - framework utilities;
 - packages that benefit from provenance and source-native distribution.
 
-Long-term, JSM may become a broader registry and trust infrastructure. But the initial product must be focused.
+Long-term, Regesta may become a broader registry and trust infrastructure. But the initial product must be focused.
 
 ## 5. Naming and Identity
 
 Project name:
 
 ```text
-JSM
+Regesta
 ```
 
-Suggested meaning:
+Primary domain:
 
 ```text
-JavaScript Modules
+regesta.dev
 ```
 
-Suggested GitHub organization:
+GitHub organization:
 
 ```text
-github.com/jsm-project
+github.com/regesta-dev
+```
+
+CLI and npm package name:
+
+```text
+regesta
 ```
 
 Suggested project structure:
 
 ```text
-jsm-project/registry
-jsm-project/cli
-jsm-project/protocol
-jsm-project/log
-jsm-project/mirror
-jsm-project/rfcs
+regesta-dev/registry
+regesta-dev/cli
+regesta-dev/protocol
+regesta-dev/log
+regesta-dev/mirror
+regesta-dev/rfcs
 ```
 
-Avoid depending on `.io` as the primary brand anchor. Prefer stable domains such as `.dev`, `.org`, or a longer project domain if necessary.
+Use `regesta.dev` as the primary public domain. Avoid introducing a separate `.io` brand anchor.
 
 ## 6. Design Principles
 
 ### 6.1 Source-Native
 
-Authors publish source, not opaque build artifacts.
+Authors publish source as a first-class release object, not only opaque build artifacts.
 
-The registry validates source and generates artifacts such as:
+For JavaScript and TypeScript packages, source-native publishing should not require a single registry-owned builder. The JS ecosystem has many legitimate build tools and configuration models, so Regesta should preserve source, content-address artifacts, and record provenance before it attempts to verify or reproduce every build.
+
+V0 should support a neutral source-attached model:
+
+- the source archive is mandatory and content-addressed;
+- install artifacts are content-addressed;
+- the release manifest records the declared source-to-artifact relationship;
+- npm-compatible artifacts may be author-built or registry-generated;
+- the verification level must be explicit.
+
+The registry may generate projections and auxiliary artifacts such as:
 
 - npm-compatible tarballs;
 - type declarations;
@@ -140,22 +156,22 @@ The registry validates source and generates artifacts such as:
 - AI context bundles;
 - package metadata projections.
 
-The source archive is the highest-priority object to preserve.
+The source archive is the highest-priority object to preserve. Trusted builders, reproducible rebuilds, and third-party build attestations are future trust upgrades, not v0 requirements.
 
 ### 6.2 Runtime-Neutral
 
-JSM is not a Node, Deno, Bun, Cloudflare, or browser registry.
+Regesta is not a Node, Deno, Bun, Cloudflare, or browser registry.
 
 It should support multiple consumption paths:
 
 ```text
 npm-compatible protocol  -> npm / pnpm / Yarn / Bun
-native JSM protocol      -> verified clients and tooling
+native Regesta protocol  -> verified clients and tooling
 HTTP/ESM delivery        -> browsers, Deno, edge runtimes
 AI/MCP/API access        -> agents and IDEs
 ```
 
-A developer who only uses Bun, Node, or Cloudflare Workers should still be able to use JSM without feeling like they are adopting another runtime's ecosystem.
+A developer who only uses Bun, Node, or Cloudflare Workers should still be able to use Regesta without feeling like they are adopting another runtime's ecosystem.
 
 ### 6.3 Content-Addressed Objects
 
@@ -220,7 +236,7 @@ Forkability is not a daily workflow. It is a governance backstop.
 
 ### 6.6 Lightweight Governance, Strong Architecture
 
-JSM should avoid premature bureaucracy, but it must not rely on trust in a single company.
+Regesta should avoid premature bureaucracy, but it must not rely on trust in a single company.
 
 The bootstrap phase should be maintainer-led, fast-moving, and transparent.
 
@@ -239,7 +255,7 @@ The architecture must ensure that no single operator can permanently capture the
 
 ### 7.1 Package Coordinates
 
-JSM v0 should require scoped packages.
+Regesta v0 should require scoped packages.
 
 Preferred canonical identity:
 
@@ -272,7 +288,7 @@ Verification methods:
 Example DNS record:
 
 ```text
-_jsm.example.com TXT "jsm-scope=..."
+_regesta.example.com TXT "regesta-scope=..."
 ```
 
 Domain verification is a signal, not an automatic ownership transfer mechanism.
@@ -289,7 +305,7 @@ Rules:
 
 ### 7.3 System Scopes
 
-JSM may reserve system scopes such as:
+Regesta may reserve system scopes such as:
 
 ```text
 @std/*
@@ -406,10 +422,10 @@ Example shape:
     "typescript": true,
     "lifecycleScripts": false
   },
-  "builder": {
-    "name": "jsm-builder",
-    "version": "0.1.0",
-    "imageDigest": "sha256:..."
+  "provenance": {
+    "level": "declared-build",
+    "command": "pnpm build && pnpm pack",
+    "verified": false
   }
 }
 ```
@@ -418,7 +434,7 @@ The manifest should be canonicalized and content-addressed.
 
 ## 9. Transparency Log
 
-JSM should use a transparency-log model inspired by Certificate Transparency, Go checksum database, Sigstore Rekor, and Trillian/Tessera.
+Regesta should use a transparency-log model inspired by Certificate Transparency, Go checksum database, Sigstore Rekor, and Trillian/Tessera.
 
 The log is tamper-evident, not physically tamper-proof.
 
@@ -464,7 +480,7 @@ The registry periodically publishes signed checkpoints:
 
 ```json
 {
-  "logId": "jsm-main",
+  "logId": "regesta-main",
   "treeSize": 1234567,
   "rootHash": "sha256:...",
   "timestamp": "2026-05-30T12:00:00Z",
@@ -499,7 +515,7 @@ Clients may eventually require a witness threshold such as `3-of-5`.
 
 ### 9.4 Existing Technology
 
-JSM should not invent Merkle log primitives from scratch.
+Regesta should not invent Merkle log primitives from scratch.
 
 Relevant projects and models:
 
@@ -510,17 +526,17 @@ Relevant projects and models:
 - Certificate Transparency;
 - TUF-style metadata for anti-rollback protections.
 
-JSM should define its own registry event schema, but use proven transparency-log concepts and implementations where appropriate.
+Regesta should define its own registry event schema, but use proven transparency-log concepts and implementations where appropriate.
 
 ## 10. Object Availability
 
 Transparency proves what the correct bytes are. It does not guarantee the bytes still exist.
 
-Therefore JSM needs an object availability strategy.
+Therefore Regesta needs an object availability strategy.
 
 ### 10.1 Object Inventory
 
-JSM should publish object inventories by epoch.
+Regesta should publish object inventories by epoch.
 
 Example:
 
@@ -537,7 +553,7 @@ Mirrors can sync by epoch and publish attestations.
 
 ### 10.2 Mirror Types
 
-JSM should support several mirror modes.
+Regesta should support several mirror modes.
 
 #### Metadata Mirror
 
@@ -641,10 +657,10 @@ The fork should begin with an event such as:
 ```json
 {
   "type": "FORK_FROM",
-  "previousLog": "jsm-main",
+  "previousLog": "regesta-main",
   "previousTreeSize": 12345678,
   "previousRootHash": "sha256:...",
-  "newLogId": "jsm-community"
+  "newLogId": "regesta-community"
 }
 ```
 
@@ -659,7 +675,7 @@ Forkability requires:
 
 ## 12. Deployment Architecture
 
-JSM should be deployable on different infrastructure providers.
+Regesta should be deployable on different infrastructure providers.
 
 A Cloudflare-based reference deployment may be useful, but the protocol must not depend on Cloudflare-specific primitives.
 
@@ -718,9 +734,9 @@ Durable Objects are useful for per-package serialization, but the abstract requi
 
 ## 13. npm Compatibility
 
-npm compatibility is necessary for adoption, but npm's data model should not define JSM's internal architecture.
+npm compatibility is necessary for adoption, but npm's data model should not define Regesta's internal architecture.
 
-Native JSM model:
+Native Regesta model:
 
 ```text
 package summary
@@ -743,9 +759,9 @@ The npm packument should be a projection, not source of truth.
 
 Important limitation:
 
-Existing npm clients will not verify JSM transparency proofs. They may verify tarball integrity but not the public log.
+Existing npm clients will not verify Regesta transparency proofs. They may verify tarball integrity but not the public log.
 
-Therefore JSM should support two modes:
+Therefore Regesta should support two modes:
 
 ```text
 npm-compatible mode   -> broad compatibility
@@ -755,8 +771,8 @@ verified mode         -> full manifest/log/status verification
 Future tools:
 
 ```text
-jsm install
-jsm verify-lock
+regesta install
+regesta verify-lock
 package-manager plugins
 CI verification tools
 ```
@@ -765,7 +781,7 @@ CI verification tools
 
 Initial publish flow:
 
-1. CLI reads `jsm.json` or a compatible config subset.
+1. CLI reads `regesta.json` or a compatible config subset.
 2. CLI creates source archive.
 3. CLI computes source digest.
 4. Source is uploaded to object storage.
@@ -794,7 +810,7 @@ A release must not become visible until all referenced artifacts exist.
 
 ## 15. Security Signal Network
 
-JSM should not attempt to personally audit every package.
+Regesta should not attempt to personally audit every package.
 
 Instead, it should provide real-time, verifiable data for auditors, AI systems, security companies, and community monitors.
 
@@ -850,7 +866,7 @@ Example:
 
 ```json
 {
-  "schema": "jsm.security.verdict.v1",
+  "schema": "regesta.security.verdict.v1",
   "auditor": "socket.dev",
   "auditorKeyId": "socket-2026-01",
   "release": {
@@ -861,10 +877,7 @@ Example:
   "verdict": "malicious",
   "severity": "critical",
   "confidence": 0.97,
-  "categories": [
-    "credential-exfiltration",
-    "suspicious-network"
-  ],
+  "categories": ["credential-exfiltration", "suspicious-network"],
   "recommendedAction": "block",
   "toolchain": {
     "scanner": "example-ai-auditor",
@@ -917,7 +930,7 @@ Blocking does not make already-mirrored bytes disappear.
 
 Auditors should not directly block packages.
 
-They submit signed evidence. JSM applies public policy.
+They submit signed evidence. Regesta applies public policy.
 
 Policy should consider:
 
@@ -967,7 +980,7 @@ Example:
 
 ```json
 {
-  "schema": "jsm.package-intelligence.v1",
+  "schema": "regesta.package-intelligence.v1",
   "package": "@example.com/router",
   "version": "1.2.3",
   "summary": {
@@ -1066,7 +1079,7 @@ AI coding agents should use install plans instead of blindly installing guessed 
 
 ### 16.6 MCP Server
 
-JSM should eventually provide an official MCP server for coding agents.
+Regesta should eventually provide an official MCP server for coding agents.
 
 Possible tools:
 
@@ -1108,7 +1121,7 @@ Initial governance should be lightweight.
 Suggested policy:
 
 ```text
-During bootstrap, JSM is maintainer-led.
+During bootstrap, Regesta is maintainer-led.
 Maintainers may make product and technical decisions quickly.
 All policy decisions must be public.
 All major protocol changes require an RFC.
@@ -1131,7 +1144,7 @@ Formal governance transition may begin when any two or three occur:
 
 ### 17.3 Company Incubation
 
-JSM may be incubated inside a company, but public infrastructure guarantees must be explicit.
+Regesta may be incubated inside a company, but public infrastructure guarantees must be explicit.
 
 Required commitments:
 
@@ -1178,7 +1191,7 @@ Used by independent witnesses to countersign observed checkpoints.
 
 Immutable logs conflict with real-world deletion requirements.
 
-JSM should distinguish:
+Regesta should distinguish:
 
 ```text
 historical fact
@@ -1221,7 +1234,8 @@ Deliverables:
 - source upload;
 - content-addressed object storage;
 - release manifest;
-- generated npm tarball;
+- npm-compatible tarball artifact;
+- declared source-to-artifact provenance;
 - package page;
 - basic docs generation;
 - npm-compatible install;
@@ -1241,7 +1255,7 @@ Deliverables:
 Example command:
 
 ```sh
-jsm verify @example.com/foo@1.0.0
+regesta verify @example.com/foo@1.0.0
 ```
 
 ### Milestone 3: Native Protocol and Projections
@@ -1353,15 +1367,25 @@ Mitigation:
 
 ### 21.4 Builder Trust
 
-Registry-built artifacts centralize trust in the builder.
+Registry-built artifacts centralize trust in the builder, while author-built artifacts leave the source-to-artifact relationship mostly declarative.
+
+V0 should not force one build toolchain or one trusted builder. The first release model should be honest about its trust level:
+
+- `source-attached`: source and artifacts are preserved and content-addressed;
+- `declared-build`: the author declares the command and toolchain that produced the artifact;
+- `reproducible-build`: Regesta or a third party has rebuilt the artifact and matched the digest;
+- `trusted-builder`: a registered builder or attestation system signs the build provenance.
+
+Only the first two levels are required for v0. Higher levels belong in the future roadmap.
 
 Mitigation:
 
-- record builder identity and image digest;
 - preserve source archive;
-- make builds reproducible where possible;
-- allow independent rebuild verification;
-- eventually support multiple builders.
+- record artifact digests and declared build provenance;
+- never imply that declared provenance is verified;
+- make reproducible rebuilds possible where practical;
+- allow independent rebuild verification later;
+- eventually support multiple trusted builders and attestation sources.
 
 ### 21.5 Transparency Misunderstanding
 
@@ -1389,7 +1413,7 @@ Mitigation:
 
 ### 21.7 npm Compatibility Limits
 
-Existing npm clients will not verify JSM's transparency log.
+Existing npm clients will not verify Regesta's transparency log.
 
 Mitigation:
 
@@ -1413,7 +1437,7 @@ Better early metrics:
 - AI context bundle is generated;
 - at least one third-party tool consumes the event feed;
 - at least one independent mirror exists;
-- high-quality packages choose JSM for first-class publishing.
+- high-quality packages choose Regesta for first-class publishing.
 
 Long-term success:
 
@@ -1421,13 +1445,13 @@ Long-term success:
 - multiple independent mirrors;
 - package manager integrations;
 - external security auditors publishing signed signals;
-- AI agents using JSM package intelligence instead of scraping;
+- AI agents using Regesta package intelligence instead of scraping;
 - formal neutral governance;
 - credible forkability.
 
 ## 23. Summary
 
-JSM should be built as a registry kernel first.
+Regesta should be built as a registry kernel first.
 
 The kernel is:
 
@@ -1445,12 +1469,12 @@ machine-readable package intelligence
 The user-facing experience should be simple:
 
 ```sh
-jsm publish
-npm install @example.com/foo --registry=...
-jsm verify @example.com/foo@1.0.0
+regesta publish
+npm install @example.com/foo --registry=https://registry.regesta.dev
+regesta verify @example.com/foo@1.0.0
 ```
 
-The underlying architecture should be strong enough that other registries will eventually have to answer the questions JSM raises:
+The underlying architecture should be strong enough that other registries will eventually have to answer the questions Regesta raises:
 
 - Can your registry history be audited?
 - Can your package state be replayed?
@@ -1458,4 +1482,4 @@ The underlying architecture should be strong enough that other registries will e
 - Can your community fork if the operator fails?
 - Can AI agents consume verified package knowledge instead of guessing?
 
-That is the reason to build JSM.
+That is the reason to build Regesta.

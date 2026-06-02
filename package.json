@@ -1,0 +1,28 @@
+{
+  "name": "regesta-workspace",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.5.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:server": "pnpm --filter @regesta/server dev",
+    "lint": "eslint --cache .",
+    "lint:fix": "pnpm run lint --fix",
+    "format": "prettier --cache --write .",
+    "test": "vitest",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@sxzz/eslint-config": "^8.1.0",
+    "@sxzz/prettier-config": "^2.3.1",
+    "@types/node": "^25.9.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260527.2",
+    "eslint": "^10.4.1",
+    "prettier": "^3.8.3",
+    "tsdown": "^0.22.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "prettier": "@sxzz/prettier-config"
+}

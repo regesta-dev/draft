@@ -1,0 +1,14 @@
+{
+  "schema": "regesta.config.v0",
+  "description": "Minimal Regesta v0 example package.",
+  "source": {
+    "include": ["regesta.json", "package.json", "src", "README.md"]
+  },
+  "provenance": {
+    "level": "source-attached"
+  },
+  "compatibility": {
+    "runtimes": ["node", "bun"],
+    "packageManagers": ["npm", "pnpm", "yarn", "bun"]
+  }
+}

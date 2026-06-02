@@ -1,0 +1,30 @@
+{
+  "name": "@regesta/adapters",
+  "type": "module",
+  "version": "0.0.0",
+  "exports": {
+    ".": {
+      "regesta-source": "./src/index.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "@regesta/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.1"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.mjs",
+      "./package.json": "./package.json"
+    }
+  }
+}

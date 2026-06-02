@@ -1,0 +1,20 @@
+{
+  "name": "@regesta/server",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsdown",
+    "dev": "node src/index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.4",
+    "@regesta/adapters": "workspace:*",
+    "@regesta/core": "workspace:*",
+    "@regesta/protocol": "workspace:*",
+    "hono": "^4.12.23"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.1"
+  }
+}

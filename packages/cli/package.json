@@ -1,0 +1,38 @@
+{
+  "name": "regesta",
+  "type": "module",
+  "version": "0.0.0",
+  "exports": {
+    ".": {
+      "regesta-source": "./src/index.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "regesta": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "@regesta/core": "workspace:*",
+    "@regesta/protocol": "workspace:*",
+    "cac": "^7.0.0"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.1"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.mjs",
+      "./package.json": "./package.json"
+    },
+    "bin": {
+      "regesta": "./dist/index.mjs"
+    }
+  }
+}
