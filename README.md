@@ -32,6 +32,7 @@ How Regesta aims to achieve this:
 
 Design drafts:
 
-- [API design](design/api.md)
-- [Object schema design](design/object-schema.md)
-- [Implementation plan](V0_PLAN.md)
+- [Documentation index](docs/README.md)
+- [API design](docs/design/api.md)
+- [Object schema design](docs/design/object-schema.md)
+- [Implementation plan](docs/V0_PLAN.md)

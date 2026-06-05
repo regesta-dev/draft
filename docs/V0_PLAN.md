@@ -56,6 +56,8 @@ External dependencies:
 
 All persistent state must live in external services. Local container disk is temporary and must not be used as durable storage.
 
+For the PoC/MVP local server, Regesta may use a file-backed SQLite database plus filesystem content-addressed object storage. This keeps the dogfood loop simple and restartable without requiring Postgres, S3/R2, or a queue service. It is a local development adapter, not the long-term production storage contract.
+
 The append-only log and object store are the public source of truth. Database tables are projections and may be rebuilt from logged events and referenced objects.
 
 ## Package and Repository Shape
@@ -155,6 +157,7 @@ The v0 plan is complete when:
 - the registry stores source, install artifacts, release manifest, and package metadata as content-addressed objects where appropriate;
 - the release manifest records source-attached provenance without claiming reproducible or trusted build verification;
 - npm-compatible install works through a generated packument and the uploaded tarball artifact;
+- the local PoC/MVP server persists release state, channel state, events, and content-addressed objects across restarts;
 - release state is immutable after publication except through explicit logged status events;
 - the CLI can perform a basic release verification using public registry data;
 - persistent state is externalized to database, object storage, queue, and signing/KMS services;

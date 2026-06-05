@@ -12,6 +12,7 @@ export {
   MemoryRegistryDatabase,
   MemorySignerAdapter,
 } from './memory.ts'
+export { SQLiteRegistryDatabase } from './sqlite.ts'
 export type {
   ObjectStore,
   QueueAdapter,
