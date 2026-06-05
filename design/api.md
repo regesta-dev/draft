@@ -27,30 +27,50 @@ This document describes the API shape for Regesta as a generic, ecosystem-neutra
 The canonical package id format is:
 
 ```text
-<ecosystem>:<native-name>
+<ecosystem>:<owner-domain>/<package-name>
 ```
 
 Examples:
 
 ```text
-npm:@some/sdk
-pypi:some-sdk
-cargo:some-sdk
-go:some.dev/sdk-go
-oci:ghcr.io/some/sdk
+npm:some.dev/sdk
+pypi:some.dev/sdk
+cargo:some.dev/sdk
+go:some.dev/sdk
+oci:some.dev/sdk
 ```
 
 The ecosystem prefix is mandatory in Regesta manifests, events, storage records, and generic APIs. It may be omitted only inside a specific ecosystem context. For example, TypeScript users still write:
 
 ```ts
-import '@some/sdk'
+import '@some.dev/sdk'
 ```
 
 The npm adapter resolves that native npm specifier as:
 
 ```text
-npm:@some/sdk
+npm:some.dev/sdk
 ```
+
+Regesta core ids deliberately do not include npm's leading `@`. The `@some.dev/sdk` spelling belongs to npm-compatible projection APIs; other ecosystem projections can map the same core id into names that are valid for their package managers.
+
+### Client Mapping Rules
+
+Package id inference is a client responsibility. The registry core accepts and verifies the canonical Regesta id; it does not infer package identity from `package.json`, `pyproject.toml`, `Cargo.toml`, or OCI metadata.
+
+Publish clients and ecosystem adapters should use deterministic mappings:
+
+| Ecosystem | Native input example            | Regesta id           |
+| --------- | ------------------------------- | -------------------- |
+| npm       | `@some.dev/sdk`                 | `npm:some.dev/sdk`   |
+| PyPI      | `some-dev-sdk`                  | `pypi:some.dev/sdk`  |
+| Cargo     | `some-dev-sdk`                  | `cargo:some.dev/sdk` |
+| Go        | `some.dev/sdk`                  | `go:some.dev/sdk`    |
+| OCI       | `registry.example/some.dev/sdk` | `oci:some.dev/sdk`   |
+
+Reverse projection is also client or adapter behavior. For example, an npm registry-compatible endpoint exposes `npm:some.dev/sdk` as `@some.dev/sdk`, while a PyPI-compatible endpoint may expose `pypi:some.dev/sdk` as `some-dev-sdk`.
+
+The current `regesta` CLI is an npm-oriented client used for the TypeScript v0 and local development tests. It may infer `npm:domain/name` from `package.json` names such as `@domain/name`, but that does not make npm part of the core protocol. Future clients for PyPI, Cargo, Go, OCI, and other ecosystems can be maintained independently by the community.
 
 ## API Principles
 
@@ -89,7 +109,7 @@ Example `artifacts` field:
     "ecosystem": "npm",
     "format": "npm-tarball",
     "mediaType": "application/gzip",
-    "filename": "some-sdk-1.2.3.tgz"
+    "filename": "sdk-1.2.3.tgz"
   }
 ]
 ```
@@ -112,7 +132,7 @@ Response:
     "size": 567,
     "mediaType": "application/vnd.regesta.event.v0+json"
   },
-  "package": "npm:@some/sdk",
+  "package": "npm:some.dev/sdk",
   "channel": "latest",
   "version": "1.2.3"
 }
@@ -131,18 +151,18 @@ GET /v0/packages/{packageId}
 Examples:
 
 ```http
-GET /v0/packages/npm%3A%40some%2Fsdk
-GET /v0/packages/pypi%3Asome-sdk
-GET /v0/packages/go%3Asome.dev%2Fsdk-go
+GET /v0/packages/npm%3Asome.dev%2Fsdk
+GET /v0/packages/pypi%3Asome.dev%2Fsdk
+GET /v0/packages/go%3Asome.dev%2Fsdk
 ```
 
 Response:
 
 ```json
 {
-  "id": "npm:@some/sdk",
+  "id": "npm:some.dev/sdk",
   "ecosystem": "npm",
-  "name": "@some/sdk",
+  "name": "some.dev/sdk",
   "channels": {
     "latest": "1.2.3",
     "beta": "1.3.0-beta.1"
@@ -192,7 +212,7 @@ Response:
 
 ```json
 {
-  "package": "npm:@some/sdk",
+  "package": "npm:some.dev/sdk",
   "channel": "latest",
   "version": "1.2.3",
   "previousVersion": "1.2.2",
@@ -228,7 +248,7 @@ Response:
     "mediaType": "application/vnd.regesta.release-manifest.v0+json"
   },
   "release": {
-    "id": "npm:@some/sdk",
+    "id": "npm:some.dev/sdk",
     "version": "1.2.3",
     "createdAt": "2026-06-03T00:00:00.000Z"
   }
@@ -296,8 +316,8 @@ Projection APIs expose package-manager-native views derived from Regesta objects
 Examples:
 
 ```http
-GET https://npm.registry.example/@some/sdk
-GET https://npm.registry.example/@some/sdk/-/some-sdk-1.2.3.tgz
+GET https://npm.registry.example/@some.dev/sdk
+GET https://npm.registry.example/@some.dev/sdk/-/sdk-1.2.3.tgz
 GET /pypi/simple/some-sdk/
 GET /pypi/files/some-sdk-1.2.3-py3-none-any.whl
 ```
@@ -306,7 +326,7 @@ Projection APIs may use ecosystem-native naming and response formats. They must 
 
 npm projection should use a subdomain mount:
 
-- `https://npm.registry.example/@some/sdk` for npm registry compatibility when clients do not reliably preserve a registry path prefix.
+- `https://npm.registry.example/@some.dev/sdk` for npm registry compatibility when clients do not reliably preserve a registry path prefix.
 
 The `npm.` subdomain selects the npm projection and the path is interpreted exactly like an npm registry root. Packument tarball URLs should use the same subdomain-root mount.
 
@@ -326,7 +346,7 @@ Errors should use a small structured response:
 {
   "error": {
     "code": "release_already_exists",
-    "message": "Release already exists: npm:@some/sdk@1.2.3"
+    "message": "Release already exists: npm:some.dev/sdk@1.2.3"
   }
 }
 ```
@@ -337,7 +357,7 @@ Error codes should be stable. Messages are for humans and may change.
 
 V0 uses domain-bound write signatures instead of a user account system. The registry does not authenticate usernames, passwords, sessions, or API tokens for write operations in v0.
 
-Each writable package id must resolve to an owner domain. For npm, the owner domain is the package scope without `@`, such as `example.com` in `npm:@example.com/pkg`. Other ecosystems must include an owner domain in their native package name until an ecosystem-specific ownership rule exists.
+Each writable package id must resolve to an owner domain. The owner domain is the first path segment after the ecosystem prefix, such as `example.com` in `npm:example.com/pkg`, `pypi:example.com/pkg`, or `cargo:example.com/pkg`. Ecosystem projections may map this core id into native package-manager names, such as npm's `@example.com/pkg`.
 
 The owner domain publishes its active write keys at:
 

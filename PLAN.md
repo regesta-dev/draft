@@ -260,18 +260,18 @@ Regesta v0 should require scoped packages.
 Preferred canonical identity:
 
 ```text
-@domain/package
+ecosystem:domain/package
 ```
 
 Examples:
 
 ```text
-@hono.dev/hono
-@vuejs.org/router
-@cloudflare.com/workers-types
+npm:hono.dev/hono
+cargo:vuejs.org/router
+pypi:cloudflare.com/workers-types
 ```
 
-Unscoped packages should not be part of the native package model.
+Unscoped packages should not be part of the canonical Regesta package model. Native ecosystem projections may still expose their own valid package names.
 
 ### 7.2 Domain Scopes
 
@@ -351,16 +351,16 @@ Signals may include:
 
 Downloads alone should never automatically grant a scope because downloads can be manipulated.
 
-Project scopes should initially operate as aliases to canonical domain-scoped packages.
+Project labels may exist as metadata, but they should not become package ids.
 
 Example:
 
 ```text
 canonical: @hono.dev/hono
-alias:     @hono/hono
+label:     hono
 ```
 
-The canonical identity remains stable; the short scope improves ergonomics.
+The canonical identity remains stable; a short label can improve discovery without creating a second package scope.
 
 ## 8. Release Model
 

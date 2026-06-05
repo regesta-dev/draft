@@ -7,7 +7,7 @@ This document defines the public object model for a generic Regesta registry. It
 ## Design Goals
 
 - Keep Regesta language-neutral and ecosystem-neutral.
-- Use ecosystem-native package names without making any one ecosystem global.
+- Use one domain-scoped package id format across ecosystems without making any one ecosystem global.
 - Preserve source and install artifacts as content-addressed objects.
 - Keep `regesta.json` thin and avoid package-manager-specific duplication.
 - Treat compatibility as declared intent, not v0 proof.
@@ -19,35 +19,37 @@ This document defines the public object model for a generic Regesta registry. It
 Canonical package ids use:
 
 ```text
-<ecosystem>:<native-name>
+<ecosystem>:<owner-domain>/<package-name>
 ```
 
 Rules:
 
 - `ecosystem` is lowercase ASCII plus digits and hyphens.
-- `native-name` is the package name as understood by that ecosystem.
-- `native-name` must not contain control characters.
+- `owner-domain` is the domain that owns and authorizes the package namespace.
+- `package-name` is the package name inside that owner domain.
+- The path after the ecosystem prefix must not contain control characters.
 - Regesta public objects always store the full id.
-- Ecosystem-specific tools may omit the prefix when the ecosystem context is known.
+- Ecosystem-specific tools may omit the prefix when the ecosystem context is known, and projections may map the core id into native package-manager names.
+- The leading `@` used by npm scoped packages is not part of the core id. It is added by the npm projection when exposing `npm:some.dev/sdk` as `@some.dev/sdk`.
 
 Examples:
 
 ```text
-npm:@some/sdk
-pypi:some-sdk
-cargo:some-sdk
-go:some.dev/sdk-go
-oci:ghcr.io/some/sdk
+npm:some.dev/sdk
+pypi:some.dev/sdk
+cargo:some.dev/sdk
+go:some.dev/sdk
+oci:some.dev/sdk
 ```
 
 Release coordinates append the version to the package id:
 
 ```text
-npm:@some/sdk@1.2.3
-pypi:some-sdk@1.2.3
+npm:some.dev/sdk@1.2.3
+pypi:some.dev/sdk@1.2.3
 ```
 
-Parsers should split package id from version at the last `@` so npm scoped names remain valid.
+Parsers should split package id from version at the last `@`.
 
 ## `regesta.json`
 
@@ -59,11 +61,25 @@ There is no `$schema` field in `regesta.json`.
 
 There is no generic `dependencies` field in `regesta.json`. Dependency semantics belong to the native package ecosystem.
 
+Package id inference belongs to publish clients. A client may infer the canonical Regesta id from native manifests, such as `package.json`, `pyproject.toml`, `Cargo.toml`, Go module files, or OCI image metadata, but the registry object model stores only the resulting canonical id.
+
+Recommended deterministic mappings:
+
+| Ecosystem | Native input example            | Regesta id           |
+| --------- | ------------------------------- | -------------------- |
+| npm       | `@some.dev/sdk`                 | `npm:some.dev/sdk`   |
+| PyPI      | `some-dev-sdk`                  | `pypi:some.dev/sdk`  |
+| Cargo     | `some-dev-sdk`                  | `cargo:some.dev/sdk` |
+| Go        | `some.dev/sdk`                  | `go:some.dev/sdk`    |
+| OCI       | `registry.example/some.dev/sdk` | `oci:some.dev/sdk`   |
+
+These mappings are client and projection rules, not mutable registry aliases. The current `regesta` CLI is an npm-focused client for v0 development and testing; later ecosystem clients can provide their own inference and projection behavior without changing the core object model.
+
 Draft example for npm:
 
 ```json
 {
-  "id": "npm:@some/sdk",
+  "id": "npm:some.dev/sdk",
   "languages": ["typescript"],
   "source": {
     "include": ["package.json", "README.md", "src"],
@@ -96,7 +112,7 @@ Draft example for a Python package with native code:
 
 ```json
 {
-  "id": "pypi:some-sdk",
+  "id": "pypi:some.dev/sdk",
   "languages": ["python", "rust"],
   "source": {
     "include": ["pyproject.toml", "README.md", "src", "crates"]
@@ -137,7 +153,7 @@ Draft example for a Python package with native code:
 
 | Field           | Required | Description                                                                  |
 | --------------- | -------- | ---------------------------------------------------------------------------- |
-| `id`            | yes      | Canonical package id, formatted as `ecosystem:native-name`.                  |
+| `id`            | yes      | Canonical package id, formatted as `ecosystem:owner-domain/package-name`.    |
 | `version`       | optional | Release version if it cannot be inferred from the native ecosystem manifest. |
 | `languages`     | optional | Declared source or artifact languages.                                       |
 | `source`        | yes      | Source archive selection rules.                                              |
@@ -278,9 +294,9 @@ Example:
 {
   "object": "regesta.package-state",
   "specVersion": 0,
-  "id": "npm:@some/sdk",
+  "id": "npm:some.dev/sdk",
   "ecosystem": "npm",
-  "name": "@some/sdk",
+  "name": "some.dev/sdk",
   "channels": {
     "latest": "1.2.3",
     "beta": "1.3.0-beta.1"
@@ -321,9 +337,9 @@ Example:
 {
   "object": "regesta.release-manifest",
   "specVersion": 0,
-  "id": "npm:@some/sdk",
+  "id": "npm:some.dev/sdk",
   "ecosystem": "npm",
-  "name": "@some/sdk",
+  "name": "some.dev/sdk",
   "version": "1.2.3",
   "family": "some.dev/sdk",
   "languages": ["typescript"],
@@ -341,7 +357,7 @@ Example:
       "digest": "sha256:...",
       "size": 45678,
       "mediaType": "application/gzip",
-      "filename": "some-sdk-1.2.3.tgz"
+      "filename": "sdk-1.2.3.tgz"
     }
   ],
   "compatibility": {
@@ -363,7 +379,7 @@ Example:
   "ecosystemMetadata": {
     "npm": {
       "dependencies": {
-        "@some/core": "^1.0.0"
+        "@some.dev/core": "^1.0.0"
       }
     }
   },
@@ -383,7 +399,7 @@ Example:
 | `specVersion`       | yes      | Regesta object format version.                     |
 | `id`                | yes      | Canonical package id.                              |
 | `ecosystem`         | yes      | Parsed ecosystem from `id`.                        |
-| `name`              | yes      | Parsed ecosystem-native name from `id`.            |
+| `name`              | yes      | Parsed domain-scoped package name from `id`.       |
 | `version`           | yes      | Release version.                                   |
 | `family`            | optional | Cross-ecosystem package family id.                 |
 | `languages`         | optional | Declared package languages.                        |
@@ -408,10 +424,10 @@ Example npm metadata snapshot:
   "ecosystemMetadata": {
     "npm": {
       "dependencies": {
-        "@some/core": "^1.0.0"
+        "@some.dev/core": "^1.0.0"
       },
       "optionalDependencies": {
-        "@some/native-linux-x64": "^1.0.0"
+        "@some.dev/native-linux-x64": "^1.0.0"
       },
       "peerDependencies": {
         "react": "^19.0.0"
@@ -443,7 +459,7 @@ Artifacts are immutable release outputs.
   "digest": "sha256:...",
   "size": 45678,
   "mediaType": "application/gzip",
-  "filename": "some-sdk-1.2.3.tgz"
+  "filename": "sdk-1.2.3.tgz"
 }
 ```
 
@@ -508,7 +524,7 @@ Example publish event:
   "timestamp": "2026-06-03T00:00:00.000Z",
   "channel": "latest",
   "release": {
-    "id": "npm:@some.dev/sdk",
+    "id": "npm:some.dev/sdk",
     "version": "1.2.3",
     "manifestDigest": "sha256:..."
   },
@@ -546,7 +562,7 @@ Example channel update event:
   "eventType": "channel.updated",
   "id": "sha256:...",
   "timestamp": "2026-06-03T00:10:00.000Z",
-  "package": "npm:@some/sdk",
+  "package": "npm:some.dev/sdk",
   "channel": "latest",
   "version": "1.2.3",
   "previousVersion": "1.2.2"
@@ -562,7 +578,7 @@ Example channel delete event:
   "eventType": "channel.deleted",
   "id": "sha256:...",
   "timestamp": "2026-06-03T00:20:00.000Z",
-  "package": "npm:@some/sdk",
+  "package": "npm:some.dev/sdk",
   "channel": "beta",
   "previousVersion": "1.3.0-beta.1"
 }
@@ -580,15 +596,15 @@ Example:
 {
   "family": "some.dev/sdk",
   "members": [
-    "npm:@some/sdk",
-    "cargo:some-sdk",
-    "go:some.dev/sdk-go",
-    "pypi:some-sdk"
+    "npm:some.dev/sdk",
+    "cargo:some.dev/sdk",
+    "go:some.dev/sdk",
+    "pypi:some.dev/sdk"
   ]
 }
 ```
 
-Family records are metadata and navigation aids. They should not replace package ids, release manifests, or ecosystem-native package names.
+Family records are metadata and navigation aids. They should not replace package ids, release manifests, or ecosystem-native projection names.
 
 ## Canonicalization
 
