@@ -1,0 +1,17 @@
+{
+  "domain": "dev.localhost",
+  "keys": [
+    {
+      "alg": "EdDSA",
+      "kid": "ed25519:dev-localhost",
+      "publicKeyJwk": {
+        "crv": "Ed25519",
+        "kty": "OKP",
+        "x": "1qPiOT_-xbOiQV7WdcuD4HrJyt6rKwSyY7YHI4goLoE"
+      },
+      "use": "regesta-write"
+    }
+  ],
+  "object": "regesta.domain-binding",
+  "specVersion": 0
+}

@@ -1,4 +1,4 @@
-# @example.com/hello-regesta
+# @dev.localhost/hello-regesta
 
 Minimal tarball-backed package used to exercise the Regesta v0 publish and verify loop.
 

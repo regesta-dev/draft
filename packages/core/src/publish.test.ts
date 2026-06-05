@@ -18,18 +18,18 @@ describe('publishRelease', () => {
 
     const verification = await verifyRelease(
       adapters,
-      'npm:@example.com/hello-regesta',
+      'npm:example.com/hello-regesta',
       '0.0.1',
     )
     const state = await getPackageState(
       adapters,
-      'npm:@example.com/hello-regesta',
+      'npm:example.com/hello-regesta',
     )
 
     expect(result.channel).toBe('latest')
-    expect(result.manifest.id).toBe('npm:@example.com/hello-regesta')
+    expect(result.manifest.id).toBe('npm:example.com/hello-regesta')
     expect(result.manifest.ecosystem).toBe('npm')
-    expect(result.manifest.name).toBe('@example.com/hello-regesta')
+    expect(result.manifest.name).toBe('example.com/hello-regesta')
     expect(result.manifest.object).toBe('regesta.release-manifest')
     expect(result.manifest.specVersion).toBe(0)
     expect(result.manifest.artifacts).toEqual([
@@ -69,13 +69,13 @@ describe('publishRelease', () => {
     )
     const update = await updatePackageChannel(adapters, {
       channel: 'beta',
-      packageId: 'npm:@example.com/hello-regesta',
+      packageId: 'npm:example.com/hello-regesta',
       timestamp: '2026-06-01T00:01:00.000Z',
       version: '0.0.1',
     })
     const state = await getPackageState(
       adapters,
-      'npm:@example.com/hello-regesta',
+      'npm:example.com/hello-regesta',
     )
 
     expect(update.event.eventType).toBe('channel.updated')
@@ -100,7 +100,7 @@ describe('publishRelease', () => {
     )
 
     const release = await adapters.database.getRelease(
-      'npm:@example.com/hello-regesta',
+      'npm:example.com/hello-regesta',
       '0.0.1',
     )
 
@@ -113,7 +113,7 @@ describe('publishRelease', () => {
 
     const verification = await verifyRelease(
       adapters,
-      'npm:@example.com/hello-regesta',
+      'npm:example.com/hello-regesta',
       '0.0.1',
     )
 
@@ -146,7 +146,7 @@ function createPublishInput(): PublishInput {
       exports: {
         '.': './src/index.ts',
       },
-      id: 'npm:@example.com/hello-regesta',
+      id: 'npm:example.com/hello-regesta',
       languages: ['typescript'],
       provenance: {
         level: 'source-attached',

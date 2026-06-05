@@ -20,6 +20,8 @@ import { extractNpmArtifactEcosystemMetadata } from '@regesta/npm'
 import { assertSha256Digest, sha256 } from '@regesta/protocol'
 import { Hono } from 'hono'
 import * as v from 'valibot'
+import { fetchDevDomainBinding } from './dev-keys.ts'
+import { isDevLocalhostEnabled } from './dev-mode.ts'
 import {
   nonEmptyStringSchema,
   parseRequestPackageId,
@@ -32,6 +34,14 @@ import {
   validateRequest,
 } from './request.ts'
 import type { RegistryAdapters } from '@regesta/adapters'
+
+const domainBindingFetch: typeof fetch = (input, init) => {
+  if (isDevLocalhostEnabled()) {
+    return fetchDevDomainBinding(input, init)
+  }
+
+  return fetch(input, init)
+}
 
 const artifactPartSchema = v.object({
   filename: v.optional(nonEmptyStringSchema),
@@ -183,6 +193,26 @@ export function createCoreRegistryApp(adapters: RegistryAdapters): Hono {
     return context.json(release)
   })
 
+  app.get('/api/v0/packages/:packageId/channels/:channel', async (context) => {
+    const packageId = parseRequestPackageId(context.req.param('packageId'))
+    const channel = requiredParam(context.req.param('channel'), 'channel')
+    const version = (await adapters.database.getPackageChannels(packageId))[
+      channel
+    ]
+
+    if (!version) {
+      return context.json({ error: 'Channel not found' }, 404)
+    }
+
+    const release = await adapters.database.getRelease(packageId, version)
+
+    if (!release) {
+      return context.json({ error: 'Release not found' }, 404)
+    }
+
+    return context.json(release)
+  })
+
   app.get(
     '/api/v0/packages/:packageId/releases/:version/verification',
     async (context) => {
@@ -216,6 +246,7 @@ export function createCoreRegistryApp(adapters: RegistryAdapters): Hono {
         timestamp: requestAuthorization.payload.timestamp,
         version: body.version,
       }),
+      fetchBinding: domainBindingFetch,
     })
 
     const result = await updatePackageChannel(adapters, {
@@ -260,6 +291,7 @@ export function createCoreRegistryApp(adapters: RegistryAdapters): Hono {
           ...(previousVersion ? { previousVersion } : {}),
           timestamp: requestAuthorization.payload.timestamp,
         }),
+        fetchBinding: domainBindingFetch,
       })
       const result = await deletePackageChannel(adapters, {
         authorization,
@@ -355,5 +387,6 @@ function verifyPublishAuthorization(input: {
       timestamp: input.authorization.payload.timestamp,
       version: config.version,
     }),
+    fetchBinding: domainBindingFetch,
   })
 }

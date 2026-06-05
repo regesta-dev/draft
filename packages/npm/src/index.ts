@@ -191,9 +191,11 @@ export async function extractNpmArtifactEcosystemMetadata(
 
   const npmManifest = await readNpmPackageManifestFromTarball(artifact.bytes)
 
-  if (npmManifest.name !== undefined && npmManifest.name !== packageId.name) {
+  const packageName = npmPackageName(config.id)
+
+  if (npmManifest.name !== undefined && npmManifest.name !== packageName) {
     throw new TypeError(
-      `npm package.json name must match package id name: ${packageId.name}`,
+      `npm package.json name must match package id projection: ${packageName}`,
     )
   }
 
@@ -236,7 +238,19 @@ export function npmPackageName(packageId: PackageId): string {
     throw new Error(`Package is not in the npm ecosystem: ${packageId}`)
   }
 
-  return parsed.name
+  return `@${parsed.name}`
+}
+
+export function npmPackageIdFromName(packageName: string): PackageId {
+  const match = /^@([^/]+\/[^/]+)$/u.exec(packageName)
+
+  if (!match) {
+    throw new TypeError(
+      `npm package name must be domain-scoped: ${packageName}`,
+    )
+  }
+
+  return parsePackageId(`npm:${match[1]}`).id
 }
 
 export function tarballFileName(packageId: PackageId, version: string): string {
@@ -319,11 +333,11 @@ function normalizeNpmRegestaConfigInput(
   const id = value.id ?? value.package
 
   if (typeof id === 'string' && !id.includes(':')) {
-    return { ...value, id: `npm:${id}` }
+    return { ...value, id: npmPackageIdFromName(id) }
   }
 
   if (id === undefined && packageJsonName) {
-    return { ...value, id: `npm:${packageJsonName}` }
+    return { ...value, id: npmPackageIdFromName(packageJsonName) }
   }
 
   return value

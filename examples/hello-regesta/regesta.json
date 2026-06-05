@@ -1,5 +1,5 @@
 {
-  "id": "npm:@example.com/hello-regesta",
+  "id": "npm:dev.localhost/hello-regesta",
   "description": "Minimal Regesta v0 example package.",
   "languages": ["typescript"],
   "source": {

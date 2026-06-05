@@ -13,7 +13,7 @@ export interface PackageVersion {
 }
 
 const ecosystemPattern = /^[a-z0-9-]+$/
-const npmScopedNamePattern = /^@([^/]+)\/[^/]+$/
+const packageNamePattern = /^([^/]+)\/.+$/
 
 export function parsePackageId(value: string): ParsedPackageId {
   const separatorIndex = value.indexOf(':')
@@ -32,29 +32,27 @@ export function parsePackageId(value: string): ParsedPackageId {
     throw new TypeError(`Invalid package name: ${value}`)
   }
 
-  if (ecosystem !== 'npm') {
-    return {
-      ecosystem,
-      id: `${ecosystem}:${name}`,
-      name,
-    }
+  if (name.startsWith('@')) {
+    throw new TypeError(
+      `Package id must not include native package syntax: ${value}`,
+    )
   }
 
-  const match = npmScopedNamePattern.exec(name)
+  const match = packageNamePattern.exec(name)
   if (!match) {
-    throw new TypeError(`Invalid npm package id: ${value}`)
+    throw new TypeError(`Package id must include an owner domain: ${value}`)
   }
 
-  const [, scope] = match
-  if (!scope.includes('.')) {
-    throw new TypeError(`Regesta v0 requires a domain npm scope: ${value}`)
+  const [, ownerDomain] = match
+  if (!ownerDomain.includes('.')) {
+    throw new TypeError(`Package id owner must be a domain: ${value}`)
   }
 
   return {
     ecosystem,
     id: `${ecosystem}:${name}`,
     name,
-    scope,
+    ...(ecosystem === 'npm' ? { scope: ownerDomain } : {}),
   }
 }
 

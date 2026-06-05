@@ -1,16 +1,13 @@
 import {
   createNpmPackument,
   npmInstallArtifact,
+  npmPackageIdFromName,
   tarballFileName,
 } from '@regesta/npm'
-import {
-  parsePackageId,
-  type PackageId,
-  type RegistryEvent,
-} from '@regesta/protocol'
 import { Hono, type Context } from 'hono'
 import { decodeRequestComponent, requiredParam } from './request.ts'
 import type { RegistryAdapters } from '@regesta/adapters'
+import type { PackageId, RegistryEvent } from '@regesta/protocol'
 
 export function createNpmRegistryRoutes(adapters: RegistryAdapters): Hono {
   const app = new Hono()
@@ -170,7 +167,7 @@ function encodedNpmPackageName(encoded: string): string {
 
 function localNpmPackageId(packageName: string): PackageId | undefined {
   try {
-    return parsePackageId(`npm:${packageName}`).id
+    return npmPackageIdFromName(packageName)
   } catch {
     return undefined
   }

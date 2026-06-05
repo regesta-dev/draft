@@ -1,0 +1,9 @@
+{
+  "kid": "ed25519:dev-localhost",
+  "privateKeyJwk": {
+    "crv": "Ed25519",
+    "d": "u-5k6mcNrDvA50QcbBKygHbFTjMFpFgRfh34NgAfMB0",
+    "kty": "OKP",
+    "x": "1qPiOT_-xbOiQV7WdcuD4HrJyt6rKwSyY7YHI4goLoE"
+  }
+}

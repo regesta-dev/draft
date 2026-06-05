@@ -1,5 +1,5 @@
 {
-  "name": "@example.com/hello-regesta",
+  "name": "@dev.localhost/hello-regesta",
   "type": "module",
   "version": "0.0.4",
   "exports": {

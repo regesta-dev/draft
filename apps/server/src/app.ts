@@ -1,6 +1,8 @@
 import { WriteAuthorizationError } from '@regesta/auth'
 import { Hono } from 'hono'
 import { createCoreRegistryApp } from './core-app.ts'
+import { createDevLocalhostRoutes } from './dev-app.ts'
+import { isDevLocalhostEnabled } from './dev-mode.ts'
 import { createNpmRegistryRoutes } from './npm-app.ts'
 import { RequestValidationError } from './request.ts'
 import type { RegistryAdapters } from '@regesta/adapters'
@@ -36,13 +38,22 @@ export function createRegestaApp(adapters: RegistryAdapters): Hono {
 
   app.route('/root', createCoreRegistryApp(adapters))
   app.route('/npm', createNpmRegistryRoutes(adapters))
+  if (isDevLocalhostEnabled()) {
+    app.route('/dev', createDevLocalhostRoutes())
+  }
 
   return app
 }
 
 function registryRoutePath(request: Request): string {
   const url = new URL(request.url)
-  const prefix = isNpmHostname(requestHostname(request)) ? '/npm' : '/root'
+  const hostname = requestHostname(request)
+  const prefix =
+    hostname === 'dev.localhost'
+      ? '/dev'
+      : isNpmHostname(hostname)
+        ? '/npm'
+        : '/root'
   return `${prefix}${url.pathname}`
 }
 

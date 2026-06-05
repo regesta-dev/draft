@@ -178,6 +178,23 @@ Response:
 
 This endpoint returns a core Regesta package view. It does not return an npm packument unless the request is made through the npm projection API.
 
+### Read Package By Channel
+
+```http
+GET /v0/packages/{packageId}/channels/{channel}
+```
+
+This endpoint follows a mutable package channel, resolves it to the current version, and returns the same stored release object as `GET /v0/packages/{packageId}/releases/{version}`.
+
+Examples:
+
+```http
+GET /v0/packages/npm%3Asome.dev%2Fsdk/channels/latest
+GET /v0/packages/npm%3Asome.dev%2Fsdk/channels/beta
+```
+
+If the channel does not exist, the response is `404`.
+
 ### Update Channel
 
 ```http
@@ -391,6 +408,20 @@ Write requests include a signed authorization envelope. The signed payload is a 
 Publish requests send the authorization envelope as a multipart `authorization` field. Channel mutation requests send it as the JSON `authorization` property.
 
 The authorization decision is logged as part of the write event. Public read APIs should be usable by mirrors, auditors, package managers, and independent verification tools.
+
+### Local Development Binding
+
+For local debugging only, the Hono server may expose a fixed development domain on `dev.localhost`. This is a public demo credential and must never be used for production packages.
+
+Development endpoints:
+
+```http
+GET http://dev.localhost:4321/.well-known/regesta.json
+GET http://dev.localhost:4321/regesta.public-key.json
+GET http://dev.localhost:4321/regesta.private-key.json
+```
+
+The well-known response is a normal `regesta.domain-binding` for `dev.localhost`, so packages such as `npm:dev.localhost/hello-regesta` can exercise the v0 domain-bound signing flow without owning a real DNS domain.
 
 ## Compatibility Claims
 

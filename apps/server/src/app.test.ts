@@ -11,11 +11,16 @@ import {
   type Ed25519PublicKeyJwk,
   type WriteIntent,
 } from '@regesta/auth'
-import { configDigest } from '@regesta/core'
+import { configDigest, publishRelease } from '@regesta/core'
 import { prepareNpmPublish } from '@regesta/npm'
-import { sha256 } from '@regesta/protocol'
+import { parsePackageId, sha256, type RegestaConfig } from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { createRegestaApp } from './app.ts'
+import {
+  devLocalhostDomainBinding,
+  devLocalhostKeyId,
+  devLocalhostPrivateKeyFile,
+} from './dev-keys.ts'
 
 describe('createRegestaApp', () => {
   it('handles browser favicon requests outside package routes', async () => {
@@ -25,6 +30,28 @@ describe('createRegestaApp', () => {
     expect(response.status).toBe(204)
     expect(response.headers.get('cache-control')).toBe('public, max-age=86400')
     expect(await response.text()).toBe('')
+  })
+
+  it('serves fixed dev.localhost key material for local debugging', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const binding = await app.request(
+      'http://dev.localhost/.well-known/regesta.json',
+    )
+    const privateKey = await app.request(
+      'http://dev.localhost/regesta.private-key.json',
+    )
+
+    expect(binding.status).toBe(200)
+    await expect(binding.json()).resolves.toEqual(devLocalhostDomainBinding)
+    expect(privateKey.status).toBe(200)
+    await expect(privateKey.json()).resolves.toMatchObject({
+      kid: devLocalhostKeyId,
+      privateKeyJwk: {
+        crv: 'Ed25519',
+        d: devLocalhostPrivateKeyFile.privateKeyJwk.d,
+        kty: 'OKP',
+      },
+    })
   })
 
   it('returns 400 for invalid object digest requests', async () => {
@@ -56,7 +83,7 @@ describe('createRegestaApp', () => {
 
   it('returns 400 for invalid channel request bodies', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
-    const packageId = encodeURIComponent('npm:@example.com/hello-regesta')
+    const packageId = encodeURIComponent('npm:example.com/hello-regesta')
     const response = await app.request(
       `/api/v0/packages/${packageId}/channels/latest`,
       {
@@ -82,6 +109,127 @@ describe('createRegestaApp', () => {
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toMatchObject({
       error: 'Package not found',
+    })
+  })
+
+  it('reads package releases through channels', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const packageId = 'npm:example.com/hello-regesta'
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    const response = await app.request(
+      `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      manifest: {
+        id: packageId,
+        version: '0.0.1',
+      },
+    })
+  })
+
+  it('returns 404 for missing package channels', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const packageId = encodeURIComponent('npm:example.com/hello-regesta')
+    const response = await app.request(
+      `/api/v0/packages/${packageId}/channels/beta`,
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Channel not found',
+    })
+  })
+
+  it('accepts dev.localhost write signatures through the built-in dev binding', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const packageId = parsePackageId('demo:dev.localhost/hello-regesta').id
+    const artifactBytes = bytes('install artifact')
+    const sourceBytes = bytes('source archive')
+    const config: RegestaConfig = {
+      id: packageId,
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const form = new FormData()
+
+    form.set('config', JSON.stringify(config))
+    form.set(
+      'authorization',
+      JSON.stringify(
+        createWriteAuthorization(
+          createReleasePublishIntent({
+            artifactDigests: [sha256(artifactBytes)],
+            configDigest: configDigest(config),
+            nonce: 'dev-localhost-nonce',
+            packageId,
+            sourceDigest: sha256(sourceBytes),
+            timestamp: new Date().toISOString(),
+            version: config.version,
+          }),
+          devLocalhostPrivateKeyFile,
+        ),
+      ),
+    )
+    form.set('source', new File([blobPart(sourceBytes)], 'source.tgz'))
+    form.set(
+      'artifacts',
+      JSON.stringify([
+        {
+          format: 'demo',
+          mediaType: 'application/octet-stream',
+          part: 'artifact.install',
+          role: 'install',
+        },
+      ]),
+    )
+    form.set(
+      'artifact.install',
+      new File([blobPart(artifactBytes)], 'artifact.bin', {
+        type: 'application/octet-stream',
+      }),
+    )
+
+    const response = await app.request('/api/v0/releases', {
+      body: form,
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      manifest: {
+        id: packageId,
+      },
     })
   })
 
@@ -283,6 +431,10 @@ function blobPart(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   return part
 }
 
+function bytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value)
+}
+
 function createTestDomainAuth(): {
   binding: DomainBinding
   fetch: typeof fetch
@@ -402,7 +554,7 @@ async function createFixtureProject(): Promise<string> {
   await writeFile(
     join(root, 'regesta.json'),
     `{
-      id: 'npm:@example.com/hello-regesta',
+      id: 'npm:example.com/hello-regesta',
       provenance: {
         level: 'source-attached',
       },
