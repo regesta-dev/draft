@@ -34,9 +34,9 @@ export type {
   PackageStateRelease,
 } from './package.ts'
 export type {
+  ArtifactEcosystemMetadata,
   ArtifactRole,
   ReleaseArtifact,
-  ReleaseEcosystemMetadata,
   ReleaseManifest,
   ReleaseMetadata,
   ReleaseProvenance,

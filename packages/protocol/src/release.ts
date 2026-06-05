@@ -10,7 +10,7 @@ export interface ReleaseMetadata {
   repository?: string
 }
 
-export interface ReleaseEcosystemMetadata {
+export interface ArtifactEcosystemMetadata {
   npm?: NpmReleaseMetadata
 }
 
@@ -24,7 +24,8 @@ export type ArtifactRole =
   | (string & {})
 
 export interface ReleaseArtifact extends ObjectDescriptor {
-  ecosystem?: PackageEcosystem
+  compatibility?: RegestaCompatibility
+  ecosystemMetadata?: ArtifactEcosystemMetadata
   filename?: string
   format?: string
   role: ArtifactRole
@@ -38,10 +39,8 @@ export interface ReleaseManifest {
   name: string
   version: string
   artifacts: ReleaseArtifact[]
-  compatibility?: RegestaCompatibility
   configDigest: Sha256Digest
   createdAt: string
-  ecosystemMetadata?: ReleaseEcosystemMetadata
   family?: string
   languages?: string[]
   metadata?: ReleaseMetadata

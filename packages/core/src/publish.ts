@@ -8,7 +8,6 @@ import {
   type RegestaConfig,
   type RegistryEvent,
   type ReleaseArtifact,
-  type ReleaseEcosystemMetadata,
   type ReleaseManifest,
   type ReleaseMetadata,
   type ReleaseProvenance,
@@ -19,7 +18,8 @@ import type { RegistryAdapters, StoredRelease } from '@regesta/adapters'
 
 export interface PublishArtifactInput {
   bytes: Uint8Array
-  ecosystem?: ReleaseArtifact['ecosystem']
+  compatibility?: ReleaseArtifact['compatibility']
+  ecosystemMetadata?: ReleaseArtifact['ecosystemMetadata']
   filename?: string
   format?: string
   mediaType: string
@@ -31,7 +31,6 @@ export interface PublishInput {
   artifacts: PublishArtifactInput[]
   config: unknown
   createdAt?: string
-  ecosystemMetadata?: ReleaseEcosystemMetadata
   source: Uint8Array
 }
 
@@ -68,7 +67,12 @@ export async function publishRelease(
 
       return {
         ...descriptor,
-        ...(artifact.ecosystem ? { ecosystem: artifact.ecosystem } : {}),
+        ...(artifact.compatibility
+          ? { compatibility: artifact.compatibility }
+          : {}),
+        ...(artifact.ecosystemMetadata
+          ? { ecosystemMetadata: artifact.ecosystemMetadata }
+          : {}),
         ...(artifact.filename ? { filename: artifact.filename } : {}),
         ...(artifact.format ? { format: artifact.format } : {}),
         role: artifact.role,
@@ -79,7 +83,6 @@ export async function publishRelease(
     artifacts,
     config,
     createdAt: input.createdAt ?? new Date().toISOString(),
-    ecosystemMetadata: input.ecosystemMetadata,
     source,
   })
   const manifestBytes = new TextEncoder().encode(
@@ -151,7 +154,6 @@ function createReleaseManifest(input: {
   artifacts: ReleaseArtifact[]
   config: RegestaConfig
   createdAt: string
-  ecosystemMetadata?: ReleaseEcosystemMetadata
   source: ObjectDescriptor
 }): ReleaseManifest {
   const packageId = parsePackageId(input.config.id)
@@ -162,15 +164,9 @@ function createReleaseManifest(input: {
     ecosystem: packageId.ecosystem,
     name: packageId.name,
     version: input.config.version,
-    artifacts: input.artifacts,
-    ...(input.config.compatibility
-      ? { compatibility: input.config.compatibility }
-      : {}),
+    artifacts: releaseArtifacts(input.artifacts, input.config),
     configDigest: configDigest(input.config),
     createdAt: input.createdAt,
-    ...(input.ecosystemMetadata
-      ? { ecosystemMetadata: input.ecosystemMetadata }
-      : {}),
     ...(input.config.family ? { family: input.config.family } : {}),
     ...(input.config.languages ? { languages: input.config.languages } : {}),
     ...(releaseMetadata(input.config)
@@ -181,6 +177,20 @@ function createReleaseManifest(input: {
   }
 
   return manifest
+}
+
+function releaseArtifacts(
+  artifacts: ReleaseArtifact[],
+  config: RegestaConfig,
+): ReleaseArtifact[] {
+  return artifacts.map((artifact) => ({
+    ...artifact,
+    ...(artifact.role === 'install' &&
+    artifact.compatibility === undefined &&
+    config.compatibility
+      ? { compatibility: config.compatibility }
+      : {}),
+  }))
 }
 
 function validatePublishArtifacts(artifacts: PublishArtifactInput[]): void {

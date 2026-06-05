@@ -125,7 +125,6 @@ describe('createRegestaApp', () => {
       'artifacts',
       JSON.stringify([
         {
-          ecosystem: installArtifact.ecosystem,
           filename: installArtifact.filename,
           format: installArtifact.format,
           mediaType: installArtifact.mediaType,

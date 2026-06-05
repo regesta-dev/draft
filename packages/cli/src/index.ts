@@ -64,7 +64,6 @@ cli
         'artifacts',
         JSON.stringify(
           prepared.artifacts.map((artifact, index) => ({
-            ecosystem: artifact.ecosystem,
             filename: artifact.filename,
             format: artifact.format,
             mediaType: artifact.mediaType,

@@ -106,7 +106,6 @@ Example `artifacts` field:
   {
     "part": "artifact.install",
     "role": "install",
-    "ecosystem": "npm",
     "format": "npm-tarball",
     "mediaType": "application/gzip",
     "filename": "sdk-1.2.3.tgz"
@@ -116,7 +115,7 @@ Example `artifacts` field:
 
 The multipart body then includes a binary part named `artifact.install`.
 
-For v0, a release should include exactly one primary `install` artifact for the ecosystem in the package id. The manifest format uses an array so future releases can attach additional ecosystem artifacts, docs, type bundles, or verification outputs without changing the release object shape.
+For v0, a release should include exactly one primary `install` artifact for the ecosystem in the package id. Artifact descriptors do not repeat the package ecosystem. The manifest format uses an array so future releases can attach docs, type bundles, signatures, attestations, or verification outputs without changing the release object shape.
 
 Response:
 
@@ -334,7 +333,7 @@ Projection APIs should expose resolver-critical metadata before artifact downloa
 
 npm packuments should include npm-native `time` metadata: `created`, `modified`, and one timestamp per published version. Version timestamps are derived from release manifest `createdAt` values. `modified` should reflect the newest package metadata change known to the registry, including channel updates when that event timestamp is available.
 
-This metadata is not a generic Regesta dependency model. It is an ecosystem projection snapshot, normally extracted from the uploaded install artifact at publish time, so package managers can continue dependency resolution without first downloading the tarball.
+This metadata is not a generic Regesta dependency model. It is an ecosystem projection snapshot attached to the relevant install artifact, normally extracted from the uploaded install artifact at publish time, so package managers can continue dependency resolution without first downloading the tarball.
 
 If an npm package is not present in Regesta, the npm projection may fetch and return the upstream packument from `registry.npmjs.org`. Tarball requests must not be proxied through Regesta; upstream packuments should keep their original npmjs tarball URLs.
 
@@ -395,4 +394,4 @@ The authorization decision is logged as part of the write event. Public read API
 
 ## Compatibility Claims
 
-Compatibility fields are declarations, not v0 proof. API responses may expose declared runtimes, platforms, modules, and ABI constraints, but the verifier must not claim that Regesta has executed compatibility tests unless a future verified compatibility object exists.
+Compatibility fields are declarations, not v0 proof. Release manifests expose compatibility on artifact descriptors because different install artifacts can target different runtimes, platforms, modules, or ABI constraints. The verifier must not claim that Regesta has executed compatibility tests unless a future verified compatibility object exists.

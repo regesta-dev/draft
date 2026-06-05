@@ -352,37 +352,36 @@ Example:
   "artifacts": [
     {
       "role": "install",
-      "ecosystem": "npm",
       "format": "npm-tarball",
       "digest": "sha256:...",
       "size": 45678,
       "mediaType": "application/gzip",
-      "filename": "sdk-1.2.3.tgz"
+      "filename": "sdk-1.2.3.tgz",
+      "compatibility": {
+        "runtimes": [
+          {
+            "name": "node",
+            "versions": ">=20"
+          },
+          "bun"
+        ],
+        "platforms": [
+          {
+            "os": ["darwin", "linux", "windows"],
+            "arch": ["arm64", "x64"]
+          }
+        ],
+        "modules": ["esm"]
+      },
+      "ecosystemMetadata": {
+        "npm": {
+          "dependencies": {
+            "@some.dev/core": "^1.0.0"
+          }
+        }
+      }
     }
   ],
-  "compatibility": {
-    "runtimes": [
-      {
-        "name": "node",
-        "versions": ">=20"
-      },
-      "bun"
-    ],
-    "platforms": [
-      {
-        "os": ["darwin", "linux", "windows"],
-        "arch": ["arm64", "x64"]
-      }
-    ],
-    "modules": ["esm"]
-  },
-  "ecosystemMetadata": {
-    "npm": {
-      "dependencies": {
-        "@some.dev/core": "^1.0.0"
-      }
-    }
-  },
   "provenance": {
     "level": "source-attached",
     "verified": false
@@ -393,34 +392,34 @@ Example:
 
 ### Manifest Fields
 
-| Field               | Required | Description                                        |
-| ------------------- | -------- | -------------------------------------------------- |
-| `object`            | yes      | Public object discriminator.                       |
-| `specVersion`       | yes      | Regesta object format version.                     |
-| `id`                | yes      | Canonical package id.                              |
-| `ecosystem`         | yes      | Parsed ecosystem from `id`.                        |
-| `name`              | yes      | Parsed domain-scoped package name from `id`.       |
-| `version`           | yes      | Release version.                                   |
-| `family`            | optional | Cross-ecosystem package family id.                 |
-| `languages`         | optional | Declared package languages.                        |
-| `createdAt`         | yes      | Publication timestamp.                             |
-| `source`            | yes      | Source archive descriptor.                         |
-| `artifacts`         | yes      | Release artifact descriptors.                      |
-| `compatibility`     | optional | Declared compatibility.                            |
-| `ecosystemMetadata` | optional | Ecosystem-native metadata used by projection APIs. |
-| `provenance`        | yes      | V0 source-attached provenance.                     |
-| `configDigest`      | yes      | Digest of normalized `regesta.json` config.        |
+| Field          | Required | Description                                  |
+| -------------- | -------- | -------------------------------------------- |
+| `object`       | yes      | Public object discriminator.                 |
+| `specVersion`  | yes      | Regesta object format version.               |
+| `id`           | yes      | Canonical package id.                        |
+| `ecosystem`    | yes      | Parsed ecosystem from `id`.                  |
+| `name`         | yes      | Parsed domain-scoped package name from `id`. |
+| `version`      | yes      | Release version.                             |
+| `family`       | optional | Cross-ecosystem package family id.           |
+| `languages`    | optional | Declared package languages.                  |
+| `createdAt`    | yes      | Publication timestamp.                       |
+| `source`       | yes      | Source archive descriptor.                   |
+| `artifacts`    | yes      | Release artifact descriptors.                |
+| `provenance`   | yes      | V0 source-attached provenance.               |
+| `configDigest` | yes      | Digest of normalized `regesta.json` config.  |
 
 The manifest should not contain its own digest. The digest is computed over the canonical manifest bytes.
 
 The manifest should not contain channels such as `latest`, `next`, or `beta`. The default `latest` channel is assigned by the publish event, and later channel changes must be represented by channel events.
 
-The manifest should not define a generic cross-ecosystem dependency model. However, it may include small ecosystem-native metadata snapshots that are needed to produce projection APIs without downloading install artifacts. For npm, the registry can extract resolver-relevant fields from `package/package.json` at publish time and expose them through the npm packument.
+The manifest should not define a generic cross-ecosystem dependency model. However, artifact descriptors may include small ecosystem-native metadata snapshots that are needed to produce projection APIs without downloading install artifacts. For npm, the registry can extract resolver-relevant fields from `package/package.json` at publish time, attach them to the install artifact descriptor, and expose them through the npm packument.
 
 Example npm metadata snapshot:
 
 ```json
 {
+  "role": "install",
+  "format": "npm-tarball",
   "ecosystemMetadata": {
     "npm": {
       "dependencies": {
@@ -445,7 +444,7 @@ Example npm metadata snapshot:
 }
 ```
 
-This is projection metadata, not Regesta's own dependency language. Other ecosystems should use their own metadata snapshots or projection objects rather than being forced into npm-shaped fields.
+This is artifact-level projection metadata, not Regesta's own dependency language. Other ecosystems should use their own metadata snapshots or projection objects rather than being forced into npm-shaped fields.
 
 ## Artifact Descriptor
 
@@ -454,12 +453,22 @@ Artifacts are immutable release outputs.
 ```json
 {
   "role": "install",
-  "ecosystem": "npm",
   "format": "npm-tarball",
   "digest": "sha256:...",
   "size": 45678,
   "mediaType": "application/gzip",
-  "filename": "sdk-1.2.3.tgz"
+  "filename": "sdk-1.2.3.tgz",
+  "compatibility": {
+    "runtimes": ["node"],
+    "modules": ["esm"]
+  },
+  "ecosystemMetadata": {
+    "npm": {
+      "dependencies": {
+        "@some.dev/core": "^1.0.0"
+      }
+    }
+  }
 }
 ```
 
@@ -472,9 +481,10 @@ Required fields:
 
 Recommended fields:
 
-- `ecosystem`
 - `format`
 - `filename`
+- `compatibility`
+- `ecosystemMetadata`
 
 Common roles:
 
@@ -488,6 +498,8 @@ attestation
 ```
 
 V0 requires one `install` artifact. Future versions may support additional roles.
+
+Artifact-level `compatibility` and `ecosystemMetadata` are optional. Use them when a specific artifact has runtime, platform, ABI, package-manager, or resolver metadata that does not apply to every artifact in the release. Documentation, type, signature, and attestation artifacts can omit them.
 
 ## Provenance
 

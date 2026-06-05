@@ -16,7 +16,7 @@ import {
   verifyRelease,
   type PublishInput,
 } from '@regesta/core'
-import { extractNpmReleaseEcosystemMetadata } from '@regesta/npm'
+import { extractNpmArtifactEcosystemMetadata } from '@regesta/npm'
 import { assertSha256Digest, sha256 } from '@regesta/protocol'
 import { Hono } from 'hono'
 import * as v from 'valibot'
@@ -34,7 +34,6 @@ import {
 import type { RegistryAdapters } from '@regesta/adapters'
 
 const artifactPartSchema = v.object({
-  ecosystem: v.optional(nonEmptyStringSchema),
   filename: v.optional(nonEmptyStringSchema),
   format: v.optional(nonEmptyStringSchema),
   mediaType: v.optional(nonEmptyStringSchema),
@@ -293,7 +292,6 @@ async function readArtifacts(body: Record<string, File | string | undefined>) {
   return Promise.all(
     artifacts.map(async (artifact) => ({
       bytes: await readBinaryField(body[artifact.part], artifact.part),
-      ...(artifact.ecosystem ? { ecosystem: artifact.ecosystem } : {}),
       ...(artifact.filename ? { filename: artifact.filename } : {}),
       ...(artifact.format ? { format: artifact.format } : {}),
       mediaType: artifact.mediaType ?? 'application/octet-stream',
@@ -308,15 +306,22 @@ async function publishFromRequest(
 ) {
   try {
     const config = normalizeRegestaConfig(input.config)
+    const ecosystemMetadata = await extractNpmArtifactEcosystemMetadata(
+      config,
+      input.artifacts,
+    )
+    const artifacts = input.artifacts.map((artifact) => ({
+      ...artifact,
+      ...(artifact.role === 'install' && ecosystemMetadata
+        ? { ecosystemMetadata }
+        : {}),
+    }))
 
     return await publishRelease(
       {
         ...input,
+        artifacts,
         config,
-        ecosystemMetadata: await extractNpmReleaseEcosystemMetadata(
-          config,
-          input.artifacts,
-        ),
       },
       adapters,
     )

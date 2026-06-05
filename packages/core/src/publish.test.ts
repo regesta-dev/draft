@@ -34,7 +34,10 @@ describe('publishRelease', () => {
     expect(result.manifest.specVersion).toBe(0)
     expect(result.manifest.artifacts).toEqual([
       expect.objectContaining({
-        ecosystem: 'npm',
+        compatibility: {
+          modules: ['esm'],
+          runtimes: ['node', 'bun'],
+        },
         format: 'npm-tarball',
         mediaType: 'application/gzip',
         role: 'install',
@@ -44,15 +47,12 @@ describe('publishRelease', () => {
       '.': './src/index.ts',
     })
     expect('dependencies' in result.manifest).toBe(false)
-    expect(result.manifest.ecosystemMetadata).toBeUndefined()
+    expect('ecosystemMetadata' in result.manifest).toBe(false)
     expect(result.manifest.provenance).toEqual({
       level: 'source-attached',
       verified: false,
     })
-    expect(result.manifest.compatibility).toEqual({
-      modules: ['esm'],
-      runtimes: ['node', 'bun'],
-    })
+    expect('compatibility' in result.manifest).toBe(false)
     expect(state.channels).toEqual({ latest: '0.0.1' })
     expect(verification.ok).toBe(true)
   })
@@ -132,7 +132,6 @@ function createPublishInput(): PublishInput {
     artifacts: [
       {
         bytes: bytes('install artifact'),
-        ecosystem: 'npm',
         format: 'npm-tarball',
         mediaType: 'application/gzip',
         role: 'install',

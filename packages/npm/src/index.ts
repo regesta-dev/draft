@@ -14,15 +14,14 @@ import {
 } from '@regesta/core'
 import {
   parsePackageId,
+  type ArtifactEcosystemMetadata,
   type NpmPackument,
   type NpmPackumentTime,
   type NpmReleaseMetadata,
-  type PackageEcosystem,
   type PackageId,
   type RegestaConfig,
   type RegestaPackageExport,
   type ReleaseArtifact,
-  type ReleaseEcosystemMetadata,
   type ReleaseManifest,
 } from '@regesta/protocol'
 import json5 from 'json5'
@@ -43,7 +42,6 @@ export interface NpmPackageManifestSnapshot {
 
 export interface NpmPublishArtifactInput {
   bytes: Uint8Array
-  ecosystem?: PackageEcosystem
   role: string
 }
 
@@ -64,7 +62,6 @@ export async function prepareNpmPublish(
     artifacts: [
       {
         bytes: tarball.bytes,
-        ecosystem: 'npm',
         filename: tarball.entries[0],
         format: 'npm-tarball',
         mediaType: 'application/gzip',
@@ -165,7 +162,7 @@ export function createNpmPackument(
               registryBaseUrl,
             ),
           },
-          ...release.manifest.ecosystemMetadata?.npm,
+          ...npmInstallArtifact(release.manifest).ecosystemMetadata?.npm,
           name: packageName,
           version: release.manifest.version,
         },
@@ -174,10 +171,10 @@ export function createNpmPackument(
   }
 }
 
-export async function extractNpmReleaseEcosystemMetadata(
+export async function extractNpmArtifactEcosystemMetadata(
   config: RegestaConfig,
   artifacts: NpmPublishArtifactInput[],
-): Promise<ReleaseEcosystemMetadata | undefined> {
+): Promise<ArtifactEcosystemMetadata | undefined> {
   const packageId = parsePackageId(config.id)
 
   if (packageId.ecosystem !== 'npm') {
@@ -185,10 +182,7 @@ export async function extractNpmReleaseEcosystemMetadata(
   }
 
   const artifact = artifacts.find((item) => {
-    return (
-      item.role === 'install' &&
-      (item.ecosystem === undefined || item.ecosystem === 'npm')
-    )
+    return item.role === 'install'
   })
 
   if (!artifact) {
@@ -225,7 +219,7 @@ export function integrityFromDigest(digest: string): string {
 
 export function npmInstallArtifact(manifest: ReleaseManifest): ReleaseArtifact {
   const artifact = manifest.artifacts.find((item) => {
-    return item.role === 'install' && item.ecosystem === 'npm'
+    return item.role === 'install'
   })
 
   if (!artifact) {
