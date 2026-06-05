@@ -1,14 +1,6 @@
-import {
-  access,
-  cp,
-  mkdir,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises'
+import { access, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join, relative } from 'node:path'
+import { basename, join } from 'node:path'
 import * as tar from 'tar'
 import { regestaConfigFile } from './config.ts'
 import type { RegestaConfig } from '@regesta/protocol'
@@ -36,54 +28,6 @@ export async function createSourceArchive(
   await tar.create(tarOptions(projectDir, file, config.source.exclude), entries)
 
   const bytes = await readArchiveAndCleanup(file)
-  return { bytes, entries }
-}
-
-export async function createNpmTarball(
-  projectDir: string,
-  config: RegestaConfig,
-): Promise<PreparedArchive> {
-  const configuredPath = config.artifacts?.npmTarball?.path
-  if (configuredPath) {
-    return {
-      bytes: await readFile(join(projectDir, configuredPath)),
-      entries: [configuredPath],
-    }
-  }
-
-  const entries = await resolveArchiveEntries(projectDir, config)
-  const tempRoot = await temporaryDirectory('regesta-npm')
-  const packageRoot = join(tempRoot, 'package')
-
-  await mkdir(packageRoot, { recursive: true })
-
-  for (const entry of entries) {
-    if (entry === 'package.json') {
-      continue
-    }
-
-    await cp(join(projectDir, entry), join(packageRoot, entry), {
-      filter: (source) => {
-        return !isExcluded(
-          relative(projectDir, source),
-          config.source.exclude ?? [],
-        )
-      },
-      recursive: true,
-    })
-  }
-
-  await writeFile(
-    join(packageRoot, 'package.json'),
-    `${JSON.stringify(createNpmPackageJson(config), null, 2)}\n`,
-  )
-
-  const file = await temporaryTarballPath('regesta-npm-package')
-  await tar.create(tarOptions(tempRoot, file), ['package'])
-
-  const bytes = await readArchiveAndCleanup(file)
-  await rm(tempRoot, { force: true, recursive: true })
-
   return { bytes, entries }
 }
 
@@ -134,28 +78,6 @@ async function resolveArchiveEntries(
   return [...new Set(entries)].toSorted()
 }
 
-function createNpmPackageJson(config: RegestaConfig): Record<string, unknown> {
-  const packageJson: Record<string, unknown> = {
-    name: config.package,
-    version: config.version,
-    type: 'module',
-  }
-
-  if (config.description) {
-    packageJson.description = config.description
-  }
-
-  if (config.exports) {
-    packageJson.exports = config.exports
-  }
-
-  if (config.repository) {
-    packageJson.repository = config.repository
-  }
-
-  return packageJson
-}
-
 function isExcluded(entry: string, excludedEntries: string[]): boolean {
   return excludedEntries.some(
     (excluded) => entry === excluded || entry.startsWith(`${excluded}/`),
@@ -174,7 +96,7 @@ function tarOptions(cwd: string, file: string, excludedEntries: string[] = []) {
   }
 }
 
-async function temporaryDirectory(prefix: string): Promise<string> {
+export async function temporaryDirectory(prefix: string): Promise<string> {
   const { mkdtemp } = await import('node:fs/promises')
   return mkdtemp(join(tmpdir(), `${prefix}-`))
 }

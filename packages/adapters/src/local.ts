@@ -4,6 +4,7 @@ import {
   assertSha256Digest,
   canonicalJson,
   sha256,
+  type PackageId,
   type RegistryEvent,
   type Sha256Digest,
 } from '@regesta/protocol'
@@ -18,11 +19,13 @@ import type {
 } from './interfaces.ts'
 
 interface LocalDatabaseFile {
+  channels: Record<string, Record<string, string>>
   events: RegistryEvent[]
   releases: Record<string, Record<string, StoredRelease>>
 }
 
 const emptyDatabase = (): LocalDatabaseFile => ({
+  channels: {},
   events: [],
   releases: {},
 })
@@ -107,39 +110,73 @@ export class LocalRegistryDatabase implements RegistryDatabase {
     return (await this.read()).events
   }
 
-  async getRelease(
-    coordinate: `@${string}/${string}`,
-    version: string,
-  ): Promise<StoredRelease | undefined> {
-    return (await this.read()).releases[coordinate]?.[version]
+  async deletePackageChannel(
+    packageId: PackageId,
+    channel: string,
+  ): Promise<string | undefined> {
+    const database = await this.read()
+    database.channels[packageId] ??= {}
+    const previousVersion = database.channels[packageId][channel]
+    delete database.channels[packageId][channel]
+    await this.write(database)
+    return previousVersion
   }
 
-  async listPackageReleases(
-    coordinate: `@${string}/${string}`,
-  ): Promise<StoredRelease[]> {
-    return Object.values((await this.read()).releases[coordinate] ?? {})
+  async getPackageChannels(
+    packageId: PackageId,
+  ): Promise<Record<string, string>> {
+    const channels = (await this.read()).channels[packageId]
+    return channels ? { ...channels } : {}
+  }
+
+  async getRelease(
+    packageId: PackageId,
+    version: string,
+  ): Promise<StoredRelease | undefined> {
+    return (await this.read()).releases[packageId]?.[version]
+  }
+
+  async listPackageReleases(packageId: PackageId): Promise<StoredRelease[]> {
+    return Object.values((await this.read()).releases[packageId] ?? {})
   }
 
   async putRelease(release: StoredRelease): Promise<void> {
     const database = await this.read()
-    const coordinate = release.manifest.package
-    database.releases[coordinate] ??= {}
+    const packageId = release.manifest.id
+    database.releases[packageId] ??= {}
 
-    if (database.releases[coordinate]![release.manifest.version]) {
+    if (database.releases[packageId]![release.manifest.version]) {
       throw new Error(
-        `Release already exists: ${coordinate}@${release.manifest.version}`,
+        `Release already exists: ${packageId}@${release.manifest.version}`,
       )
     }
 
-    database.releases[coordinate]![release.manifest.version] = release
+    database.releases[packageId]![release.manifest.version] = release
     await this.write(database)
+  }
+
+  async setPackageChannel(
+    packageId: PackageId,
+    channel: string,
+    version: string,
+  ): Promise<string | undefined> {
+    const database = await this.read()
+    database.channels[packageId] ??= {}
+    const previousVersion = database.channels[packageId][channel]
+    database.channels[packageId][channel] = version
+    await this.write(database)
+    return previousVersion
   }
 
   private async read(): Promise<LocalDatabaseFile> {
     try {
-      return JSON.parse(
+      const database = JSON.parse(
         await readFile(this.databasePath(), 'utf8'),
       ) as LocalDatabaseFile
+      database.channels ??= {}
+      database.events ??= []
+      database.releases ??= {}
+      return database
     } catch (error) {
       if (
         error instanceof Error &&

@@ -1,5 +1,6 @@
 import type {
   ObjectDescriptor,
+  PackageId,
   RegistryEvent,
   ReleaseManifest,
   Sha256Digest,
@@ -23,15 +24,23 @@ export interface ObjectStore {
 
 export interface RegistryDatabase {
   appendEvent: (event: RegistryEvent) => Promise<void>
+  deletePackageChannel: (
+    packageId: PackageId,
+    channel: string,
+  ) => Promise<string | undefined>
   getEventLog: () => Promise<RegistryEvent[]>
+  getPackageChannels: (packageId: PackageId) => Promise<Record<string, string>>
   getRelease: (
-    coordinate: `@${string}/${string}`,
+    packageId: PackageId,
     version: string,
   ) => Promise<StoredRelease | undefined>
-  listPackageReleases: (
-    coordinate: `@${string}/${string}`,
-  ) => Promise<StoredRelease[]>
+  listPackageReleases: (packageId: PackageId) => Promise<StoredRelease[]>
   putRelease: (release: StoredRelease) => Promise<void>
+  setPackageChannel: (
+    packageId: PackageId,
+    channel: string,
+    version: string,
+  ) => Promise<string | undefined>
 }
 
 export interface QueueAdapter {

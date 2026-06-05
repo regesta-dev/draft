@@ -1,8 +1,21 @@
 {
   "name": "@example.com/hello-regesta",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "obug": "^2.1.2"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.1"
   }
 }

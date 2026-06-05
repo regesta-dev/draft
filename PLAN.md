@@ -56,7 +56,7 @@ Regesta v0 should not attempt to replace all of npm.
 
 It should not initially support:
 
-- arbitrary npm tarball uploads;
+- arbitrary npm-only tarball uploads without source attachment;
 - CommonJS authoring as the primary package format;
 - lifecycle scripts;
 - native addons;
@@ -144,13 +144,13 @@ V0 should support a neutral source-attached model:
 
 - the source archive is mandatory and content-addressed;
 - install artifacts are content-addressed;
-- the release manifest records the declared source-to-artifact relationship;
-- npm-compatible artifacts may be author-built or registry-generated;
+- the release manifest records that source and install artifacts were attached;
+- v0 requires package-manager-produced tarball bytes in the publish request;
 - the verification level must be explicit.
 
 The registry may generate projections and auxiliary artifacts such as:
 
-- npm-compatible tarballs;
+- npm-compatible tarball projections;
 - type declarations;
 - documentation data;
 - AI context bundles;
@@ -178,7 +178,7 @@ A developer who only uses Bun, Node, or Cloudflare Workers should still be able 
 All immutable objects are identified by digest:
 
 - source archives;
-- generated npm tarballs;
+- required install tarballs;
 - release manifests;
 - documentation artifacts;
 - type artifacts;
@@ -400,7 +400,7 @@ Example shape:
   },
   "dependencies": {},
   "artifacts": {
-    "npm": {
+    "tarball": {
       "digest": "sha256:...",
       "size": 45678
     },
@@ -423,8 +423,7 @@ Example shape:
     "lifecycleScripts": false
   },
   "provenance": {
-    "level": "declared-build",
-    "command": "pnpm build && pnpm pack",
+    "level": "source-attached",
     "verified": false
   }
 }
@@ -583,7 +582,7 @@ This is the most important object layer.
 Stores:
 
 - source archives;
-- generated npm tarballs;
+- required install tarballs;
 - docs;
 - types;
 - AI artifacts;
@@ -786,8 +785,8 @@ Initial publish flow:
 3. CLI computes source digest.
 4. Source is uploaded to object storage.
 5. Server validates domain scope, package policy, exports, and source layout.
-6. Build job generates artifacts:
-   - npm tarball;
+6. CLI/package manager workflow provides artifacts:
+   - install tarball;
    - package metadata;
    - docs JSON;
    - type declarations;
@@ -839,7 +838,7 @@ Each release should provide a machine-readable audit bundle:
     "digest": "sha256:..."
   },
   "artifacts": {
-    "npmTarball": "sha256:..."
+    "tarball": "sha256:..."
   },
   "previousRelease": {
     "version": "1.2.2",
@@ -1226,7 +1225,7 @@ Deliverables:
 
 ### Milestone 1: Minimal Registry Kernel
 
-Goal: publish and install one source-native TS/JS package.
+Goal: publish and install one tarball-backed, source-attached TS/JS package.
 
 Deliverables:
 
@@ -1234,8 +1233,8 @@ Deliverables:
 - source upload;
 - content-addressed object storage;
 - release manifest;
-- npm-compatible tarball artifact;
-- declared source-to-artifact provenance;
+- required tarball artifact;
+- source-attached provenance;
 - package page;
 - basic docs generation;
 - npm-compatible install;
@@ -1372,17 +1371,16 @@ Registry-built artifacts centralize trust in the builder, while author-built art
 V0 should not force one build toolchain or one trusted builder. The first release model should be honest about its trust level:
 
 - `source-attached`: source and artifacts are preserved and content-addressed;
-- `declared-build`: the author declares the command and toolchain that produced the artifact;
 - `reproducible-build`: Regesta or a third party has rebuilt the artifact and matched the digest;
 - `trusted-builder`: a registered builder or attestation system signs the build provenance.
 
-Only the first two levels are required for v0. Higher levels belong in the future roadmap.
+Only `source-attached` is required for v0. Higher levels belong in the future roadmap.
 
 Mitigation:
 
 - preserve source archive;
-- record artifact digests and declared build provenance;
-- never imply that declared provenance is verified;
+- record artifact digests;
+- never imply that the source-to-artifact relationship is verified;
 - make reproducible rebuilds possible where practical;
 - allow independent rebuild verification later;
 - eventually support multiple trusted builders and attestation sources.
@@ -1428,7 +1426,7 @@ Early success should not be measured by total package count alone.
 
 Better early metrics:
 
-- source-native publish flow works end-to-end;
+- tarball-backed publish flow works end-to-end;
 - npm-compatible install works;
 - release manifest is stable;
 - event log can be exported and replayed;

@@ -1,6 +1,7 @@
 import {
   canonicalJson,
   sha256,
+  type PackageId,
   type RegistryEvent,
   type Sha256Digest,
 } from '@regesta/protocol'
@@ -42,9 +43,9 @@ export class MemoryObjectStore implements ObjectStore {
 }
 
 export class MemoryRegistryDatabase implements RegistryDatabase {
+  readonly channels: Map<PackageId, Map<string, string>> = new Map()
   readonly events: RegistryEvent[] = []
-  readonly releases: Map<`@${string}/${string}`, Map<string, StoredRelease>> =
-    new Map()
+  readonly releases: Map<PackageId, Map<string, StoredRelease>> = new Map()
 
   appendEvent(event: RegistryEvent): Promise<void> {
     this.events.push(event)
@@ -55,33 +56,62 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     return Promise.resolve([...this.events])
   }
 
-  getRelease(
-    coordinate: `@${string}/${string}`,
-    version: string,
-  ): Promise<StoredRelease | undefined> {
-    return Promise.resolve(this.releases.get(coordinate)?.get(version))
+  deletePackageChannel(
+    packageId: PackageId,
+    channel: string,
+  ): Promise<string | undefined> {
+    const packageChannels =
+      this.channels.get(packageId) ?? new Map<string, string>()
+    const previousVersion = packageChannels.get(channel)
+    packageChannels.delete(channel)
+    this.channels.set(packageId, packageChannels)
+    return Promise.resolve(previousVersion)
   }
 
-  listPackageReleases(
-    coordinate: `@${string}/${string}`,
-  ): Promise<StoredRelease[]> {
-    return Promise.resolve([...(this.releases.get(coordinate)?.values() ?? [])])
+  getPackageChannels(packageId: PackageId): Promise<Record<string, string>> {
+    return Promise.resolve(
+      Object.fromEntries(this.channels.get(packageId)?.entries() ?? []),
+    )
+  }
+
+  getRelease(
+    packageId: PackageId,
+    version: string,
+  ): Promise<StoredRelease | undefined> {
+    return Promise.resolve(this.releases.get(packageId)?.get(version))
+  }
+
+  listPackageReleases(packageId: PackageId): Promise<StoredRelease[]> {
+    return Promise.resolve([...(this.releases.get(packageId)?.values() ?? [])])
   }
 
   putRelease(release: StoredRelease): Promise<void> {
-    const coordinate = release.manifest.package
+    const packageId = release.manifest.id
     const versions =
-      this.releases.get(coordinate) ?? new Map<string, StoredRelease>()
+      this.releases.get(packageId) ?? new Map<string, StoredRelease>()
 
     if (versions.has(release.manifest.version)) {
       throw new Error(
-        `Release already exists: ${coordinate}@${release.manifest.version}`,
+        `Release already exists: ${packageId}@${release.manifest.version}`,
       )
     }
 
     versions.set(release.manifest.version, release)
-    this.releases.set(coordinate, versions)
+    this.releases.set(packageId, versions)
     return Promise.resolve()
+  }
+
+  setPackageChannel(
+    packageId: PackageId,
+    channel: string,
+    version: string,
+  ): Promise<string | undefined> {
+    const packageChannels =
+      this.channels.get(packageId) ?? new Map<string, string>()
+    const previousVersion = packageChannels.get(channel)
+    packageChannels.set(channel, version)
+    this.channels.set(packageId, packageChannels)
+    return Promise.resolve(previousVersion)
   }
 }
 

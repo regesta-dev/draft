@@ -10,9 +10,9 @@ The implementation must remain serverless-friendly and platform-agnostic. Cloudf
 
 ## V0 Goals
 
-- Publish and install one source-native JavaScript or TypeScript package end to end.
-- Define the minimum viable registry kernel: package identity, source upload, content-addressed objects, source-attached artifacts, declared provenance, release manifest, event schema, npm packument projection, and immutable release state.
-- Provide a `regesta` CLI that can read `regesta.json`, create a source archive, publish a release, and verify a published release at a basic level.
+- Publish and install one tarball-backed JavaScript or TypeScript package end to end.
+- Define the minimum viable registry kernel: package identity, source attachment, required tarball artifact upload, content-addressed objects, source-attached provenance, release manifest, event schema, npm packument projection, and immutable release state.
+- Provide a `regesta` CLI that can read `regesta.json`, create a source archive, create a package-manager tarball, publish a release, and verify a published release at a basic level.
 - Expose npm-compatible install behavior for existing package managers.
 - Generate the first package page and basic documentation output from source.
 - Keep all protocol artifacts language-independent so future Rust, Go, or WASM implementations can verify the same data.
@@ -38,8 +38,9 @@ Core behavior:
 
 - package naming and domain-scope policy;
 - source archive creation and digest calculation;
+- required tarball artifact ingestion from the publish request;
 - release manifest creation and validation;
-- declared source-to-artifact provenance recording;
+- source attachment provenance recording;
 - event schema definition and append-only event writing;
 - object addressing and object integrity verification;
 - npm packument projection;
@@ -49,7 +50,7 @@ Core behavior:
 External dependencies:
 
 - database for registry state and projections;
-- object storage for source archives, generated npm tarballs, manifests, and documentation artifacts;
+- object storage for source archives, required install tarballs, manifests, and documentation artifacts;
 - queue or job system for asynchronous artifact generation and projection work;
 - signing or KMS service for release, checkpoint, or registry signatures.
 
@@ -99,7 +100,7 @@ Required public artifacts:
 - npm packument projection;
 - `regesta.json` project configuration.
 
-The v0 `regesta.json` should stay thin. It may inherit `name`, `version`, and `exports` from `package.json`, while declaring Regesta-specific source include/exclude rules, artifact references, declared provenance, and runtime/package-manager compatibility intent.
+The v0 `regesta.json` should stay thin. It may inherit `name`, `version`, and `exports` from `package.json`, while declaring Regesta-specific source include/exclude rules, source-attached provenance, and runtime compatibility intent. Local tarball paths are not part of `regesta.json`; the publish request uploads the package-manager-produced `.tgz` bytes directly.
 
 Implementation rules:
 
@@ -114,7 +115,8 @@ V0 should not attempt to deliver the full long-term registry.
 
 Out of scope:
 
-- arbitrary npm tarball uploads as the primary publish model;
+- source-only publishing without a tarball artifact;
+- arbitrary npm-only tarball uploads without source attachment;
 - mandatory registry-owned builders or a forced JavaScript build toolchain;
 - reproducible build enforcement;
 - trusted builder attestations;
@@ -135,7 +137,7 @@ Native and WASM work should be introduced only where it gives clear portability,
 Preferred path:
 
 - keep TypeScript as the v0 product and protocol implementation;
-- keep v0 source-native publishing neutral: source archive required, artifacts content-addressed, and source-to-artifact provenance declared but not necessarily verified;
+- keep v0 tarball-backed and source-attached: source archive required, tarball bytes uploaded in the publish request, artifacts content-addressed, and the source-to-artifact relationship preserved without being verified;
 - add reproducible rebuild support later for packages whose build can be replayed deterministically;
 - add trusted builder attestations later through registered builders, CI provenance, or third-party verifier submissions;
 - implement a Rust verifier/canonicalization core once the release manifest and event formats are stable;
@@ -149,10 +151,10 @@ WASM is best suited for portable verification, sandboxed policy evaluation, brow
 
 The v0 plan is complete when:
 
-- Regesta can publish one source-native TS/JS package from `regesta.json`;
+- Regesta can publish one tarball-backed TS/JS package from `regesta.json`;
 - the registry stores source, install artifacts, release manifest, and package metadata as content-addressed objects where appropriate;
-- the release manifest records declared source-to-artifact provenance without claiming reproducible or trusted build verification;
-- npm-compatible install works through a generated packument and generated tarball;
+- the release manifest records source-attached provenance without claiming reproducible or trusted build verification;
+- npm-compatible install works through a generated packument and the uploaded tarball artifact;
 - release state is immutable after publication except through explicit logged status events;
 - the CLI can perform a basic release verification using public registry data;
 - persistent state is externalized to database, object storage, queue, and signing/KMS services;

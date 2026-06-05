@@ -1,14 +1,21 @@
 {
-  "schema": "regesta.config.v0",
+  "id": "npm:@example.com/hello-regesta",
   "description": "Minimal Regesta v0 example package.",
+  "languages": ["typescript"],
   "source": {
-    "include": ["regesta.json", "package.json", "src", "README.md"]
+    "include": [
+      "regesta.json",
+      "package.json",
+      "tsdown.config.ts",
+      "src",
+      "README.md"
+    ]
   },
   "provenance": {
     "level": "source-attached"
   },
   "compatibility": {
     "runtimes": ["node", "bun"],
-    "packageManagers": ["npm", "pnpm", "yarn", "bun"]
+    "modules": ["esm"]
   }
 }

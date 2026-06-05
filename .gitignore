@@ -1,6 +1,8 @@
 node_modules
 dist
 coverage
+.nitro
+.output
 .regesta-data
 .eslintcache
 .DS_Store

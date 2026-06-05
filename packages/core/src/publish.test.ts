@@ -1,95 +1,106 @@
-import { Buffer } from 'node:buffer'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import process from 'node:process'
 import { createMemoryRegistryAdapters } from '@regesta/adapters'
 import { describe, expect, it } from 'vitest'
-import { createNpmPackument } from './packument.ts'
-import { preparePublish, publishRelease } from './publish.ts'
+import { getPackageState, updatePackageChannel } from './channels.ts'
+import { publishRelease, type PublishInput } from './publish.ts'
 import { verifyRelease } from './verify.ts'
 
 describe('publishRelease', () => {
-  it('uses an author-declared npm tarball artifact when configured', async () => {
-    const projectDir = await createFixtureProject({
-      artifactPath: 'dist/hello-regesta-0.0.1.tgz',
-      artifactBytes: 'author-built artifact',
-    })
-    const prepared = await preparePublish(projectDir)
-
-    expect(prepared.config.artifacts?.npmTarball?.path).toBe(
-      'dist/hello-regesta-0.0.1.tgz',
-    )
-    expect(Buffer.from(prepared.npmTarballBase64, 'base64').toString()).toBe(
-      'author-built artifact',
-    )
-  })
-
-  it('publishes and verifies one source-native package', async () => {
-    const projectDir = await createFixtureProject()
+  it('publishes and verifies one tarball-backed package', async () => {
     const adapters = createMemoryRegistryAdapters()
-    const prepared = await preparePublish(projectDir)
 
     const result = await publishRelease(
       {
-        config: prepared.config,
+        ...createPublishInput(),
         createdAt: '2026-06-01T00:00:00.000Z',
-        npmTarball: Buffer.from(prepared.npmTarballBase64, 'base64'),
-        sourceArchive: Buffer.from(prepared.sourceArchiveBase64, 'base64'),
       },
       adapters,
     )
 
     const verification = await verifyRelease(
       adapters,
-      '@example.com/hello-regesta',
+      'npm:@example.com/hello-regesta',
       '0.0.1',
     )
-    const packument = createNpmPackument(
-      '@example.com/hello-regesta',
-      await adapters.database.listPackageReleases('@example.com/hello-regesta'),
-      'http://localhost:4321',
+    const state = await getPackageState(
+      adapters,
+      'npm:@example.com/hello-regesta',
     )
 
-    expect(result.manifest.package).toBe('@example.com/hello-regesta')
+    expect(result.channel).toBe('latest')
+    expect(result.manifest.id).toBe('npm:@example.com/hello-regesta')
+    expect(result.manifest.ecosystem).toBe('npm')
+    expect(result.manifest.name).toBe('@example.com/hello-regesta')
+    expect(result.manifest.object).toBe('regesta.release-manifest')
+    expect(result.manifest.specVersion).toBe(0)
+    expect(result.manifest.artifacts).toEqual([
+      expect.objectContaining({
+        ecosystem: 'npm',
+        format: 'npm-tarball',
+        mediaType: 'application/gzip',
+        role: 'install',
+      }),
+    ])
     expect(result.manifest.metadata?.exports).toEqual({
       '.': './src/index.ts',
     })
+    expect('dependencies' in result.manifest).toBe(false)
+    expect(result.manifest.ecosystemMetadata).toBeUndefined()
     expect(result.manifest.provenance).toEqual({
-      command: 'pnpm build && pnpm pack',
-      level: 'declared-build',
-      toolchain: {
-        node: '24.x',
-        pnpm: '11.x',
-      },
+      level: 'source-attached',
       verified: false,
     })
     expect(result.manifest.compatibility).toEqual({
-      packageManagers: ['npm', 'pnpm', 'yarn', 'bun'],
+      modules: ['esm'],
       runtimes: ['node', 'bun'],
     })
+    expect(state.channels).toEqual({ latest: '0.0.1' })
     expect(verification.ok).toBe(true)
-    expect(packument.versions['0.0.1']?.dist.tarball).toBe(
-      'http://localhost:4321/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
-    )
   })
 
-  it('rejects release manifests that claim trusted build verification in v0', async () => {
-    const projectDir = await createFixtureProject()
+  it('maps package channels without changing releases', async () => {
     const adapters = createMemoryRegistryAdapters()
-    const prepared = await preparePublish(projectDir)
 
     await publishRelease(
       {
-        config: prepared.config,
+        ...createPublishInput(),
         createdAt: '2026-06-01T00:00:00.000Z',
-        npmTarball: Buffer.from(prepared.npmTarballBase64, 'base64'),
-        sourceArchive: Buffer.from(prepared.sourceArchiveBase64, 'base64'),
+      },
+      adapters,
+    )
+    const update = await updatePackageChannel(adapters, {
+      channel: 'beta',
+      packageId: 'npm:@example.com/hello-regesta',
+      timestamp: '2026-06-01T00:01:00.000Z',
+      version: '0.0.1',
+    })
+    const state = await getPackageState(
+      adapters,
+      'npm:@example.com/hello-regesta',
+    )
+
+    expect(update.event.eventType).toBe('channel.updated')
+    expect(state.channels).toEqual({ beta: '0.0.1', latest: '0.0.1' })
+    expect(state.releases).toEqual([
+      expect.objectContaining({
+        createdAt: '2026-06-01T00:00:00.000Z',
+        version: '0.0.1',
+      }),
+    ])
+  })
+
+  it('rejects release manifests that claim trusted build verification in v0', async () => {
+    const adapters = createMemoryRegistryAdapters()
+
+    await publishRelease(
+      {
+        ...createPublishInput(),
+        createdAt: '2026-06-01T00:00:00.000Z',
       },
       adapters,
     )
 
     const release = await adapters.database.getRelease(
-      '@example.com/hello-regesta',
+      'npm:@example.com/hello-regesta',
       '0.0.1',
     )
 
@@ -102,13 +113,13 @@ describe('publishRelease', () => {
 
     const verification = await verifyRelease(
       adapters,
-      '@example.com/hello-regesta',
+      'npm:@example.com/hello-regesta',
       '0.0.1',
     )
 
     expect(verification.ok).toBe(false)
     expect(verification.problems).toContain(
-      'Release provenance must be source-attached or declared-build',
+      'Release provenance must be source-attached',
     )
     expect(verification.problems).toContain(
       'V0 release provenance must not claim verified build status',
@@ -116,78 +127,40 @@ describe('publishRelease', () => {
   })
 })
 
-interface FixtureProjectOptions {
-  artifactBytes?: string
-  artifactPath?: string
+function createPublishInput(): PublishInput {
+  return {
+    artifacts: [
+      {
+        bytes: bytes('install artifact'),
+        ecosystem: 'npm',
+        format: 'npm-tarball',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ],
+    config: {
+      compatibility: {
+        modules: ['esm'],
+        runtimes: ['node', 'bun'],
+      },
+      description: 'Test package',
+      exports: {
+        '.': './src/index.ts',
+      },
+      id: 'npm:@example.com/hello-regesta',
+      languages: ['typescript'],
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    },
+    source: bytes('source archive'),
+  }
 }
 
-async function createFixtureProject(
-  options: FixtureProjectOptions = {},
-): Promise<string> {
-  const root = join(
-    process.cwd(),
-    'node_modules',
-    '.tmp-regesta-test',
-    `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  )
-  await mkdir(join(root, 'src'), { recursive: true })
-  await writeFile(join(root, 'README.md'), '# hello\n')
-  await writeFile(join(root, 'src', 'index.ts'), 'export const value = 1\n')
-
-  if (options.artifactPath && options.artifactBytes) {
-    await mkdir(join(root, 'dist'), { recursive: true })
-    await writeFile(join(root, options.artifactPath), options.artifactBytes)
-  }
-
-  await writeFile(
-    join(root, 'package.json'),
-    `${JSON.stringify(
-      {
-        exports: {
-          '.': './src/index.ts',
-        },
-        name: '@example.com/hello-regesta',
-        version: '0.0.1',
-      },
-      null,
-      2,
-    )}\n`,
-  )
-  await writeFile(
-    join(root, 'regesta.json'),
-    `${JSON.stringify(
-      {
-        description: 'Test package',
-        compatibility: {
-          packageManagers: ['npm', 'pnpm', 'yarn', 'bun'],
-          runtimes: ['node', 'bun'],
-        },
-        provenance: {
-          command: 'pnpm build && pnpm pack',
-          level: 'declared-build',
-          toolchain: {
-            node: '24.x',
-            pnpm: '11.x',
-          },
-        },
-        ...(options.artifactPath
-          ? {
-              artifacts: {
-                npmTarball: {
-                  path: options.artifactPath,
-                },
-              },
-            }
-          : {}),
-        source: {
-          include: ['regesta.json', 'package.json', 'README.md', 'src'],
-        },
-        schema: 'regesta.config.v0',
-      },
-      null,
-      2,
-    )}\n`,
-  )
-
-  return root
+function bytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value)
 }

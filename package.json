@@ -11,7 +11,7 @@
     "lint:fix": "pnpm run lint --fix",
     "format": "prettier --cache --write .",
     "test": "vitest",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsgo --noEmit && pnpm --filter @regesta/server typecheck"
   },
   "devDependencies": {
     "@sxzz/eslint-config": "^8.1.0",

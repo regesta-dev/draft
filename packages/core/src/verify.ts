@@ -1,23 +1,21 @@
 import {
   canonicalJson,
+  defaultPackageChannel,
+  parsePackageId,
   sha256,
   type ObjectDescriptor,
+  type PackageId,
+  type PublishReleaseEvent,
   type RegistryEvent,
   type ReleaseManifest,
 } from '@regesta/protocol'
-import {
-  createNpmPackument,
-  integrityFromDigest,
-  tarballUrl,
-} from './packument.ts'
 import type { RegistryAdapters } from '@regesta/adapters'
 
 export interface ReleaseVerifier {
   verify: (
     adapters: RegistryAdapters,
-    coordinate: `@${string}/${string}`,
+    packageId: PackageId,
     version: string,
-    options?: VerifyReleaseOptions,
   ) => Promise<VerificationResult>
 }
 
@@ -27,28 +25,23 @@ export interface VerificationResult {
   problems: string[]
 }
 
-export interface VerifyReleaseOptions {
-  registryBaseUrl?: string
-}
-
 export const defaultReleaseVerifier: ReleaseVerifier = {
   verify: verifyRelease,
 }
 
 export async function verifyRelease(
   adapters: RegistryAdapters,
-  coordinate: `@${string}/${string}`,
+  packageId: PackageId,
   version: string,
-  options: VerifyReleaseOptions = {},
 ): Promise<VerificationResult> {
   const problems: string[] = []
-  const release = await adapters.database.getRelease(coordinate, version)
+  const release = await adapters.database.getRelease(packageId, version)
 
   if (!release) {
     return {
       manifest: undefined as never,
       ok: false,
-      problems: [`Release not found: ${coordinate}@${version}`],
+      problems: [`Release not found: ${packageId}@${version}`],
     }
   }
 
@@ -87,23 +80,20 @@ export async function verifyRelease(
     problems.push(`Source object missing: ${release.manifest.source.digest}`)
   }
 
-  const npmTarballDescriptor = release.manifest.artifacts.npmTarball
-  const npmTarball = await adapters.objects.get(npmTarballDescriptor.digest)
-  if (npmTarball) {
-    problems.push(
-      ...verifyStoredObject('npm tarball', npmTarballDescriptor, npmTarball),
-    )
-  } else {
-    problems.push(`npm tarball object missing: ${npmTarballDescriptor.digest}`)
+  for (const artifact of release.manifest.artifacts) {
+    const object = await adapters.objects.get(artifact.digest)
+    if (object) {
+      problems.push(
+        ...verifyStoredObject(`Artifact ${artifact.role}`, artifact, object),
+      )
+    } else {
+      problems.push(`Artifact object missing: ${artifact.digest}`)
+    }
   }
 
   problems.push(
+    ...verifyManifestIdentity(release.manifest),
     ...verifyProvenance(release.manifest),
-    ...verifyNpmProjection(
-      await adapters.database.listPackageReleases(coordinate),
-      release.manifest,
-      options.registryBaseUrl ?? 'https://registry.regesta.local',
-    ),
   )
 
   return {
@@ -113,40 +103,31 @@ export async function verifyRelease(
   }
 }
 
-function verifyNpmProjection(
-  releases: Array<{ manifest: ReleaseManifest }>,
-  manifest: ReleaseManifest,
-  registryBaseUrl: string,
-): string[] {
-  const packument = createNpmPackument(
-    manifest.package,
-    releases,
-    registryBaseUrl,
-  )
-  const version = packument.versions[manifest.version]
-
-  if (!version) {
-    return [`npm packument projection is missing ${manifest.version}`]
-  }
-
+function verifyManifestIdentity(manifest: ReleaseManifest): string[] {
+  const parsed = parsePackageId(manifest.id)
   const problems: string[] = []
-  const expectedIntegrity = integrityFromDigest(
-    manifest.artifacts.npmTarball.digest,
-  )
-  const expectedTarball = tarballUrl(
-    manifest.package,
-    manifest.version,
-    registryBaseUrl,
-  )
+  const installArtifacts = manifest.artifacts.filter((artifact) => {
+    return artifact.role === 'install'
+  })
 
-  if (version.dist.integrity !== expectedIntegrity) {
-    problems.push('npm packument integrity does not match manifest artifact')
+  if (manifest.object !== 'regesta.release-manifest') {
+    problems.push('Release manifest object must be regesta.release-manifest')
   }
 
-  if (version.dist.tarball !== expectedTarball) {
-    problems.push(
-      'npm packument tarball URL does not match manifest artifact path',
-    )
+  if (manifest.specVersion !== 0) {
+    problems.push('Release manifest specVersion must be 0')
+  }
+
+  if (manifest.ecosystem !== parsed.ecosystem) {
+    problems.push('Release manifest ecosystem does not match package id')
+  }
+
+  if (manifest.name !== parsed.name) {
+    problems.push('Release manifest name does not match package id')
+  }
+
+  if (installArtifacts.length !== 1) {
+    problems.push('Release manifest must include exactly one install artifact')
   }
 
   return problems
@@ -156,21 +137,12 @@ function verifyProvenance(manifest: ReleaseManifest): string[] {
   const { provenance } = manifest
   const problems: string[] = []
 
-  if (
-    provenance.level !== 'source-attached' &&
-    provenance.level !== 'declared-build'
-  ) {
-    problems.push(
-      'Release provenance must be source-attached or declared-build',
-    )
+  if (provenance.level !== 'source-attached') {
+    problems.push('Release provenance must be source-attached')
   }
 
   if (provenance.verified !== false) {
     problems.push('V0 release provenance must not claim verified build status')
-  }
-
-  if (provenance.level === 'declared-build' && !provenance.command) {
-    problems.push('Declared-build provenance must include a build command')
   }
 
   return problems
@@ -183,35 +155,59 @@ function verifyPublishEvent(
 ): string[] {
   const problems: string[] = []
   const expectedEvent = {
-    manifestDigest: manifestDescriptor.digest,
-    package: manifest.package,
-    schema: 'regesta.event.v0',
+    ...(event.authorization ? { authorization: event.authorization } : {}),
+    artifactDigests: manifest.artifacts.map((artifact) => artifact.digest),
+    channel: defaultPackageChannel,
+    eventType: 'release.published',
+    object: 'regesta.event',
+    release: {
+      id: manifest.id,
+      manifestDigest: manifestDescriptor.digest,
+      version: manifest.version,
+    },
     sourceDigest: manifest.source.digest,
+    specVersion: 0,
     timestamp: manifest.createdAt,
-    type: 'PUBLISH_RELEASE',
-    version: manifest.version,
-  } satisfies Omit<RegistryEvent, 'id'>
+  } satisfies Omit<PublishReleaseEvent, 'id'>
 
   if (event.id !== sha256(canonicalJson(expectedEvent as never))) {
     problems.push('Publish event id does not match canonical event payload')
   }
 
-  if (event.manifestDigest !== manifestDescriptor.digest) {
+  if (event.eventType !== 'release.published') {
+    problems.push('Publish event must have eventType release.published')
+    return problems
+  }
+
+  if (event.channel !== defaultPackageChannel) {
+    problems.push(`Publish event channel must be ${defaultPackageChannel}`)
+  }
+
+  if (event.release.manifestDigest !== manifestDescriptor.digest) {
     problems.push(
       'Publish event manifest digest does not match stored descriptor',
     )
   }
 
-  if (event.package !== manifest.package) {
-    problems.push('Publish event package does not match release manifest')
+  if (event.release.id !== manifest.id) {
+    problems.push('Publish event package id does not match release manifest')
   }
 
-  if (event.version !== manifest.version) {
+  if (event.release.version !== manifest.version) {
     problems.push('Publish event version does not match release manifest')
   }
 
   if (event.sourceDigest !== manifest.source.digest) {
     problems.push('Publish event source digest does not match release manifest')
+  }
+
+  if (
+    canonicalJson(event.artifactDigests as never) !==
+    canonicalJson(expectedEvent.artifactDigests as never)
+  ) {
+    problems.push(
+      'Publish event artifact digests do not match release manifest',
+    )
   }
 
   if (event.timestamp !== manifest.createdAt) {

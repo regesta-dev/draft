@@ -1,5 +1,5 @@
 {
-  "name": "@regesta/core",
+  "name": "@regesta/npm",
   "type": "module",
   "version": "0.0.0",
   "exports": {
@@ -16,7 +16,7 @@
     "build": "tsdown"
   },
   "dependencies": {
-    "@regesta/adapters": "workspace:*",
+    "@regesta/core": "workspace:*",
     "@regesta/protocol": "workspace:*",
     "json5": "^2.2.3",
     "tar": "^7.5.15"

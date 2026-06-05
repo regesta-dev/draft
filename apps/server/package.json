@@ -4,17 +4,21 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "build": "tsdown",
-    "dev": "node src/index.ts"
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsgo --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.4",
     "@regesta/adapters": "workspace:*",
+    "@regesta/auth": "workspace:*",
     "@regesta/core": "workspace:*",
+    "@regesta/npm": "workspace:*",
     "@regesta/protocol": "workspace:*",
-    "hono": "^4.12.23"
+    "hono": "^4.12.23",
+    "valibot": "^1.4.1"
   },
   "devDependencies": {
-    "tsdown": "^0.22.1"
+    "nitro": "3.0.260603-beta",
+    "vite": "^8.0.16"
   }
 }

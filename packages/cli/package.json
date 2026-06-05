@@ -19,7 +19,9 @@
     "build": "tsdown"
   },
   "dependencies": {
+    "@regesta/auth": "workspace:*",
     "@regesta/core": "workspace:*",
+    "@regesta/npm": "workspace:*",
     "@regesta/protocol": "workspace:*",
     "cac": "^7.0.0"
   },
