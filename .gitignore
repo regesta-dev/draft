@@ -4,6 +4,8 @@ coverage
 .nitro
 .output
 .regesta-data
+docs/.vitepress/cache
+
 .eslintcache
 .DS_Store
 *.log

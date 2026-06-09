@@ -30,12 +30,17 @@ How Regesta aims to achieve this:
 - Let publish clients infer canonical ids from native manifests while keeping registry identity stable.
 - Make verification possible from public objects and log data, not only from registry-operated APIs.
 
-Design drafts:
+Documentation:
 
-- [Documentation index](docs/README.md)
-- [Layer architecture](docs/design/layers.md)
-- [API design](docs/design/api.md)
-- [Object schema design](docs/design/object-schema.md)
-- [Transparency and verification design](docs/design/transparency-verification.md)
-- [Ops and governance design](docs/design/ops-governance.md)
-- [Implementation plan](docs/V0_PLAN.md)
+- [Overview](docs/index.md)
+- [Getting started](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [Protocol](docs/protocol.md)
+- [API](docs/api.md)
+- [Roadmap](docs/roadmap.md)
+
+Run the VitePress docs locally:
+
+```sh
+pnpm docs:dev
+```
