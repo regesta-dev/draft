@@ -68,43 +68,11 @@ V0 rejects:
 Package id inference belongs to clients. The current CLI may infer npm package
 ids from `package.json`, but core stores only the normalized Regesta id.
 
-## Release Manifest
+## Schema Boundary
 
-A release manifest records immutable release facts:
-
-- object kind and spec version;
-- package id;
-- ecosystem parsed from the id;
-- package name parsed from the id;
-- version;
-- source descriptor;
-- artifact descriptors;
-- config digest;
-- creation timestamp;
-- source-attached provenance;
-- small neutral metadata such as description.
-
-The manifest does not store channels, generic dependencies, or npm packuments.
-
-## Artifacts
-
-V0 expects one primary install artifact for the package ecosystem, but the
-manifest uses an array so later releases can attach docs, signatures,
-attestations, or verification outputs.
-
-Artifact descriptors may include:
-
-- role;
-- format;
-- media type;
-- filename;
-- digest;
-- size;
-- artifact-level compatibility declarations;
-- ecosystem metadata extracted by processors.
-
-`compatibility` and `ecosystemMetadata` belong to artifacts because different
-artifacts in one release can target different platforms or resolver behavior.
+The protocol defines the semantics of package ids, manifests, artifacts,
+channels, and events. The concrete V0 object shapes are summarized in
+[Schema](./schema.md).
 
 ## Channels
 

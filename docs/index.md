@@ -7,62 +7,53 @@ hero:
   tagline: Transparent, secure, modern, scalable, and community-driven.
   actions:
     - theme: brand
-      text: Run the local demo
-      link: /getting-started
+      text: Why Regesta
+      link: /why-regesta
     - theme: alt
-      text: Read the architecture
-      link: /architecture
+      text: Explore the protocol
+      link: /protocol
 
 features:
   - title: Transparent by default
     details: Releases, objects, channels, and events are public facts that can be independently verified.
-  - title: Domain-bound security
-    details: V0 uses domain well-known discovery and signed write intents instead of a user account system.
+  - title: Domain-bound identity
+    details: Package ownership is anchored in domains instead of operator-owned usernames or one registry namespace.
   - title: Ecosystem-neutral core
-    details: npm is a projection over Regesta-native data, not the internal registry model.
-  - title: Container-portable
-    details: The current server runs as a Node.js application in an OCI image with persistent external state.
+    details: npm, PyPI, Cargo, Go, OCI, and future protocols are projections over Regesta-native data.
+  - title: Scalable public infrastructure
+    details: Content-addressed objects, deterministic projections, and storage adapters keep the protocol portable.
 ---
 
 ## What Regesta Is
 
-Regesta is a draft registry architecture for packages and artifacts across
-ecosystems. The goal is not to clone npm with a different UI. The goal is to
-build a registry kernel where package identity, release state, object storage,
+Regesta is a draft architecture for a transparent universal package registry.
+It is not an attempt to clone one package manager with a different API surface.
+It is a registry kernel where package identity, release state, object storage,
 authorization, and auditability are shared primitives.
 
-V0 is intentionally narrow:
-
-- TypeScript-first implementation.
-- npm-first publish and install demo.
-- SQLite plus filesystem storage for local persistence.
-- OCI container deployment.
-- domain-bound Ed25519 publish authorization.
-- public release and event-log verification.
-
-The core model remains broader than npm. PyPI, Cargo, Go, OCI, and future
-ecosystems should become projections over the same Regesta-native objects.
+The core model is broader than any single ecosystem. npm, PyPI, Cargo, Go, OCI,
+and future package managers should be able to consume projections over the same
+Regesta-native objects.
 
 ## Core Ideas
 
 - **Transparent:** release manifests, objects, channels, and events are
   addressable and auditable.
-- **Secure:** write authority is tied to domain ownership in v0.
-- **Modern:** the implementation is TypeScript-first and container-portable.
-- **Scalable:** persistent state sits behind adapters so local storage can be
-  replaced by production services later.
+- **Secure:** write authority is tied to explicit trust proofs, starting from
+  domain ownership.
+- **Modern:** source, artifacts, metadata, and verification data are structured
+  for package managers, humans, security tools, and AI agents.
+- **Scalable:** immutable objects and deterministic projections are naturally
+  cacheable and can be backed by different storage systems.
 - **Community-driven:** the registry should not be controlled by one company,
   operator, or package ecosystem.
 
-## Current Status
+## Documentation Map
 
-Regesta is currently a PoC/MVP. It can publish, verify, and install one
-npm-compatible example package through a local or Docker-backed server.
-
-It does not yet claim:
-
-- trusted or reproducible builds;
-- complete transparency-log checkpoints;
-- inclusion or consistency proofs;
-- production storage durability;
-- non-npm ecosystem projections.
+- [Why Regesta](./why-regesta.md) explains the philosophy and long-term goals.
+- [Architecture](./architecture.md) describes the registry kernel and layer
+  boundaries.
+- [Roadmap](./roadmap.md) tracks the broader direction.
+- [Protocol](./protocol.md), [Schema](./schema.md), and [API](./api.md) describe
+  the implementation-facing model.
+- [Getting Started](./getting-started.md) shows how to run the implementation.

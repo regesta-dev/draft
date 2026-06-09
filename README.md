@@ -33,9 +33,11 @@ How Regesta aims to achieve this:
 Documentation:
 
 - [Overview](docs/index.md)
+- [Why Regesta](docs/why-regesta.md)
 - [Getting started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Protocol](docs/protocol.md)
+- [Schema](docs/schema.md)
 - [API](docs/api.md)
 - [Roadmap](docs/roadmap.md)
 

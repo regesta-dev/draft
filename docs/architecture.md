@@ -1,7 +1,8 @@
 # Architecture
 
-Regesta is organized as layers. Each layer has one job, and the core registry
-must stay ecosystem-neutral.
+Regesta is organized as a registry kernel with explicit layers. The core model
+stores ecosystem-neutral facts. Package-manager protocols, cloud platforms, and
+storage engines are adapters around that model.
 
 ```text
 HTTP Transport
@@ -16,11 +17,37 @@ HTTP Transport
       -> Cargo
       -> Go
       -> OCI
+  -> Ops / Observability
 ```
 
-## Transport
+## Architectural Invariants
 
-Transport owns HTTP mechanics only:
+The most important rule is dependency direction:
+
+```text
+transport can route to layers
+projections can read core data
+core must not depend on projections
+storage must not know package-manager protocols
+auth must not know transport or npm
+```
+
+This keeps Regesta from becoming an npm-shaped registry with generic naming.
+The source of truth is Regesta-native release, object, channel, and event data.
+
+Core invariants:
+
+- package identity is canonical and ecosystem-aware;
+- release manifests are immutable;
+- objects are addressed by digest;
+- public state changes are events;
+- projections are derived views;
+- package-manager metadata does not define the core model;
+- infrastructure choices do not become protocol requirements.
+
+## Transport Boundary
+
+Transport owns HTTP mechanics:
 
 - host and path routing;
 - CORS;
@@ -28,14 +55,29 @@ Transport owns HTTP mechanics only:
 - root deployment information;
 - request logging;
 - error boundaries;
-- sub-application mounting.
+- adapter mounting.
 
-Transport must not own registry semantics. It decides where a request goes, not
-what a package or release means.
+Transport answers one question: which layer should handle this request?
+
+It must not decide what a package, release, dependency, channel, or trust proof
+means. Those semantics belong to the core registry, auth/trust, artifact
+processing, and projection layers.
+
+Example routing shape:
+
+```text
+registry.dev/*       -> core API
+npm.registry.dev/*   -> npm projection
+pypi.registry.dev/*  -> PyPI projection
+cargo.registry.dev/* -> Cargo projection
+```
+
+The route shape is deployer-controlled, but the layer boundary should remain
+the same.
 
 ## Core Registry
 
-Core owns Regesta-native state:
+Core owns neutral registry state:
 
 - package ids;
 - release manifests;
@@ -46,89 +88,181 @@ Core owns Regesta-native state:
 - publish flow;
 - release verification.
 
-Core stores release manifests and event data. It does not store npm packuments,
-PyPI pages, Cargo index files, or other ecosystem-native views as the primary
-model.
+Core stores Regesta-native facts. It does not store npm packuments, PyPI Simple
+API pages, Cargo index files, Go proxy responses, or OCI manifests as the
+primary model.
+
+Package state is derived from package events. Release manifests are immutable.
+Channels are mutable pointers, but channel changes are represented by events
+rather than in-place release edits.
+
+Core can expose a narrow neutral metadata surface, such as
+`metadata.description`, when it is useful across ecosystems. It must not invent
+a generic dependency model or flatten package-manager-specific resolver data
+into universal fields.
 
 ## Auth And Trust
 
-V0 write authority is domain-bound:
+Auth validates write authority independently from transport and ecosystem
+protocols.
 
-1. The package id includes an owner domain, such as
-   `npm:example.com/library`.
-2. The server discovers a well-known domain binding.
-3. The write request includes an Ed25519 signed intent.
-4. The server verifies the intent before committing registry state.
-5. The accepted event stores an authorization proof.
+The first trust primitive is domain-bound publishing:
 
-V0 has no user account system. Future auth can add UID, passkey, domain claim,
-owner/admin, and transfer flows without replacing domain ownership.
+1. The package id contains an owner domain, such as `npm:example.com/library`.
+2. The owner domain publishes a discoverable trust binding.
+3. A write request includes a signed intent.
+4. The registry verifies the signature and intent before committing state.
+5. The accepted event records the authorization proof.
+
+The signed intent should describe the operation itself: package id, version,
+digest set, timestamp, nonce, owner domain, and operation type. It should not
+depend on a particular HTTP route.
+
+This leaves room for stronger identity models:
+
+- domain claim through DNS;
+- UID-based accounts;
+- passkey publishing;
+- owner and admin roles;
+- key rotation and revocation;
+- domain plus passkey hardened publishing;
+- transparency checkpoints and witnesses.
+
+Auth should remain a trust layer, not a server framework feature and not an
+npm-only rule.
 
 ## Storage Adapters
 
-All persistent state goes through adapters.
+All persistent state goes through adapters:
 
-Local V0 uses:
+- database for release, channel, event, and metadata state;
+- object storage for source, artifact, manifest, and proof bytes;
+- queue for derived or async work;
+- signing or KMS services for server-side signing;
+- checkpoint store for transparency data.
 
-- SQLite for releases, channels, and events;
-- filesystem object storage;
-- a local append-only derived queue file.
+Single-node deployments can use embedded storage and filesystem-backed object
+storage. Production deployments can use services such as Postgres, DynamoDB,
+S3, R2, GCS, platform queues, or KMS.
 
-Production storage should be swappable:
-
-- database: Postgres, DynamoDB, or similar;
-- object storage: S3, R2, GCS, or similar;
-- queue: platform queue or durable worker queue;
-- signing/KMS: future server-side signing adapters.
-
-Local container disk is not durable unless it is backed by an external volume.
+The protocol must not force one storage vendor. Storage adapters are
+responsible for preserving registry facts, atomicity, and durability within the
+capabilities of their backend.
 
 ## Artifact Processing
 
 Artifact processing understands uploaded artifacts without changing the core
 model.
 
-The npm processor reads npm tarballs and extracts resolver metadata from
-`package/package.json`, such as dependencies, engines, binary entries,
-description, OS, CPU, and libc fields. Resolver-specific metadata is attached
-to the relevant artifact as `ecosystemMetadata`.
+An npm artifact processor can read a tarball, inspect `package/package.json`,
+and extract npm resolver metadata such as:
 
-Core does not define a generic dependency model. Each ecosystem owns its own
-resolver metadata and projection rules.
+- dependencies;
+- engines;
+- binary entries;
+- package description;
+- OS, CPU, and libc constraints;
+- native package metadata.
+
+That data belongs to the artifact as ecosystem metadata. It lets the npm
+projection answer npm resolver questions without making npm dependencies a
+cross-ecosystem core schema.
+
+Other processors can do the same for wheels, sdists, crates, Go modules, OCI
+layers, or future package formats. The processor interprets the artifact. Core
+preserves the neutral release facts.
 
 ## Ecosystem Projections
 
 Projection layers expose package-manager-native APIs from Regesta-native data.
 
-The npm projection currently provides:
+Examples:
 
-- packuments;
-- version reads;
-- dist-tags;
-- tarball reads;
-- npm-compatible metadata;
-- upstream npmjs.org fallback without tarball proxying.
+- npm projection renders packuments, versions, dist-tags, and tarball URLs;
+- PyPI projection renders Simple API pages and Python package metadata;
+- Cargo projection renders crate index entries;
+- Go projection renders module proxy responses;
+- OCI projection renders manifests, blobs, and tags.
 
-Future projections should follow the same pattern: they may read core objects
-and artifact metadata, but they must not redefine core identity, storage, or
-event semantics.
+Projections may read core objects and artifact metadata. They must not redefine
+core identity, storage, authorization, or event semantics.
 
-## Verification And Transparency
+Native names are projection concerns. For example, npm can expose
+`@some.dev/sdk`, while core stores `npm:some.dev/sdk`. That mapping belongs to
+npm-aware clients and npm projection code.
 
-V0 provides release verification and an append-only event model. It can detect
-missing objects, digest mismatches, invalid event ids, release/event
-mismatches, and invalid package replay state.
+## Transparency And Verification
 
-V0 is not a complete transparency log. Full transparency still needs signed
-checkpoints, inclusion proofs, consistency proofs, witnesses, mirrors, and
-auditor tooling.
+Verification starts with deterministic bytes and deterministic state:
 
-## Governance And Operations
+- canonical JSON for release and event data;
+- object digests for immutable bytes;
+- event digests for public state changes;
+- replayable package state;
+- release manifests that can be fetched and recomputed.
 
-Regesta should be community-driven infrastructure. Operational policy should be
-auditable, and the registry should avoid permanent capture by one company,
-operator, or ecosystem.
+The larger transparency model adds:
 
-Future operations work includes metrics, audit logs, abuse handling, key
-compromise response, package freeze policy, takedown policy, and community
-governance.
+- signed checkpoints;
+- inclusion proofs;
+- consistency proofs;
+- witnesses;
+- mirror protocols;
+- auditor tooling.
+
+The boundary matters. A registry can verify release integrity without claiming
+global transparency. Stronger claims require explicit checkpoint, witness, and
+proof formats.
+
+## Publish Flow
+
+A publish operation follows this architectural shape:
+
+1. A client infers ecosystem metadata and prepares source plus install
+   artifacts.
+2. The client creates a signed write intent for the owner domain.
+3. Transport accepts the request and routes it to the core publish API.
+4. Artifact processors extract ecosystem metadata.
+5. Auth verifies the domain binding and signed intent.
+6. Core creates the release manifest and event.
+7. Storage adapters persist objects, release state, channel state, and events.
+8. Ecosystem projections can derive package-manager responses from the new
+   core state.
+
+The client and artifact processor understand ecosystem details. Core records
+neutral facts and trust proofs.
+
+## Read Flow
+
+Most reads are derived:
+
+1. A package manager requests a native projection endpoint.
+2. Transport routes the request to the projection layer.
+3. The projection reads package events, release manifests, objects, and
+   artifact metadata.
+4. The projection renders package-manager-native metadata.
+5. Immutable bytes are served from content-addressed object storage.
+
+This shape is cache-friendly. Immutable objects can be cached aggressively.
+Mutable views can use validators and revalidation because they are derived from
+stable facts.
+
+## Ops And Governance
+
+Operational features are not package protocol details, but they matter for a
+public registry:
+
+- metrics;
+- audit logs;
+- abuse handling;
+- key compromise response;
+- package freeze policy;
+- takedown policy;
+- witness operations;
+- mirror operations;
+- root key and governance policy.
+
+Actions that affect public package state should become auditable public facts.
+Operator-private metrics can stay private. Package freezes, compromise
+responses, takedowns, transfers, and key rotations need explicit recording
+rules before they become protocol guarantees.

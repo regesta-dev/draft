@@ -20,8 +20,10 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { link: '/getting-started', text: 'Getting Started' },
+      { link: '/why-regesta', text: 'Why Regesta' },
       { link: '/architecture', text: 'Architecture' },
       { link: '/protocol', text: 'Protocol' },
+      { link: '/schema', text: 'Schema' },
       { link: '/api', text: 'API' },
       { link: '/roadmap', text: 'Roadmap' },
     ],
@@ -35,14 +37,20 @@ export default defineConfig({
     sidebar: [
       {
         items: [
-          { link: '/', text: 'Overview' },
-          { link: '/getting-started', text: 'Getting Started' },
+          { link: '/why-regesta', text: 'Why Regesta' },
           { link: '/architecture', text: 'Architecture' },
-          { link: '/protocol', text: 'Protocol' },
-          { link: '/api', text: 'API' },
           { link: '/roadmap', text: 'Roadmap' },
         ],
-        text: 'Regesta',
+        text: 'Vision',
+      },
+      {
+        items: [
+          { link: '/getting-started', text: 'Getting Started' },
+          { link: '/protocol', text: 'Protocol' },
+          { link: '/schema', text: 'Schema' },
+          { link: '/api', text: 'API' },
+        ],
+        text: 'Implementation',
       },
     ],
     socialLinks: [
