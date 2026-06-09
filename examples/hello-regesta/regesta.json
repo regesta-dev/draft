@@ -13,9 +13,5 @@
   },
   "provenance": {
     "level": "source-attached"
-  },
-  "compatibility": {
-    "runtimes": ["node", "bun"],
-    "modules": ["esm"]
   }
 }

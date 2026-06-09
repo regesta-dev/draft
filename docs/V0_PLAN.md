@@ -102,7 +102,7 @@ Required public artifacts:
 - npm packument projection;
 - `regesta.json` project configuration.
 
-The v0 `regesta.json` should stay thin. It may inherit `name`, `version`, and `exports` from `package.json`, while declaring Regesta-specific source include/exclude rules, source-attached provenance, and runtime compatibility intent. Local tarball paths are not part of `regesta.json`; the publish request uploads the package-manager-produced `.tgz` bytes directly.
+The v0 `regesta.json` should stay thin. It may inherit `name`, `version`, and `exports` from `package.json`, while declaring Regesta-specific source include/exclude rules and source-attached provenance. Runtime, platform, module, ABI, and resolver metadata belong to artifact descriptors or ecosystem metadata extracted during publishing. Local tarball paths are not part of `regesta.json`; the publish request uploads the package-manager-produced `.tgz` bytes directly.
 
 Implementation rules:
 
@@ -153,7 +153,7 @@ WASM is best suited for portable verification, sandboxed policy evaluation, brow
 
 The v0 plan is complete when:
 
-- Regesta can publish one tarball-backed TS/JS package from `regesta.json`;
+- Regesta can publish one source-attached package through the npm-first PoC client from `regesta.json`;
 - the registry stores source, install artifacts, release manifest, and package metadata as content-addressed objects where appropriate;
 - the release manifest records source-attached provenance without claiming reproducible or trusted build verification;
 - npm-compatible install works through a generated packument and the uploaded tarball artifact;

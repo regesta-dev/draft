@@ -16,6 +16,7 @@
     "build": "tsdown"
   },
   "dependencies": {
+    "@regesta/core": "workspace:*",
     "@regesta/protocol": "workspace:*"
   },
   "devDependencies": {

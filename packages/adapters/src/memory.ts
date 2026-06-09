@@ -1,15 +1,33 @@
 import {
+  PackageChannelConflictError,
+  RegistryEventAlreadyExistsError,
+  RegistryEventCursorNotFoundError,
+  ReleaseAlreadyExistsError,
+  ReleaseNotFoundError,
+  WriteAuthorizationReplayError,
+} from '@regesta/core'
+import {
+  assertObjectMediaType,
   canonicalJson,
   sha256,
+  type ChannelDeletedEvent,
+  type ChannelUpdatedEvent,
   type PackageId,
   type RegistryEvent,
   type Sha256Digest,
 } from '@regesta/protocol'
+import {
+  assertAppendableRegistryEvent,
+  assertPersistableRegistryEvent,
+  assertPersistableStoredRelease,
+} from './events.ts'
+import { assertEventListOptions } from './pagination.ts'
 import type {
   ObjectStore,
   QueueAdapter,
   RegistryAdapters,
   RegistryDatabase,
+  RegistryEventListOptions,
   SignerAdapter,
   StoredObject,
   StoredRelease,
@@ -18,42 +36,239 @@ import type {
 export class MemoryObjectStore implements ObjectStore {
   readonly objects: Map<Sha256Digest, StoredObject> = new Map()
 
+  checkReadiness(): Promise<void> {
+    return Promise.resolve()
+  }
+
   get(digest: Sha256Digest): Promise<StoredObject | undefined> {
-    return Promise.resolve(this.objects.get(digest))
+    const object = this.objects.get(digest)
+
+    if (!object) {
+      return Promise.resolve(undefined)
+    }
+
+    if (object.descriptor.digest !== digest) {
+      throw new TypeError(`Memory object descriptor digest mismatch: ${digest}`)
+    }
+
+    if (object.descriptor.size !== object.bytes.byteLength) {
+      throw new TypeError(`Memory object size mismatch: ${digest}`)
+    }
+
+    assertObjectDescriptorFields(object.descriptor)
+    assertObjectMediaType(object.descriptor.mediaType)
+
+    if (sha256(object.bytes) !== digest) {
+      throw new TypeError(`Memory object bytes digest mismatch: ${digest}`)
+    }
+
+    return Promise.resolve(copyStoredObject(object))
+  }
+
+  getDescriptor(
+    digest: Sha256Digest,
+  ): Promise<StoredObject['descriptor'] | undefined> {
+    const object = this.objects.get(digest)
+
+    if (!object) {
+      return Promise.resolve(undefined)
+    }
+
+    if (object.descriptor.digest !== digest) {
+      throw new TypeError(`Memory object descriptor digest mismatch: ${digest}`)
+    }
+
+    if (object.descriptor.size !== object.bytes.byteLength) {
+      throw new TypeError(`Memory object size mismatch: ${digest}`)
+    }
+
+    assertObjectDescriptorFields(object.descriptor)
+    assertObjectMediaType(object.descriptor.mediaType)
+
+    return Promise.resolve({ ...object.descriptor })
   }
 
   put(
     bytes: Uint8Array,
     mediaType: string,
   ): Promise<StoredObject['descriptor']> {
-    const digest = sha256(bytes)
+    assertObjectMediaType(mediaType)
+
+    const storedBytes = bytes.slice()
+    const digest = sha256(storedBytes)
+    const existing = this.objects.get(digest)
+
+    if (existing) {
+      if (existing.descriptor.mediaType !== mediaType) {
+        throw new TypeError(`Memory object mediaType conflict: ${digest}`)
+      }
+
+      return Promise.resolve({ ...existing.descriptor })
+    }
+
     const descriptor = {
       digest,
       mediaType,
-      size: bytes.byteLength,
+      size: storedBytes.byteLength,
     }
 
     this.objects.set(digest, {
-      bytes,
-      descriptor,
+      bytes: storedBytes,
+      descriptor: { ...descriptor },
     })
 
-    return Promise.resolve(descriptor)
+    return Promise.resolve({ ...descriptor })
   }
 }
 
+function assertObjectDescriptorFields(descriptor: object): void {
+  const unknownFields = Object.keys(descriptor).filter(
+    (field) => !['digest', 'mediaType', 'size'].includes(field),
+  )
+
+  if (unknownFields.length > 0) {
+    throw new TypeError(
+      `Memory object descriptor must not include unknown field: ${unknownFields[0]}`,
+    )
+  }
+}
+
+function copyStoredObject(object: StoredObject): StoredObject {
+  return {
+    bytes: object.bytes.slice(),
+    descriptor: { ...object.descriptor },
+  }
+}
+
+function copyRegistryEvent<TEvent extends RegistryEvent>(
+  event: TEvent,
+): TEvent {
+  return structuredClone(event)
+}
+
+function copyStoredRelease(release: StoredRelease): StoredRelease {
+  return structuredClone(release)
+}
+
 export class MemoryRegistryDatabase implements RegistryDatabase {
+  readonly authorizationPayloadDigests: Set<Sha256Digest> = new Set()
   readonly channels: Map<PackageId, Map<string, string>> = new Map()
+  readonly eventIds: Set<Sha256Digest> = new Set()
   readonly events: RegistryEvent[] = []
   readonly releases: Map<PackageId, Map<string, StoredRelease>> = new Map()
 
+  checkReadiness(): Promise<void> {
+    return Promise.resolve()
+  }
+
   appendEvent(event: RegistryEvent): Promise<void> {
-    this.events.push(event)
+    const payloadDigest = this.assertNewEvent(event)
+    assertAppendableRegistryEvent(
+      this.events.filter((item) => {
+        return eventPackageId(item) === eventPackageId(event)
+      }),
+      event,
+    )
+    this.commitEventAfterChecks(event, payloadDigest)
+    return Promise.resolve()
+  }
+
+  commitPackageChannelUpdate(event: ChannelUpdatedEvent): Promise<void> {
+    const payloadDigest = this.assertNewEvent(event)
+    const packageChannels =
+      this.channels.get(event.package) ?? new Map<string, string>()
+    this.assertExpectedChannelVersion(
+      event.package,
+      event.channel,
+      event.previousVersion,
+      packageChannels.get(event.channel),
+    )
+    this.assertReleaseExists(event.package, event.version)
+
+    this.commitEventAfterChecks(event, payloadDigest)
+    packageChannels.set(event.channel, event.version)
+    this.channels.set(event.package, packageChannels)
+
+    return Promise.resolve()
+  }
+
+  commitPackageChannelDelete(event: ChannelDeletedEvent): Promise<void> {
+    const payloadDigest = this.assertNewEvent(event)
+    const packageChannels =
+      this.channels.get(event.package) ?? new Map<string, string>()
+    this.assertExpectedChannelVersion(
+      event.package,
+      event.channel,
+      event.previousVersion,
+      packageChannels.get(event.channel),
+    )
+
+    this.commitEventAfterChecks(event, payloadDigest)
+    packageChannels.delete(event.channel)
+    this.channels.set(event.package, packageChannels)
+
+    return Promise.resolve()
+  }
+
+  commitPublishedRelease(
+    release: StoredRelease,
+    channel: string,
+  ): Promise<void> {
+    assertPersistableStoredRelease(release, channel)
+
+    const payloadDigest = this.assertNewEvent(release.event)
+    const packageId = release.manifest.id
+    const versions =
+      this.releases.get(packageId) ?? new Map<string, StoredRelease>()
+
+    if (versions.has(release.manifest.version)) {
+      throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
+    }
+
+    this.commitEventAfterChecks(release.event, payloadDigest)
+    versions.set(release.manifest.version, copyStoredRelease(release))
+    this.releases.set(packageId, versions)
+
+    const packageChannels =
+      this.channels.get(packageId) ?? new Map<string, string>()
+    packageChannels.set(channel, release.manifest.version)
+    this.channels.set(packageId, packageChannels)
+
     return Promise.resolve()
   }
 
   getEventLog(): Promise<RegistryEvent[]> {
-    return Promise.resolve([...this.events])
+    return Promise.resolve(this.events.map((event) => copyRegistryEvent(event)))
+  }
+
+  listEvents(options: RegistryEventListOptions = {}): Promise<RegistryEvent[]> {
+    assertEventListOptions(options)
+
+    const afterIndex = options.after
+      ? this.events.findIndex((event) => event.id === options.after)
+      : -1
+
+    if (options.after && afterIndex < 0) {
+      return Promise.reject(new RegistryEventCursorNotFoundError(options.after))
+    }
+
+    const startIndex = afterIndex + 1
+    const endIndex =
+      options.limit === undefined ? undefined : startIndex + options.limit
+
+    return Promise.resolve(
+      this.events
+        .slice(startIndex, endIndex)
+        .map((event) => copyRegistryEvent(event)),
+    )
+  }
+
+  getEvent(id: Sha256Digest): Promise<RegistryEvent | undefined> {
+    const event = this.events.find((item) => {
+      return item.id === id
+    })
+
+    return Promise.resolve(event ? copyRegistryEvent(event) : undefined)
   }
 
   deletePackageChannel(
@@ -78,25 +293,45 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     packageId: PackageId,
     version: string,
   ): Promise<StoredRelease | undefined> {
-    return Promise.resolve(this.releases.get(packageId)?.get(version))
+    const release = this.releases.get(packageId)?.get(version)
+
+    return Promise.resolve(release ? copyStoredRelease(release) : undefined)
+  }
+
+  hasAuthorizationPayloadDigest(payloadDigest: Sha256Digest): Promise<boolean> {
+    return Promise.resolve(this.authorizationPayloadDigests.has(payloadDigest))
+  }
+
+  listPackageEvents(packageId: PackageId): Promise<RegistryEvent[]> {
+    return Promise.resolve(
+      this.events
+        .filter((event) => {
+          return eventPackageId(event) === packageId
+        })
+        .map((event) => copyRegistryEvent(event)),
+    )
   }
 
   listPackageReleases(packageId: PackageId): Promise<StoredRelease[]> {
-    return Promise.resolve([...(this.releases.get(packageId)?.values() ?? [])])
+    return Promise.resolve(
+      [...(this.releases.get(packageId)?.values() ?? [])].map((release) =>
+        copyStoredRelease(release),
+      ),
+    )
   }
 
   putRelease(release: StoredRelease): Promise<void> {
+    assertPersistableStoredRelease(release, release.event.channel)
+
     const packageId = release.manifest.id
     const versions =
       this.releases.get(packageId) ?? new Map<string, StoredRelease>()
 
     if (versions.has(release.manifest.version)) {
-      throw new Error(
-        `Release already exists: ${packageId}@${release.manifest.version}`,
-      )
+      throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
     }
 
-    versions.set(release.manifest.version, release)
+    versions.set(release.manifest.version, copyStoredRelease(release))
     this.releases.set(packageId, versions)
     return Promise.resolve()
   }
@@ -113,10 +348,64 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     this.channels.set(packageId, packageChannels)
     return Promise.resolve(previousVersion)
   }
+
+  private assertNewEvent(event: RegistryEvent): Sha256Digest | undefined {
+    assertPersistableRegistryEvent(event)
+
+    const payloadDigest = eventAuthorizationPayloadDigest(event)
+
+    if (this.eventIds.has(event.id)) {
+      throw new RegistryEventAlreadyExistsError(event.id)
+    }
+
+    if (payloadDigest && this.authorizationPayloadDigests.has(payloadDigest)) {
+      throw new WriteAuthorizationReplayError(payloadDigest)
+    }
+
+    return payloadDigest
+  }
+
+  private commitEventAfterChecks(
+    event: RegistryEvent,
+    payloadDigest: Sha256Digest | undefined,
+  ): void {
+    if (payloadDigest) {
+      this.authorizationPayloadDigests.add(payloadDigest)
+    }
+
+    this.eventIds.add(event.id)
+    this.events.push(copyRegistryEvent(event))
+  }
+
+  private assertExpectedChannelVersion(
+    packageId: PackageId,
+    channel: string,
+    expectedVersion: string | undefined,
+    actualVersion: string | undefined,
+  ): void {
+    if (actualVersion !== expectedVersion) {
+      throw new PackageChannelConflictError(
+        packageId,
+        channel,
+        expectedVersion,
+        actualVersion,
+      )
+    }
+  }
+
+  private assertReleaseExists(packageId: PackageId, version: string): void {
+    if (!this.releases.get(packageId)?.has(version)) {
+      throw new ReleaseNotFoundError(packageId, version)
+    }
+  }
 }
 
 export class MemoryQueueAdapter implements QueueAdapter {
   readonly messages: Array<{ payload: unknown; topic: string }> = []
+
+  checkReadiness(): Promise<void> {
+    return Promise.resolve()
+  }
 
   enqueue(topic: string, payload: unknown): Promise<void> {
     this.messages.push({ payload, topic })
@@ -125,6 +414,16 @@ export class MemoryQueueAdapter implements QueueAdapter {
 }
 
 export class MemorySignerAdapter implements SignerAdapter {
+  async checkReadiness(): Promise<void> {
+    const signature = await this.sign(
+      new TextEncoder().encode('regesta-signer-readiness'),
+    )
+
+    if (signature.byteLength === 0) {
+      throw new TypeError('Memory signer readiness probe returned empty bytes')
+    }
+  }
+
   sign(bytes: Uint8Array): Promise<Uint8Array> {
     return Promise.resolve(new TextEncoder().encode(sha256(bytes)))
   }
@@ -140,5 +439,17 @@ export function createMemoryRegistryAdapters(): RegistryAdapters {
 }
 
 export function stablePayloadDigest(payload: unknown): Sha256Digest {
-  return sha256(canonicalJson(payload as never))
+  return sha256(canonicalJson(payload))
+}
+
+function eventAuthorizationPayloadDigest(
+  event: RegistryEvent,
+): Sha256Digest | undefined {
+  return event.authorization?.payloadDigest
+}
+
+function eventPackageId(event: RegistryEvent): PackageId {
+  return event.eventType === 'release.published'
+    ? event.release.id
+    : event.package
 }

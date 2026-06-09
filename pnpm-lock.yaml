@@ -66,9 +66,15 @@ importers:
       vite:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@25.9.1)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.7(@types/node@25.9.1)(vite@8.0.16(@types/node@25.9.1)(yaml@2.9.0))
 
   packages/adapters:
     dependencies:
+      '@regesta/core':
+        specifier: workspace:*
+        version: link:../core
       '@regesta/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -104,19 +110,6 @@ importers:
       cac:
         specifier: ^7.0.0
         version: 7.0.0
-    devDependencies:
-      tsdown:
-        specifier: ^0.22.1
-        version: 0.22.1(@typescript/native-preview@7.0.0-dev.20260527.2)(typescript@6.0.3)
-
-  packages/core:
-    dependencies:
-      '@regesta/adapters':
-        specifier: workspace:*
-        version: link:../adapters
-      '@regesta/protocol':
-        specifier: workspace:*
-        version: link:../protocol
       json5:
         specifier: ^2.2.3
         version: 2.2.3
@@ -128,17 +121,21 @@ importers:
         specifier: ^0.22.1
         version: 0.22.1(@typescript/native-preview@7.0.0-dev.20260527.2)(typescript@6.0.3)
 
-  packages/npm:
+  packages/core:
     dependencies:
-      '@regesta/core':
-        specifier: workspace:*
-        version: link:../core
       '@regesta/protocol':
         specifier: workspace:*
         version: link:../protocol
-      json5:
-        specifier: ^2.2.3
-        version: 2.2.3
+    devDependencies:
+      tsdown:
+        specifier: ^0.22.1
+        version: 0.22.1(@typescript/native-preview@7.0.0-dev.20260527.2)(typescript@6.0.3)
+
+  packages/npm:
+    dependencies:
+      '@regesta/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       tar:
         specifier: ^7.5.15
         version: 7.5.15

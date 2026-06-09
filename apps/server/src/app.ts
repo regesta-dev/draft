@@ -1,77 +1,145 @@
-import { WriteAuthorizationError } from '@regesta/auth'
+import process from 'node:process'
+import {
+  PackageChannelConflictError,
+  RegistryEventAlreadyExistsError,
+  RegistryEventCursorNotFoundError,
+  ReleaseAlreadyExistsError,
+  ReleaseNotFoundError,
+  WriteAuthorizationReplayError,
+  type RegistryAdapters,
+} from '@regesta/core'
 import { Hono } from 'hono'
-import { createCoreRegistryApp } from './core-app.ts'
-import { createDevLocalhostRoutes } from './dev-app.ts'
-import { isDevLocalhostEnabled } from './dev-mode.ts'
-import { createNpmRegistryRoutes } from './npm-app.ts'
+import { processPublishArtifacts } from './artifacts/process.ts'
+import {
+  createCoreRegistryApp,
+  type CoreRegistryAuditSink,
+  type PublishUploadLimits,
+} from './core/app.ts'
+import { domainBindingFetchForRequest } from './dev/domain-binding.ts'
+import { createNpmRegistryRoutes } from './npm/app.ts'
 import { RequestValidationError } from './request.ts'
-import type { RegistryAdapters } from '@regesta/adapters'
+import { createStorageReadinessCheck } from './storage/readiness.ts'
+import { createTransportRoutes } from './transport/app.ts'
+import { createCorsMiddleware } from './transport/cors.ts'
+import { createTransportErrorBoundary } from './transport/errors.ts'
+import {
+  createRequestIdMiddleware,
+  createRequestLogger,
+  type RequestLogSink,
+} from './transport/logging.ts'
+import { createPathNormalizationMiddleware } from './transport/path.ts'
+import {
+  createRequestSizeLimitMiddleware,
+  type RequestSizeLimitOptions,
+} from './transport/request-size.ts'
+import { registryRoutePath } from './transport/routing.ts'
+import { isWriteAuthorizationError } from './trust/errors.ts'
+import { createTrustServices } from './trust/services.ts'
 
-export function createRegestaApp(adapters: RegistryAdapters): Hono {
+export interface RegestaAppOptions {
+  auditLog?: CoreRegistryAuditSink
+  npmUpstreamFetch?: typeof fetch
+  publishUploadLimits?: PublishUploadLimits
+  requestLog?: RequestLogSink
+  requestSizeLimit?: RequestSizeLimitOptions
+}
+
+export function createRegestaApp(
+  adapters: RegistryAdapters,
+  options: RegestaAppOptions = {},
+): Hono {
   const app = new Hono({
     getPath: (request) => registryRoutePath(request),
   })
+  app.use(createRequestIdMiddleware())
+  if (options.requestLog) {
+    app.use(createRequestLogger(options.requestLog))
+  }
+  app.use(createPathNormalizationMiddleware())
+  app.use(createCorsMiddleware())
+  if (options.requestSizeLimit) {
+    app.use(createRequestSizeLimitMiddleware(options.requestSizeLimit))
+  }
 
-  app.onError((error, context) => {
-    if (error instanceof RequestValidationError) {
-      return context.json(
-        {
-          error: error.message,
-          ...(error.issues.length === 0 ? {} : { issues: error.issues }),
-        },
-        400,
-      )
-    }
+  app.onError(
+    createTransportErrorBoundary([
+      {
+        code: 'request_invalid',
+        match: (error) => error instanceof RequestValidationError,
+        status: 400,
+      },
+      {
+        code: 'write_authorization_invalid',
+        match: isWriteAuthorizationError,
+        status: 401,
+      },
+      {
+        code: 'write_authorization_replayed',
+        match: (error) => error instanceof WriteAuthorizationReplayError,
+        status: 409,
+      },
+      {
+        code: 'registry_event_already_exists',
+        match: (error) => error instanceof RegistryEventAlreadyExistsError,
+        status: 409,
+      },
+      {
+        code: 'event_cursor_not_found',
+        match: (error) => error instanceof RegistryEventCursorNotFoundError,
+        status: 404,
+      },
+      {
+        code: 'package_channel_conflict',
+        match: (error) => error instanceof PackageChannelConflictError,
+        status: 409,
+      },
+      {
+        code: 'release_already_exists',
+        match: (error) => error instanceof ReleaseAlreadyExistsError,
+        status: 409,
+      },
+      {
+        code: 'release_not_found',
+        match: (error) => error instanceof ReleaseNotFoundError,
+        status: 404,
+      },
+    ]),
+  )
 
-    if (error instanceof WriteAuthorizationError) {
-      return context.json(
-        {
-          error: error.message,
-          ...(error.issues.length === 0 ? {} : { issues: error.issues }),
-        },
-        401,
-      )
-    }
-
-    return context.json({ error: 'Internal Server Error' }, 500)
-  })
-
-  app.route('/root', createCoreRegistryApp(adapters))
-  app.route('/npm', createNpmRegistryRoutes(adapters))
-  if (isDevLocalhostEnabled()) {
-    app.route('/dev', createDevLocalhostRoutes())
+  app.route(
+    '/root',
+    createTransportRoutes({
+      readiness: createStorageReadinessCheck(adapters),
+    }),
+  )
+  app.route(
+    '/root',
+    createCoreRegistryApp(
+      adapters,
+      {
+        processPublishArtifacts,
+        ...createTrustServices({
+          domainBindingFetchForRequest,
+        }),
+      },
+      {
+        auditLog: options.auditLog,
+        publishUploadLimits: options.publishUploadLimits,
+      },
+    ),
+  )
+  app.route(
+    '/npm',
+    createNpmRegistryRoutes(adapters, {
+      upstreamFetch: options.npmUpstreamFetch,
+    }),
+  )
+  if (import.meta.dev || process.env.NODE_ENV === 'development') {
+    const devApp = import('./dev/app.ts').then(({ createDevLocalhostRoutes }) =>
+      createDevLocalhostRoutes(),
+    )
+    app.all('/dev/*', async (context) => (await devApp).fetch(context.req.raw))
   }
 
   return app
-}
-
-function registryRoutePath(request: Request): string {
-  const url = new URL(request.url)
-  const hostname = requestHostname(request)
-  const prefix =
-    hostname === 'dev.localhost'
-      ? '/dev'
-      : isNpmHostname(hostname)
-        ? '/npm'
-        : '/root'
-  return `${prefix}${url.pathname}`
-}
-
-function requestHostname(request: Request): string {
-  const host = request.headers.get('host')
-
-  if (!host) {
-    return new URL(request.url).hostname.toLowerCase()
-  }
-
-  if (host.startsWith('[')) {
-    const end = host.indexOf(']')
-    return end > 0 ? host.slice(1, end).toLowerCase() : host.toLowerCase()
-  }
-
-  return host.split(':', 1)[0]?.toLowerCase() ?? ''
-}
-
-function isNpmHostname(hostname: string): boolean {
-  return hostname === 'npm' || hostname.startsWith('npm.')
 }

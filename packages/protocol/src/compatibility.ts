@@ -24,6 +24,21 @@ export interface RuntimeCompatibilityObject {
   versions?: string
 }
 
+export function assertCompatibilityString(
+  value: unknown,
+  label = 'Compatibility string',
+): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new TypeError(`${label} must be a non-empty string`)
+  }
+
+  if (hasControlCharacter(value)) {
+    throw new TypeError(`${label} must not include control characters`)
+  }
+
+  return value
+}
+
 export type RuntimeKey =
   | 'andromeda'
   | 'arvancloud'
@@ -52,3 +67,15 @@ export type RuntimeKey =
   | 'python'
   | 'wasm'
   | (string & {})
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0)
+
+    if (code !== undefined && (code <= 0x1f || code === 0x7f)) {
+      return true
+    }
+  }
+
+  return false
+}

@@ -5,13 +5,19 @@ import process from 'node:process'
 import {
   createReleasePublishIntent,
   createWriteAuthorization,
+  releasePublishArtifactDescriptorDigest,
   type Ed25519PrivateKeyJwk,
 } from '@regesta/auth'
 import { configDigest } from '@regesta/core'
-import { prepareNpmPublish } from '@regesta/npm'
 import { parsePackageVersion, sha256 } from '@regesta/protocol'
 import { cac } from 'cac'
 import pkg from '../package.json' with { type: 'json' }
+import { prepareNpmPublish } from './npm-publish.ts'
+import { releasePublishArtifactDescriptors } from './publish-intent.ts'
+import {
+  verifyEventLogFromRegistry,
+  verifyReleaseFromRegistry,
+} from './verify.ts'
 
 const defaultRegistry = 'http://localhost:4321'
 
@@ -39,6 +45,9 @@ cli
         JSON.stringify(
           createWriteAuthorization(
             createReleasePublishIntent({
+              artifactDescriptorDigest: releasePublishArtifactDescriptorDigest(
+                releasePublishArtifactDescriptors(prepared.artifacts),
+              ),
               artifactDigests: prepared.artifacts.map((artifact) =>
                 sha256(artifact.bytes),
               ),
@@ -69,6 +78,9 @@ cli
             mediaType: artifact.mediaType,
             part: `artifact.${index}`,
             role: artifact.role,
+            ...(artifact.compatibility === undefined
+              ? {}
+              : { compatibility: artifact.compatibility }),
           })),
         ),
       )
@@ -101,16 +113,43 @@ cli
   .option('--registry <url>', 'Registry base URL', { default: defaultRegistry })
   .action(async (spec: string, options: { registry: string }) => {
     const parsed = parsePackageVersion(spec)
-    const url = `${normalizeRegistry(options.registry)}/api/v0/packages/${encodeURIComponent(parsed.id)}/releases/${encodeURIComponent(parsed.version)}/verification`
-    const response = await fetch(url)
-    const body = normalizeVerifyResponse(await response.json())
+    const body = await verifyReleaseFromRegistry({
+      packageId: parsed.id,
+      registry: options.registry,
+      version: parsed.version,
+    })
 
     console.info(JSON.stringify(body, null, 2))
 
-    if (!response.ok || !body.ok) {
+    if (!body.ok) {
       process.exitCode = 1
     }
   })
+
+cli
+  .command('verify-log', 'Verify the public registry event log')
+  .option('--registry <url>', 'Registry base URL', { default: defaultRegistry })
+  .option('--limit <count>', 'Event log page size')
+  .option('--max-pages <count>', 'Maximum number of event log pages to fetch')
+  .action(
+    async (options: {
+      limit?: string
+      maxPages?: string
+      registry: string
+    }) => {
+      const body = await verifyEventLogFromRegistry({
+        limit: parseOptionalPositiveInteger(options.limit, '--limit'),
+        maxPages: parseOptionalPositiveInteger(options.maxPages, '--max-pages'),
+        registry: options.registry,
+      })
+
+      console.info(JSON.stringify(body, null, 2))
+
+      if (!body.ok) {
+        process.exitCode = 1
+      }
+    },
+  )
 
 cli
   .command('pack [cwd]', 'Prepare publish payload without uploading')
@@ -139,18 +178,31 @@ function normalizeRegistry(registry: string): string {
   return registry.replace(/\/$/, '')
 }
 
-function normalizeVerifyResponse(value: unknown): { ok?: boolean } {
-  if (!isRecord(value)) {
-    return {}
-  }
-
-  return typeof value.ok === 'boolean' ? { ok: value.ok } : {}
-}
-
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
   return copy.buffer
+}
+
+function parseOptionalPositiveInteger(
+  value: string | undefined,
+  label: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (!/^[1-9]\d*$/u.test(value)) {
+    throw new TypeError(`${label} must be a positive integer`)
+  }
+
+  const parsed = Number(value)
+
+  if (!Number.isSafeInteger(parsed)) {
+    throw new TypeError(`${label} must be a safe integer`)
+  }
+
+  return parsed
 }
 
 async function readAuthKey(

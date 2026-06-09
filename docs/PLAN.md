@@ -1,22 +1,23 @@
 # Regesta Plan
 
-Regesta is a source-native, verifiable package registry for modern JavaScript and TypeScript modules.
+Regesta is a transparent, secure, modern, high-performance, scalable, community-driven universal package registry.
 
-This document captures the product direction, architecture, governance model, and staged implementation plan for Regesta. The goal is not to build a prettier npm UI, a security SaaS, or another thin registry clone. The goal is to design a modern registry kernel that can serve as trustworthy public infrastructure for the next decade of JavaScript.
+This document captures the product direction, architecture, governance model, and staged implementation plan for Regesta. The goal is not to build a prettier npm UI, a security SaaS, or another thin registry clone. The goal is to design a registry kernel that can serve as trustworthy public infrastructure across npm, PyPI, Cargo, Go, OCI, and future package ecosystems.
 
 ## 1. Mission
 
-Regesta exists to make JavaScript package distribution:
+Regesta exists to make package distribution:
 
-- source-native;
-- runtime-neutral;
+- ecosystem-neutral;
+- platform-neutral;
+- source-attached;
 - content-addressed;
 - publicly auditable;
 - mirrorable;
 - forkable;
 - AI-readable;
 - governance-aware;
-- compatible with existing npm-based tooling where possible.
+- compatible with existing package-manager tooling through projections where possible.
 
 The registry should not merely host packages. It should publish verifiable facts about packages.
 
@@ -52,24 +53,23 @@ This is the key architectural distinction.
 
 ## 3. Non-Goals for v0
 
-Regesta v0 should not attempt to replace all of npm.
+Regesta v0 should not attempt to replace all package registries.
 
 It should not initially support:
 
-- arbitrary npm-only tarball uploads without source attachment;
-- CommonJS authoring as the primary package format;
+- arbitrary artifact uploads without source attachment;
 - lifecycle scripts;
-- native addons;
 - arbitrary build scripts;
 - postinstall downloads;
-- full npm mirroring;
+- full ecosystem mirroring;
+- multiple first-class ecosystem projections beyond npm;
 - private package hosting;
 - enterprise dashboards;
 - black-box security scoring;
 - P2P distribution;
 - a large bureaucratic governance body.
 
-The first version should prove the registry kernel, not imitate every legacy behavior of npm.
+The first version should prove the registry kernel, not imitate every legacy behavior of an existing package manager.
 
 ## 4. Product Positioning
 
@@ -78,20 +78,29 @@ Regesta is not a "more secure npm" in the narrow security-vendor sense.
 It is:
 
 ```text
-A source-native, verifiable registry for modern JavaScript and TypeScript modules.
+A transparent, verifiable registry kernel with ecosystem-native projections.
 ```
 
-The initial target is high-quality modern packages:
+The initial implementation is TypeScript-first and npm-compatible because that is the fastest path to a working PoC. That is an implementation and adoption choice, not the core data model.
 
-- TypeScript libraries;
-- ESM-first packages;
-- frontend libraries;
-- SDKs;
-- edge/runtime-neutral libraries;
-- framework utilities;
-- packages that benefit from provenance and source-native distribution.
+The initial target is high-quality packages that can exercise the kernel:
 
-Long-term, Regesta may become a broader registry and trust infrastructure. But the initial product must be focused.
+- TypeScript libraries and SDKs;
+- source-attached npm packages;
+- packages with domain-bound ownership;
+- packages with content-addressed install artifacts;
+- packages that benefit from provenance and transparent release history.
+
+Long-term, Regesta should support ecosystem projections and publisher clients for:
+
+- npm;
+- PyPI;
+- Cargo;
+- Go;
+- OCI;
+- future package ecosystems.
+
+The product must stay focused in v0, but the architecture should not bake npm into the core registry model.
 
 ## 5. Naming and Identity
 
@@ -134,23 +143,23 @@ Use `regesta.dev` as the primary public domain. Avoid introducing a separate `.i
 
 ## 6. Design Principles
 
-### 6.1 Source-Native
+### 6.1 Source-Attached First
 
 Authors publish source as a first-class release object, not only opaque build artifacts.
 
-For JavaScript and TypeScript packages, source-native publishing should not require a single registry-owned builder. The JS ecosystem has many legitimate build tools and configuration models, so Regesta should preserve source, content-address artifacts, and record provenance before it attempts to verify or reproduce every build.
+Source-attached publishing should not require a single registry-owned builder. Each ecosystem has legitimate build tools, package formats, and resolver metadata, so Regesta should preserve source, content-address artifacts, and record provenance before it attempts to verify or reproduce every build.
 
 V0 should support a neutral source-attached model:
 
 - the source archive is mandatory and content-addressed;
 - install artifacts are content-addressed;
 - the release manifest records that source and install artifacts were attached;
-- v0 requires package-manager-produced tarball bytes in the publish request;
+- v0 requires package-manager-produced install artifact bytes in the publish request;
 - the verification level must be explicit.
 
 The registry may generate projections and auxiliary artifacts such as:
 
-- npm-compatible tarball projections;
+- package-manager compatibility projections;
 - type declarations;
 - documentation data;
 - AI context bundles;
@@ -253,7 +262,7 @@ The architecture must ensure that no single operator can permanently capture the
 
 ## 7. Package Model
 
-### 7.1 Package Coordinates
+### 7.1 Package Ids
 
 Regesta v0 should require scoped packages.
 
@@ -303,31 +312,31 @@ Rules:
 - new domain holder must go through a public reclaim process;
 - already-published package coordinates are never silently reassigned.
 
-### 7.3 System Scopes
+### 7.3 System Names
 
-Regesta may reserve system scopes such as:
+Regesta may reserve system package families or projection-specific names such as:
 
 ```text
-@std/*
-@types/*
-@registry/*
-@npm/*
+std/*
+types/*
+registry/*
+npm/*
 ```
 
 These should be created only through explicit policy.
 
-### 7.4 Project Scopes and Short Scopes
+### 7.4 Project Labels and Short Names
 
-Short scopes should not be first-come-first-served.
+Short labels should not be first-come-first-served.
 
 Examples:
 
 ```text
-@react/*
-@vue/*
-@vite/*
-@hono/*
-@zod/*
+react
+vue
+vite
+hono
+zod
 ```
 
 These are scarce ecosystem resources.
@@ -344,19 +353,19 @@ Signals may include:
 
 - stable download volume;
 - public dependents;
-- existing npm/JSR/GitHub identity;
+- existing native registry or source-host identity;
 - verified domain;
 - source provenance;
 - community recognition.
 
 Downloads alone should never automatically grant a scope because downloads can be manipulated.
 
-Project labels may exist as metadata, but they should not become package ids.
+Project labels may exist as metadata, but they should not become canonical package ids.
 
 Example:
 
 ```text
-canonical: @hono.dev/hono
+canonical: npm:hono.dev/hono
 label:     hono
 ```
 
@@ -388,7 +397,7 @@ Example shape:
 ```json
 {
   "schemaVersion": 1,
-  "package": "@example.com/foo",
+  "package": "npm:example.com/foo",
   "version": "1.2.3",
   "createdAt": "2026-05-30T00:00:00Z",
   "source": {
@@ -503,7 +512,7 @@ Independent witnesses should observe checkpoints, verify consistency, and counte
 Possible future witnesses:
 
 - foundation or fiscal host;
-- OpenJS-related participant;
+- ecosystem foundation participants;
 - runtime ecosystem participants;
 - independent security labs;
 - universities;
@@ -731,9 +740,9 @@ Containers       -> sandboxed build/analysis workers
 
 Durable Objects are useful for per-package serialization, but the abstract requirement is a per-package transactional coordinator.
 
-## 13. npm Compatibility
+## 13. Ecosystem Projections and npm Compatibility
 
-npm compatibility is necessary for adoption, but npm's data model should not define Regesta's internal architecture.
+Ecosystem compatibility is necessary for adoption, but no package manager's data model should define Regesta's internal architecture. npm compatibility is the first projection because it gives the TypeScript v0 a real package-manager install path.
 
 Native Regesta model:
 
@@ -745,7 +754,7 @@ object digests
 event log
 ```
 
-npm compatibility layer:
+npm projection:
 
 ```text
 generated packument
@@ -754,7 +763,7 @@ dist.integrity
 semver-compatible metadata
 ```
 
-The npm packument should be a projection, not source of truth.
+The npm packument should be a projection, not the source of truth.
 
 Important limitation:
 
@@ -763,7 +772,7 @@ Existing npm clients will not verify Regesta transparency proofs. They may verif
 Therefore Regesta should support two modes:
 
 ```text
-npm-compatible mode   -> broad compatibility
+npm-compatible mode   -> broad compatibility through projection
 verified mode         -> full manifest/log/status verification
 ```
 
@@ -786,7 +795,7 @@ Initial publish flow:
 4. Source is uploaded to object storage.
 5. Server validates domain scope, package policy, exports, and source layout.
 6. CLI/package manager workflow provides artifacts:
-   - install tarball;
+   - install artifact;
    - package metadata;
    - docs JSON;
    - type declarations;
@@ -796,9 +805,9 @@ Initial publish flow:
 8. Package coordinator commits atomically:
    - release event;
    - release row/projection;
-   - dist-tag update;
+   - channel update;
    - object inventory update;
-   - npm adapter projection.
+   - ecosystem projection metadata.
 9. Release becomes visible.
 
 Invariant:
@@ -831,7 +840,7 @@ Each release should provide a machine-readable audit bundle:
 
 ```json
 {
-  "package": "@example.com/foo",
+  "package": "npm:example.com/foo",
   "version": "1.2.3",
   "manifestDigest": "sha256:...",
   "source": {
@@ -869,7 +878,7 @@ Example:
   "auditor": "socket.dev",
   "auditorKeyId": "socket-2026-01",
   "release": {
-    "package": "@example.com/foo",
+    "package": "npm:example.com/foo",
     "version": "1.2.3",
     "manifestDigest": "sha256:..."
   },
@@ -980,7 +989,7 @@ Example:
 ```json
 {
   "schema": "regesta.package-intelligence.v1",
-  "package": "@example.com/router",
+  "package": "npm:example.com/router",
   "version": "1.2.3",
   "summary": {
     "oneLine": "A small URL router for Web Standard Request objects.",
@@ -1225,7 +1234,7 @@ Deliverables:
 
 ### Milestone 1: Minimal Registry Kernel
 
-Goal: publish and install one tarball-backed, source-attached TS/JS package.
+Goal: publish and install one source-attached package through the npm-first PoC path, while keeping the core release model ecosystem-neutral.
 
 Deliverables:
 
@@ -1237,7 +1246,7 @@ Deliverables:
 - source-attached provenance;
 - package page;
 - basic docs generation;
-- npm-compatible install;
+- npm-compatible install through the npm projection;
 - immutable releases.
 
 ### Milestone 2: Event Log and Verification
@@ -1254,7 +1263,7 @@ Deliverables:
 Example command:
 
 ```sh
-regesta verify @example.com/foo@1.0.0
+regesta verify npm:example.com/foo@1.0.0
 ```
 
 ### Milestone 3: Native Protocol and Projections
@@ -1266,7 +1275,7 @@ Deliverables:
 - object API;
 - generated npm packument projection;
 - version sharding;
-- dist-tag projection;
+- channel and dist-tag projection;
 - package state replay tooling.
 
 ### Milestone 4: AI Context and Package Intelligence
@@ -1338,8 +1347,8 @@ The architecture is ambitious.
 The first version must stay narrow:
 
 ```text
-domain-scoped source package
-+ generated npm artifact
+domain-scoped package id
++ uploaded install artifact
 + release manifest
 + event log
 + basic verification
@@ -1454,7 +1463,7 @@ Regesta should be built as a registry kernel first.
 The kernel is:
 
 ```text
-source-native publishing
+source-attached publishing
 content-addressed objects
 release manifests
 append-only public event log
@@ -1469,7 +1478,7 @@ The user-facing experience should be simple:
 ```sh
 regesta publish
 npm install @example.com/foo --registry=https://registry.regesta.dev
-regesta verify @example.com/foo@1.0.0
+regesta verify npm:example.com/foo@1.0.0
 ```
 
 The underlying architecture should be strong enough that other registries will eventually have to answer the questions Regesta raises:

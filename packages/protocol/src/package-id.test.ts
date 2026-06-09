@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { parsePackageId, parsePackageVersion } from './package-id.ts'
+import {
+  isCanonicalOwnerDomain,
+  parsePackageId,
+  parsePackageVersion,
+} from './package-id.ts'
 
 describe('parsePackageId', () => {
   it('parses canonical domain-scoped package ids', () => {
@@ -7,7 +11,25 @@ describe('parsePackageId', () => {
       ecosystem: 'npm',
       id: 'npm:some.dev/sdk',
       name: 'some.dev/sdk',
-      scope: 'some.dev',
+      ownerDomain: 'some.dev',
+    })
+  })
+
+  it('parses owner domains without ecosystem-specific package concepts', () => {
+    expect(parsePackageId('pypi:some.dev/sdk')).toEqual({
+      ecosystem: 'pypi',
+      id: 'pypi:some.dev/sdk',
+      name: 'some.dev/sdk',
+      ownerDomain: 'some.dev',
+    })
+  })
+
+  it('allows multi-segment package names for ecosystems that need paths', () => {
+    expect(parsePackageId('go:some.dev/releases/pkg')).toEqual({
+      ecosystem: 'go',
+      id: 'go:some.dev/releases/pkg',
+      name: 'some.dev/releases/pkg',
+      ownerDomain: 'some.dev',
     })
   })
 
@@ -17,10 +39,53 @@ describe('parsePackageId', () => {
     )
   })
 
+  it('rejects non-string package id inputs', () => {
+    expect(() => parsePackageId(JSON.parse('null'))).toThrow(
+      'Package id must be a string',
+    )
+  })
+
   it('requires the owner segment to be a domain', () => {
     expect(() => parsePackageId('npm:some/sdk')).toThrow(
       'Package id owner must be a domain',
     )
+  })
+
+  it('requires canonical lowercase DNS-style owner domains', () => {
+    for (const id of [
+      'npm:Some.dev/sdk',
+      'npm:some .dev/sdk',
+      'npm:-some.dev/sdk',
+      'npm:some-.dev/sdk',
+      'npm:some..dev/sdk',
+    ]) {
+      expect(() => parsePackageId(id)).toThrow(
+        'Package id owner must be a domain',
+      )
+    }
+  })
+
+  it('rejects empty package name path segments', () => {
+    for (const id of [
+      'npm:some.dev/',
+      'npm:some.dev//sdk',
+      'go:some.dev/releases/',
+      'go:some.dev/releases//pkg',
+    ]) {
+      expect(() => parsePackageId(id)).toThrow(
+        'Package id name must not contain empty segments',
+      )
+    }
+  })
+})
+
+describe('isCanonicalOwnerDomain', () => {
+  it('accepts only lowercase DNS-style owner domains', () => {
+    expect(isCanonicalOwnerDomain('some.dev')).toBe(true)
+    expect(isCanonicalOwnerDomain('Some.dev')).toBe(false)
+    expect(isCanonicalOwnerDomain('some')).toBe(false)
+    expect(isCanonicalOwnerDomain('some..dev')).toBe(false)
+    expect(isCanonicalOwnerDomain('some-.dev')).toBe(false)
   })
 })
 
@@ -30,5 +95,20 @@ describe('parsePackageVersion', () => {
       id: 'npm:some.dev/sdk',
       version: '1.2.3',
     })
+  })
+
+  it('rejects non-string package version inputs', () => {
+    expect(() => parsePackageVersion(JSON.parse('null'))).toThrow(
+      'Package version must be a string',
+    )
+  })
+
+  it('rejects invalid package version values', () => {
+    expect(() => parsePackageVersion('npm:some.dev/sdk@')).toThrow(
+      'Package version must be a non-empty string',
+    )
+    expect(() => parsePackageVersion('npm:some.dev/sdk@1.2.3\r\nx')).toThrow(
+      'Package version must not include control characters',
+    )
   })
 })

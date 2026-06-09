@@ -1,9 +1,15 @@
 import { Buffer } from 'node:buffer'
 import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
 import {
+  assertArtifactDescriptorString,
+  assertCanonicalTimestamp,
+  assertObjectMediaType,
+  assertPackageChannel,
+  assertPackageVersion,
   assertSha256Digest,
   canonicalJson,
   defaultPackageChannel,
+  isCanonicalOwnerDomain,
   parsePackageId,
   sha256,
   type CanonicalJsonValue,
@@ -66,6 +72,7 @@ export interface WriteIntentBase {
 }
 
 export interface ReleasePublishIntent extends WriteIntentBase {
+  artifactDescriptorDigest: Sha256Digest
   artifactDigests: Sha256Digest[]
   channel: string
   configDigest: Sha256Digest
@@ -88,6 +95,7 @@ export interface ChannelDeleteIntent extends WriteIntentBase {
 }
 
 export interface CreateReleasePublishIntentInput {
+  artifactDescriptorDigest: Sha256Digest
   artifactDigests: Sha256Digest[]
   configDigest: Sha256Digest
   nonce: string
@@ -127,6 +135,40 @@ export interface VerifyWriteAuthorizationInput {
   timestampToleranceMs?: number
 }
 
+export interface VerifyPublishAuthorizationInput {
+  artifacts: Array<{
+    bytes: Uint8Array
+    compatibility?: unknown
+    filename?: string
+    format?: string
+    mediaType: string
+    role: string
+  }>
+  authorization: unknown
+  configDigest: Sha256Digest
+  fetchBinding: typeof fetch
+  packageId: PackageId
+  source: Uint8Array
+  version: string
+}
+
+export interface VerifyChannelUpdateAuthorizationInput {
+  authorization: unknown
+  channel: string
+  fetchBinding: typeof fetch
+  packageId: PackageId
+  previousVersion?: string
+  version: string
+}
+
+export interface VerifyChannelDeleteAuthorizationInput {
+  authorization: unknown
+  channel: string
+  fetchBinding: typeof fetch
+  packageId: PackageId
+  previousVersion?: string
+}
+
 export class WriteAuthorizationError extends Error {
   readonly issues: string[]
 
@@ -137,7 +179,18 @@ export class WriteAuthorizationError extends Error {
   }
 }
 
+export interface ReleasePublishArtifactDescriptorInput {
+  compatibility?: unknown
+  digest: Sha256Digest
+  filename?: string
+  format?: string
+  mediaType: string
+  role: string
+}
+
 const defaultTimestampToleranceMs = 10 * 60 * 1000
+const defaultDomainBindingFetchTimeoutMs = 10 * 1000
+const maxDomainBindingBytes = 64 * 1024
 
 export function createReleasePublishIntent(
   input: CreateReleasePublishIntentInput,
@@ -145,18 +198,22 @@ export function createReleasePublishIntent(
   const packageId = parsePackageId(input.packageId).id
 
   return {
-    artifactDigests: input.artifactDigests,
+    artifactDescriptorDigest: normalizeDigest(
+      input.artifactDescriptorDigest,
+      'artifactDescriptorDigest',
+    ),
+    artifactDigests: normalizeDigestArray(input.artifactDigests),
     channel: defaultPackageChannel,
-    configDigest: input.configDigest,
+    configDigest: normalizeDigest(input.configDigest, 'configDigest'),
     domain: ownerDomainFromPackageId(packageId),
-    nonce: input.nonce,
+    nonce: normalizeTokenString(input.nonce, 'nonce'),
     object: 'regesta.write-intent',
     operation: 'release.publish',
     package: packageId,
-    sourceDigest: input.sourceDigest,
+    sourceDigest: normalizeDigest(input.sourceDigest, 'sourceDigest'),
     specVersion: 0,
-    timestamp: input.timestamp,
-    version: input.version,
+    timestamp: normalizeTimestamp(input.timestamp, 'timestamp'),
+    version: normalizeVersion(input.version, 'version'),
   }
 }
 
@@ -166,18 +223,23 @@ export function createChannelUpdateIntent(
   const packageId = parsePackageId(input.packageId).id
 
   return {
-    channel: input.channel,
+    channel: normalizeChannel(input.channel),
     domain: ownerDomainFromPackageId(packageId),
-    nonce: input.nonce,
+    nonce: normalizeTokenString(input.nonce, 'nonce'),
     object: 'regesta.write-intent',
     operation: 'channel.update',
     package: packageId,
-    ...(input.previousVersion
-      ? { previousVersion: input.previousVersion }
-      : {}),
+    ...(input.previousVersion === undefined
+      ? {}
+      : {
+          previousVersion: normalizeVersion(
+            input.previousVersion,
+            'previousVersion',
+          ),
+        }),
     specVersion: 0,
-    timestamp: input.timestamp,
-    version: input.version,
+    timestamp: normalizeTimestamp(input.timestamp, 'timestamp'),
+    version: normalizeVersion(input.version, 'version'),
   }
 }
 
@@ -187,17 +249,22 @@ export function createChannelDeleteIntent(
   const packageId = parsePackageId(input.packageId).id
 
   return {
-    channel: input.channel,
+    channel: normalizeChannel(input.channel),
     domain: ownerDomainFromPackageId(packageId),
-    nonce: input.nonce,
+    nonce: normalizeTokenString(input.nonce, 'nonce'),
     object: 'regesta.write-intent',
     operation: 'channel.delete',
     package: packageId,
-    ...(input.previousVersion
-      ? { previousVersion: input.previousVersion }
-      : {}),
+    ...(input.previousVersion === undefined
+      ? {}
+      : {
+          previousVersion: normalizeVersion(
+            input.previousVersion,
+            'previousVersion',
+          ),
+        }),
     specVersion: 0,
-    timestamp: input.timestamp,
+    timestamp: normalizeTimestamp(input.timestamp, 'timestamp'),
   }
 }
 
@@ -217,7 +284,7 @@ export function createWriteAuthorization(
 
   return {
     alg: 'EdDSA',
-    kid: input.kid,
+    kid: normalizeTokenString(input.kid, 'kid'),
     payload,
     signature: base64UrlEncode(signature),
   }
@@ -225,6 +292,103 @@ export function createWriteAuthorization(
 
 export function readWriteAuthorization(value: unknown): WriteAuthorization {
   return normalizeWriteAuthorization(value)
+}
+
+export function verifyPublishAuthorization(
+  input: VerifyPublishAuthorizationInput,
+): Promise<WriteAuthorizationProof> {
+  const authorization = readWriteAuthorization(input.authorization)
+
+  return verifyWriteAuthorization({
+    authorization,
+    expectedIntent: createReleasePublishIntent({
+      artifactDescriptorDigest: releasePublishArtifactDescriptorDigest(
+        input.artifacts.map((artifact) => ({
+          ...(artifact.compatibility === undefined
+            ? {}
+            : { compatibility: artifact.compatibility }),
+          digest: sha256(artifact.bytes),
+          ...(artifact.filename === undefined
+            ? {}
+            : { filename: artifact.filename }),
+          ...(artifact.format === undefined ? {} : { format: artifact.format }),
+          mediaType: artifact.mediaType,
+          role: artifact.role,
+        })),
+      ),
+      artifactDigests: input.artifacts.map((artifact) =>
+        sha256(artifact.bytes),
+      ),
+      configDigest: input.configDigest,
+      nonce: authorization.payload.nonce,
+      packageId: input.packageId,
+      sourceDigest: sha256(input.source),
+      timestamp: authorization.payload.timestamp,
+      version: input.version,
+    }),
+    fetchBinding: input.fetchBinding,
+  })
+}
+
+export function releasePublishArtifactDescriptorDigest(
+  artifacts: ReleasePublishArtifactDescriptorInput[],
+): Sha256Digest {
+  if (!Array.isArray(artifacts)) {
+    throw new WriteAuthorizationError('artifactDescriptors must be an array')
+  }
+
+  if (artifacts.length === 0) {
+    throw new WriteAuthorizationError('artifactDescriptors must not be empty')
+  }
+
+  return sha256(
+    canonicalJson(
+      artifacts.map((artifact) => {
+        return releasePublishArtifactDescriptorJson(artifact)
+      }),
+    ),
+  )
+}
+
+export function verifyChannelUpdateAuthorization(
+  input: VerifyChannelUpdateAuthorizationInput,
+): Promise<WriteAuthorizationProof> {
+  const authorization = readWriteAuthorization(input.authorization)
+
+  return verifyWriteAuthorization({
+    authorization,
+    expectedIntent: createChannelUpdateIntent({
+      channel: input.channel,
+      nonce: authorization.payload.nonce,
+      packageId: input.packageId,
+      ...(input.previousVersion
+        ? { previousVersion: input.previousVersion }
+        : {}),
+      timestamp: authorization.payload.timestamp,
+      version: input.version,
+    }),
+    fetchBinding: input.fetchBinding,
+  })
+}
+
+export function verifyChannelDeleteAuthorization(
+  input: VerifyChannelDeleteAuthorizationInput,
+): Promise<WriteAuthorizationProof> {
+  const authorization = readWriteAuthorization(input.authorization)
+
+  return verifyWriteAuthorization({
+    authorization,
+    expectedIntent: createChannelDeleteIntent({
+      channel: input.channel,
+      nonce: authorization.payload.nonce,
+      packageId: input.packageId,
+      ...(input.previousVersion
+        ? { previousVersion: input.previousVersion }
+        : {}),
+      timestamp: authorization.payload.timestamp,
+    }),
+    fetchBinding: input.fetchBinding,
+  })
 }
 
 export async function verifyWriteAuthorization(
@@ -250,14 +414,15 @@ export async function verifyWriteAuthorization(
     authorization.payload.domain,
     input.fetchBinding ?? fetch,
   )
-  const binding = normalizeDomainBinding(
-    JSON.parse(bindingResponse.text),
+  const binding = normalizeDomainBindingText(
+    bindingResponse.text,
     authorization.payload.domain,
   )
   const key = activeWriteKey(
     binding,
     authorization.kid,
     input.now ?? new Date(),
+    authorization.payload.timestamp,
   )
 
   if (!key) {
@@ -270,15 +435,25 @@ export async function verifyWriteAuthorization(
     throw new WriteAuthorizationError('Write authorization algorithm mismatch')
   }
 
-  const ok = verify(
-    null,
-    payloadBytes(authorization.payload),
-    createPublicKey({
+  let publicKey: ReturnType<typeof createPublicKey>
+
+  try {
+    publicKey = createPublicKey({
       format: 'jwk',
       key: key.publicKeyJwk,
-    }),
-    base64UrlDecode(authorization.signature),
-  )
+    })
+  } catch {
+    throw new WriteAuthorizationError('Invalid domain binding public key')
+  }
+
+  const signature = ed25519SignatureBytes(authorization.signature)
+  let ok: boolean
+
+  try {
+    ok = verify(null, payloadBytes(authorization.payload), publicKey, signature)
+  } catch {
+    throw new WriteAuthorizationError('Invalid write authorization signature')
+  }
 
   if (!ok) {
     throw new WriteAuthorizationError('Invalid write authorization signature')
@@ -300,23 +475,14 @@ export async function verifyWriteAuthorization(
 
 export function ownerDomainFromPackageId(packageId: PackageId): string {
   const parsed = parsePackageId(packageId)
-
-  if (parsed.ecosystem === 'npm' && parsed.scope) {
-    return parsed.scope
-  }
-
-  const domain = parsed.name.split('/')[0]
-
-  if (!domain?.includes('.')) {
-    throw new WriteAuthorizationError(
-      `Package id does not include an owner domain: ${packageId}`,
-    )
-  }
-
-  return domain.toLowerCase()
+  return parsed.ownerDomain
 }
 
 export function domainBindingUrl(domain: string): string {
+  if (!isCanonicalOwnerDomain(domain)) {
+    throw new TypeError('Domain must be a canonical DNS domain')
+  }
+
   return `https://${domain}/.well-known/regesta.json`
 }
 
@@ -324,18 +490,134 @@ async function fetchDomainBinding(
   domain: string,
   fetchBinding: typeof fetch,
 ): Promise<{ text: string }> {
-  const response = await fetchBinding(domainBindingUrl(domain), {
-    headers: {
-      accept: 'application/json',
-    },
-  })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, defaultDomainBindingFetchTimeoutMs)
+  let response: Response
+
+  try {
+    response = await fetchBinding(domainBindingUrl(domain), {
+      cache: 'no-store',
+      credentials: 'omit',
+      headers: {
+        accept: 'application/json',
+      },
+      method: 'GET',
+      signal: controller.signal,
+    })
+  } catch (error) {
+    throw new WriteAuthorizationError('Domain binding fetch failed', [
+      error instanceof Error ? error.message : String(error),
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!response.ok) {
     throw new WriteAuthorizationError('Domain binding not found')
   }
 
+  let text: string
+
+  try {
+    text = await readDomainBindingText(response)
+  } catch (error) {
+    if (error instanceof WriteAuthorizationError) {
+      throw error
+    }
+
+    throw new WriteAuthorizationError('Domain binding read failed', [
+      error instanceof Error ? error.message : String(error),
+    ])
+  }
+
   return {
-    text: await response.text(),
+    text,
+  }
+}
+
+async function readDomainBindingText(response: Response): Promise<string> {
+  assertDomainBindingContentType(response.headers.get('content-type'))
+  assertDomainBindingContentLength(response.headers.get('content-length'))
+
+  if (!response.body) {
+    const text = await response.text()
+    if (new TextEncoder().encode(text).byteLength > maxDomainBindingBytes) {
+      throw new WriteAuthorizationError('Domain binding response is too large')
+    }
+
+    return text
+  }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+
+      if (!value) {
+        continue
+      }
+
+      totalBytes += value.byteLength
+      if (totalBytes > maxDomainBindingBytes) {
+        throw new WriteAuthorizationError(
+          'Domain binding response is too large',
+        )
+      }
+
+      chunks.push(value)
+    }
+  } catch (error) {
+    try {
+      await reader.cancel()
+    } catch {
+      // Preserve the original stream read or validation error.
+    }
+
+    throw error
+  } finally {
+    reader.releaseLock()
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return new TextDecoder().decode(bytes)
+}
+
+function assertDomainBindingContentType(value: string | null): void {
+  if (value === null) {
+    return
+  }
+
+  const mediaType = value.split(';', 1)[0]?.trim().toLowerCase()
+
+  if (mediaType !== 'application/json' && !mediaType?.endsWith('+json')) {
+    throw new WriteAuthorizationError('Domain binding response must be JSON')
+  }
+}
+
+function assertDomainBindingContentLength(value: string | null): void {
+  if (value === null) {
+    return
+  }
+
+  const size = Number(value)
+
+  if (!Number.isSafeInteger(size) || size < 0 || size > maxDomainBindingBytes) {
+    throw new WriteAuthorizationError('Domain binding response is too large')
   }
 }
 
@@ -344,12 +626,14 @@ function normalizeWriteAuthorization(value: unknown): WriteAuthorization {
     throw new WriteAuthorizationError('Write authorization must be an object')
   }
 
+  assertKnownFields(
+    value,
+    ['alg', 'kid', 'payload', 'signature'],
+    'Write authorization',
+  )
+
   if (value.alg !== 'EdDSA') {
     throw new WriteAuthorizationError('Write authorization alg must be EdDSA')
-  }
-
-  if (typeof value.kid !== 'string' || value.kid.length === 0) {
-    throw new WriteAuthorizationError('Write authorization must include kid')
   }
 
   if (typeof value.signature !== 'string' || value.signature.length === 0) {
@@ -360,7 +644,7 @@ function normalizeWriteAuthorization(value: unknown): WriteAuthorization {
 
   return {
     alg: value.alg,
-    kid: value.kid,
+    kid: normalizeTokenString(value.kid, 'kid'),
     payload: normalizeWriteIntent(value.payload),
     signature: value.signature,
   }
@@ -374,46 +658,103 @@ function normalizeWriteIntent(value: unknown): WriteIntent {
   const base = normalizeWriteIntentBase(value)
 
   if (value.operation === 'release.publish') {
+    assertKnownFields(
+      value,
+      [
+        'artifactDescriptorDigest',
+        'artifactDigests',
+        'channel',
+        'configDigest',
+        'domain',
+        'nonce',
+        'object',
+        'operation',
+        'package',
+        'sourceDigest',
+        'specVersion',
+        'timestamp',
+        'version',
+      ],
+      'Write intent',
+    )
+
     return {
       ...base,
+      artifactDescriptorDigest: normalizeDigest(
+        value.artifactDescriptorDigest,
+        'artifactDescriptorDigest',
+      ),
       artifactDigests: normalizeDigestArray(value.artifactDigests),
       channel:
         value.channel === undefined
           ? defaultPackageChannel
-          : normalizeString(value.channel, 'channel'),
+          : normalizeChannel(value.channel),
       configDigest: normalizeDigest(value.configDigest, 'configDigest'),
       operation: 'release.publish',
       sourceDigest: normalizeDigest(value.sourceDigest, 'sourceDigest'),
-      version: normalizeString(value.version, 'version'),
+      version: normalizeVersion(value.version, 'version'),
     }
   }
 
   if (value.operation === 'channel.update') {
+    assertKnownFields(
+      value,
+      [
+        'channel',
+        'domain',
+        'nonce',
+        'object',
+        'operation',
+        'package',
+        'previousVersion',
+        'specVersion',
+        'timestamp',
+        'version',
+      ],
+      'Write intent',
+    )
+
     return {
       ...base,
-      channel: normalizeString(value.channel, 'channel'),
+      channel: normalizeChannel(value.channel),
       operation: 'channel.update',
       ...(value.previousVersion === undefined
         ? {}
         : {
-            previousVersion: normalizeString(
+            previousVersion: normalizeVersion(
               value.previousVersion,
               'previousVersion',
             ),
           }),
-      version: normalizeString(value.version, 'version'),
+      version: normalizeVersion(value.version, 'version'),
     }
   }
 
   if (value.operation === 'channel.delete') {
+    assertKnownFields(
+      value,
+      [
+        'channel',
+        'domain',
+        'nonce',
+        'object',
+        'operation',
+        'package',
+        'previousVersion',
+        'specVersion',
+        'timestamp',
+      ],
+      'Write intent',
+    )
+
     return {
       ...base,
-      channel: normalizeString(value.channel, 'channel'),
+      channel: normalizeChannel(value.channel),
       operation: 'channel.delete',
       ...(value.previousVersion === undefined
         ? {}
         : {
-            previousVersion: normalizeString(
+            previousVersion: normalizeVersion(
               value.previousVersion,
               'previousVersion',
             ),
@@ -441,11 +782,11 @@ function normalizeWriteIntentBase(
 
   return {
     domain: normalizeDomain(value.domain),
-    nonce: normalizeString(value.nonce, 'nonce'),
+    nonce: normalizeTokenString(value.nonce, 'nonce'),
     object: 'regesta.write-intent',
     package: parsePackageId(normalizeString(value.package, 'package')).id,
     specVersion: 0,
-    timestamp: normalizeString(value.timestamp, 'timestamp'),
+    timestamp: normalizeTimestamp(value.timestamp, 'timestamp'),
   }
 }
 
@@ -456,6 +797,12 @@ function normalizeDomainBinding(
   if (!isRecord(value)) {
     throw new WriteAuthorizationError('Domain binding must be an object')
   }
+
+  assertKnownFields(
+    value,
+    ['domain', 'keys', 'object', 'specVersion'],
+    'Domain binding',
+  )
 
   if (value.object !== 'regesta.domain-binding') {
     throw new WriteAuthorizationError(
@@ -476,18 +823,56 @@ function normalizeDomainBinding(
     throw new WriteAuthorizationError('Domain binding keys must be an array')
   }
 
+  const keys = value.keys.map((key) => normalizeDomainBindingKey(key))
+  assertUniqueDomainBindingKeyIds(keys)
+
   return {
     domain,
-    keys: value.keys.map((key) => normalizeDomainBindingKey(key)),
+    keys,
     object: 'regesta.domain-binding',
     specVersion: 0,
   }
+}
+
+function assertUniqueDomainBindingKeyIds(keys: DomainBindingKey[]): void {
+  const seen = new Set<string>()
+
+  for (const key of keys) {
+    if (seen.has(key.kid)) {
+      throw new WriteAuthorizationError(
+        `Domain binding key kid must be unique: ${key.kid}`,
+      )
+    }
+
+    seen.add(key.kid)
+  }
+}
+
+function normalizeDomainBindingText(
+  text: string,
+  expectedDomain: string,
+): DomainBinding {
+  let value: unknown
+
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw new WriteAuthorizationError('Domain binding JSON is invalid')
+  }
+
+  return normalizeDomainBinding(value, expectedDomain)
 }
 
 function normalizeDomainBindingKey(value: unknown): DomainBindingKey {
   if (!isRecord(value)) {
     throw new WriteAuthorizationError('Domain binding key must be an object')
   }
+
+  assertKnownFields(
+    value,
+    ['alg', 'createdAt', 'expiresAt', 'kid', 'publicKeyJwk', 'use'],
+    'Domain binding key',
+  )
 
   if (value.alg !== 'EdDSA') {
     throw new WriteAuthorizationError('Domain binding key alg must be EdDSA')
@@ -499,15 +884,30 @@ function normalizeDomainBindingKey(value: unknown): DomainBindingKey {
     )
   }
 
+  const createdAt =
+    value.createdAt === undefined
+      ? undefined
+      : normalizeTimestamp(value.createdAt, 'createdAt')
+  const expiresAt =
+    value.expiresAt === undefined
+      ? undefined
+      : normalizeTimestamp(value.expiresAt, 'expiresAt')
+
+  if (
+    createdAt !== undefined &&
+    expiresAt !== undefined &&
+    Date.parse(expiresAt) <= Date.parse(createdAt)
+  ) {
+    throw new WriteAuthorizationError(
+      'Domain binding key expiresAt must be after createdAt',
+    )
+  }
+
   return {
     alg: value.alg,
-    ...(value.createdAt === undefined
-      ? {}
-      : { createdAt: normalizeString(value.createdAt, 'createdAt') }),
-    ...(value.expiresAt === undefined
-      ? {}
-      : { expiresAt: normalizeString(value.expiresAt, 'expiresAt') }),
-    kid: normalizeString(value.kid, 'kid'),
+    ...(createdAt === undefined ? {} : { createdAt }),
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+    kid: normalizeTokenString(value.kid, 'kid'),
     publicKeyJwk: normalizePublicKeyJwk(value.publicKeyJwk),
     use: value.use,
   }
@@ -517,6 +917,8 @@ function normalizePublicKeyJwk(value: unknown): Ed25519PublicKeyJwk {
   if (!isRecord(value)) {
     throw new WriteAuthorizationError('publicKeyJwk must be an object')
   }
+
+  assertKnownFields(value, ['crv', 'kty', 'x'], 'publicKeyJwk')
 
   if (value.kty !== 'OKP') {
     throw new WriteAuthorizationError('publicKeyJwk kty must be OKP')
@@ -529,7 +931,7 @@ function normalizePublicKeyJwk(value: unknown): Ed25519PublicKeyJwk {
   return {
     crv: value.crv,
     kty: value.kty,
-    x: normalizeString(value.x, 'publicKeyJwk.x'),
+    x: ed25519PublicKey(value.x),
   }
 }
 
@@ -537,22 +939,37 @@ function activeWriteKey(
   binding: DomainBinding,
   kid: string,
   now: Date,
+  signedAt: string,
 ): DomainBindingKey | undefined {
+  const signedAtTime = Date.parse(signedAt)
+
   return binding.keys.find((key) => {
     if (key.kid !== kid) {
       return false
     }
 
-    if (key.createdAt && Date.parse(key.createdAt) > now.getTime()) {
+    if (!keyIsActiveAt(key, now.getTime())) {
       return false
     }
 
-    if (key.expiresAt && Date.parse(key.expiresAt) <= now.getTime()) {
+    if (!keyIsActiveAt(key, signedAtTime)) {
       return false
     }
 
     return true
   })
+}
+
+function keyIsActiveAt(key: DomainBindingKey, timestamp: number): boolean {
+  if (key.createdAt && Date.parse(key.createdAt) > timestamp) {
+    return false
+  }
+
+  if (key.expiresAt && Date.parse(key.expiresAt) <= timestamp) {
+    return false
+  }
+
+  return true
 }
 
 function assertFreshTimestamp(
@@ -599,6 +1016,7 @@ function writeIntentJson(intent: WriteIntent): CanonicalJsonValue {
   if (intent.operation === 'release.publish') {
     return {
       ...base,
+      artifactDescriptorDigest: intent.artifactDescriptorDigest,
       artifactDigests: intent.artifactDigests,
       channel: intent.channel,
       configDigest: intent.configDigest,
@@ -627,9 +1045,88 @@ function writeIntentJson(intent: WriteIntent): CanonicalJsonValue {
   }
 }
 
+function releasePublishArtifactDescriptorJson(
+  artifact: ReleasePublishArtifactDescriptorInput,
+): CanonicalJsonValue {
+  return {
+    ...(artifact.compatibility === undefined
+      ? {}
+      : {
+          compatibility: normalizeCanonicalJsonValue(
+            artifact.compatibility,
+            'artifact compatibility',
+          ),
+        }),
+    digest: normalizeDigest(artifact.digest, 'artifact descriptor digest'),
+    ...(artifact.filename === undefined
+      ? {}
+      : {
+          filename: normalizeArtifactDescriptorString(
+            artifact.filename,
+            'artifact filename',
+          ),
+        }),
+    ...(artifact.format === undefined
+      ? {}
+      : {
+          format: normalizeArtifactDescriptorString(
+            artifact.format,
+            'artifact format',
+          ),
+        }),
+    mediaType: normalizeObjectMediaType(artifact.mediaType),
+    role: normalizeArtifactDescriptorString(artifact.role, 'artifact role'),
+  }
+}
+
+function normalizeCanonicalJsonValue(
+  value: unknown,
+  field: string,
+): CanonicalJsonValue {
+  if (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'string'
+  ) {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new WriteAuthorizationError(`${field} must be JSON-compatible`)
+    }
+
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item, index) => {
+      return normalizeCanonicalJsonValue(item, `${field}[${index}]`)
+    })
+  }
+
+  if (isRecord(value)) {
+    const output: Record<string, CanonicalJsonValue> = {}
+
+    for (const [key, item] of Object.entries(value)) {
+      if (item !== undefined) {
+        output[key] = normalizeCanonicalJsonValue(item, `${field}.${key}`)
+      }
+    }
+
+    return output
+  }
+
+  throw new WriteAuthorizationError(`${field} must be JSON-compatible`)
+}
+
 function normalizeDigestArray(value: unknown): Sha256Digest[] {
   if (!Array.isArray(value)) {
     throw new WriteAuthorizationError('artifactDigests must be an array')
+  }
+
+  if (value.length === 0) {
+    throw new WriteAuthorizationError('artifactDigests must not be empty')
   }
 
   return value.map((item) => normalizeDigest(item, 'artifactDigests'))
@@ -646,10 +1143,10 @@ function normalizeDigest(value: unknown, field: string): Sha256Digest {
 }
 
 function normalizeDomain(value: unknown): string {
-  const domain = normalizeString(value, 'domain').toLowerCase()
+  const domain = normalizeString(value, 'domain')
 
-  if (!domain.includes('.')) {
-    throw new WriteAuthorizationError('Domain must include a dot')
+  if (!isCanonicalOwnerDomain(domain)) {
+    throw new WriteAuthorizationError('Domain must be a canonical DNS domain')
   }
 
   return domain
@@ -663,16 +1160,135 @@ function normalizeString(value: unknown, field: string): string {
   return value
 }
 
+function normalizeTokenString(value: unknown, field: string): string {
+  const text = normalizeString(value, field)
+
+  if (hasControlCharacter(text)) {
+    throw new WriteAuthorizationError(
+      `${field} must not include control characters`,
+    )
+  }
+
+  return text
+}
+
+function hasControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0)
+    return codePoint !== undefined && (codePoint < 0x20 || codePoint === 0x7f)
+  })
+}
+
+function normalizeChannel(value: unknown): string {
+  try {
+    return assertPackageChannel(normalizeString(value, 'channel'), 'channel')
+  } catch (error) {
+    throw new WriteAuthorizationError(
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+}
+
+function normalizeVersion(value: unknown, field: string): string {
+  try {
+    return assertPackageVersion(normalizeString(value, field), field)
+  } catch (error) {
+    throw new WriteAuthorizationError(
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+}
+
+function normalizeArtifactDescriptorString(
+  value: unknown,
+  field: string,
+): string {
+  try {
+    return assertArtifactDescriptorString(normalizeString(value, field), field)
+  } catch (error) {
+    throw new WriteAuthorizationError(
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+}
+
+function normalizeObjectMediaType(value: unknown): string {
+  try {
+    return assertObjectMediaType(
+      normalizeString(value, 'artifact mediaType'),
+      'artifact mediaType',
+    )
+  } catch (error) {
+    throw new WriteAuthorizationError(
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+}
+
+function normalizeTimestamp(value: unknown, field: string): string {
+  const timestamp = normalizeString(value, field)
+
+  if (!Number.isFinite(Date.parse(timestamp))) {
+    throw new WriteAuthorizationError(`${field} timestamp is invalid`)
+  }
+
+  try {
+    return assertCanonicalTimestamp(timestamp, field)
+  } catch {
+    throw new WriteAuthorizationError(`${field} must be canonical ISO 8601`)
+  }
+}
+
+function assertKnownFields(
+  value: Record<string, unknown>,
+  knownFields: string[],
+  label: string,
+): void {
+  const known = new Set(knownFields)
+  const unknown = Object.keys(value).find((key) => !known.has(key))
+
+  if (unknown) {
+    throw new WriteAuthorizationError(
+      `${label} must not include unknown field: ${unknown}`,
+    )
+  }
+}
+
 function base64UrlEncode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url')
 }
 
-function base64UrlDecode(value: string): Uint8Array {
-  try {
-    return new Uint8Array(Buffer.from(value, 'base64url'))
-  } catch {
-    throw new WriteAuthorizationError('Invalid base64url signature')
+function ed25519SignatureBytes(value: string): Uint8Array {
+  const bytes = base64UrlBytes(value, 'Write authorization signature')
+
+  if (bytes.byteLength !== 64) {
+    throw new WriteAuthorizationError(
+      'Write authorization signature must be an Ed25519 signature',
+    )
   }
+
+  return bytes
+}
+
+function ed25519PublicKey(value: unknown): string {
+  const key = normalizeString(value, 'publicKeyJwk.x')
+  const bytes = base64UrlBytes(key, 'publicKeyJwk.x')
+
+  if (bytes.byteLength !== 32) {
+    throw new WriteAuthorizationError(
+      'publicKeyJwk.x must be an Ed25519 public key',
+    )
+  }
+
+  return key
+}
+
+function base64UrlBytes(value: string, field: string): Uint8Array {
+  if (!/^[\w-]+$/u.test(value)) {
+    throw new WriteAuthorizationError(`${field} must be base64url`)
+  }
+
+  return new Uint8Array(Buffer.from(value, 'base64url'))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

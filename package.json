@@ -10,6 +10,7 @@
     "lint": "eslint --cache .",
     "lint:fix": "pnpm run lint --fix",
     "format": "prettier --cache --write .",
+    "smoke:docker": "node scripts/docker-smoke.mjs",
     "test": "vitest",
     "typecheck": "tsgo --noEmit && pnpm --filter @regesta/server typecheck"
   },

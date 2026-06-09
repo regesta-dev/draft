@@ -1,40 +1,61 @@
 import { Buffer } from 'node:buffer'
-import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { access, readdir, readFile, rm } from 'node:fs/promises'
-import { dirname, join, parse } from 'node:path'
-import { promisify } from 'node:util'
-import {
-  createSourceArchive,
-  normalizeRegestaConfig,
-  regestaConfigFile,
-  temporaryDirectory,
-  type PublishArtifactInput,
-  type RegestaConfigDefaults,
-} from '@regesta/core'
 import {
   parsePackageId,
   type ArtifactEcosystemMetadata,
-  type NpmPackument,
-  type NpmPackumentTime,
-  type NpmReleaseMetadata,
   type PackageId,
   type RegestaConfig,
-  type RegestaPackageExport,
   type ReleaseArtifact,
   type ReleaseManifest,
 } from '@regesta/protocol'
-import json5 from 'json5'
 import * as tar from 'tar'
 import type { ReadEntry } from 'tar'
 
-const execFileAsync = promisify(execFile)
+export interface NpmReleaseMetadata {
+  bin?: string | Record<string, string>
+  bundleDependencies?: boolean | string[]
+  bundledDependencies?: string[]
+  cpu?: string[]
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  engines?: Record<string, string>
+  libc?: string[]
+  optionalDependencies?: Record<string, string>
+  os?: string[]
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, NpmPeerDependencyMeta>
+}
 
-interface NpmPackageJsonDefaults extends RegestaConfigDefaults {
-  name?: string
+export interface NpmPeerDependencyMeta {
+  optional?: boolean
+}
+
+export interface NpmPackument {
+  'dist-tags': Record<string, string>
+  description?: string
+  name: string
+  time: NpmPackumentTime
+  versions: Record<string, NpmPackumentVersion>
+}
+
+export interface NpmPackumentTime {
+  created: string
+  modified: string
+  [version: string]: string
+}
+
+export interface NpmPackumentVersion extends NpmReleaseMetadata {
+  description?: string
+  dist: {
+    integrity: string
+    tarball: string
+  }
+  name: string
+  version: string
 }
 
 export interface NpmPackageManifestSnapshot {
+  description?: string
   metadata?: NpmReleaseMetadata
   name?: string
   version?: string
@@ -45,86 +66,9 @@ export interface NpmPublishArtifactInput {
   role: string
 }
 
-export interface PreparedNpmPublish {
-  artifacts: PublishArtifactInput[]
-  config: RegestaConfig
-  source: Uint8Array
-}
-
-export async function prepareNpmPublish(
-  projectDir: string,
-): Promise<PreparedNpmPublish> {
-  const config = await readNpmRegestaConfig(projectDir)
-  const sourceArchive = await createSourceArchive(projectDir, config)
-  const tarball = await createNpmPackageTarball(projectDir)
-
-  return {
-    artifacts: [
-      {
-        bytes: tarball.bytes,
-        filename: tarball.entries[0],
-        format: 'npm-tarball',
-        mediaType: 'application/gzip',
-        role: 'install',
-      },
-    ],
-    config,
-    source: sourceArchive.bytes,
-  }
-}
-
-export async function readNpmRegestaConfig(
-  projectDir: string,
-): Promise<RegestaConfig> {
-  const raw = await readFile(join(projectDir, regestaConfigFile), 'utf8')
-  const packageJson = await readNpmPackageJsonDefaults(projectDir)
-  const config = normalizeRegestaConfig(
-    normalizeNpmRegestaConfigInput(json5.parse<unknown>(raw), packageJson.name),
-    {
-      description: packageJson.description,
-      exports: packageJson.exports,
-      repository: packageJson.repository,
-      version: packageJson.version,
-    },
-  )
-  const packageId = parsePackageId(config.id)
-
-  if (packageId.ecosystem !== 'npm') {
-    throw new TypeError(
-      `npm publish config must use npm ecosystem: ${config.id}`,
-    )
-  }
-
-  return config
-}
-
-export async function createNpmPackageTarball(
-  projectDir: string,
-): Promise<{ bytes: Uint8Array; entries: string[] }> {
-  const outputDir = await temporaryDirectory('regesta-package')
-
-  try {
-    await runPackagePack(projectDir, outputDir)
-
-    const tarballs = (await readdir(outputDir)).filter((file) =>
-      file.endsWith('.tgz'),
-    )
-
-    if (tarballs.length !== 1) {
-      throw new Error(
-        `Package manager pack must produce exactly one .tgz file, found ${tarballs.length}`,
-      )
-    }
-
-    const tarball = tarballs[0]!
-
-    return {
-      bytes: await readFile(join(outputDir, tarball)),
-      entries: [tarball],
-    }
-  } finally {
-    await rm(outputDir, { force: true, recursive: true })
-  }
+export interface NpmArtifactProcessingResult {
+  description?: string
+  ecosystemMetadata?: ArtifactEcosystemMetadata
 }
 
 export function createNpmPackument(
@@ -135,23 +79,38 @@ export function createNpmPackument(
   modifiedAt?: string,
 ): NpmPackument {
   const packageName = npmPackageName(packageId)
+  for (const release of releases) {
+    assertNpmReleaseMatchesPackage(packageId, release.manifest)
+  }
   const sortedReleases = releases.toSorted((left, right) =>
     left.manifest.createdAt.localeCompare(right.manifest.createdAt),
   )
   const latest = sortedReleases.at(-1)
+  const knownVersions = new Set(
+    sortedReleases.map((release) => release.manifest.version),
+  )
+  const projectedChannels = Object.fromEntries(
+    Object.entries(channels).filter(([, version]) => {
+      return knownVersions.has(version)
+    }),
+  )
   const distTags =
-    Object.keys(channels).length === 0 && latest
-      ? { latest: latest.manifest.version }
-      : channels
+    Object.keys(projectedChannels).length > 0
+      ? projectedChannels
+      : latest
+        ? { latest: latest.manifest.version }
+        : {}
 
   return {
     'dist-tags': distTags,
+    ...npmDescription(latest?.manifest),
     name: packageName,
     time: npmPackumentTime(sortedReleases, modifiedAt),
     versions: Object.fromEntries(
       sortedReleases.map((release) => [
         release.manifest.version,
         {
+          ...npmDescription(release.manifest),
           dist: {
             integrity: integrityFromDigest(
               npmInstallArtifact(release.manifest).digest,
@@ -162,7 +121,7 @@ export function createNpmPackument(
               registryBaseUrl,
             ),
           },
-          ...npmInstallArtifact(release.manifest).ecosystemMetadata?.npm,
+          ...npmArtifactMetadata(npmInstallArtifact(release.manifest)),
           name: packageName,
           version: release.manifest.version,
         },
@@ -171,10 +130,47 @@ export function createNpmPackument(
   }
 }
 
+function npmDescription(
+  manifest: ReleaseManifest | undefined,
+): Pick<NpmPackument, 'description'> | Record<string, never> {
+  if (manifest?.metadata?.description === undefined) {
+    return {}
+  }
+
+  return {
+    description: manifest.metadata.description,
+  }
+}
+
+function assertNpmReleaseMatchesPackage(
+  packageId: PackageId,
+  manifest: ReleaseManifest,
+): void {
+  const parsed = parsePackageId(packageId)
+
+  if (
+    manifest.id !== packageId ||
+    manifest.ecosystem !== parsed.ecosystem ||
+    manifest.name !== parsed.name
+  ) {
+    throw new Error(
+      `Release manifest does not match npm package id: ${packageId}`,
+    )
+  }
+}
+
 export async function extractNpmArtifactEcosystemMetadata(
   config: RegestaConfig,
   artifacts: NpmPublishArtifactInput[],
 ): Promise<ArtifactEcosystemMetadata | undefined> {
+  return (await processNpmPublishArtifacts(config, artifacts))
+    ?.ecosystemMetadata
+}
+
+export async function processNpmPublishArtifacts(
+  config: RegestaConfig,
+  artifacts: NpmPublishArtifactInput[],
+): Promise<NpmArtifactProcessingResult | undefined> {
   const packageId = parsePackageId(config.id)
 
   if (packageId.ecosystem !== 'npm') {
@@ -193,22 +189,37 @@ export async function extractNpmArtifactEcosystemMetadata(
 
   const packageName = npmPackageName(config.id)
 
-  if (npmManifest.name !== undefined && npmManifest.name !== packageName) {
+  if (npmManifest.name === undefined) {
+    throw new TypeError('npm package.json name is required')
+  }
+
+  if (npmManifest.name !== packageName) {
     throw new TypeError(
       `npm package.json name must match package id projection: ${packageName}`,
     )
   }
 
-  if (
-    npmManifest.version !== undefined &&
-    npmManifest.version !== config.version
-  ) {
+  if (npmManifest.version === undefined) {
+    throw new TypeError('npm package.json version is required')
+  }
+
+  if (npmManifest.version !== config.version) {
     throw new TypeError(
       `npm package.json version must match release version: ${config.version}`,
     )
   }
 
-  return npmManifest.metadata ? { npm: npmManifest.metadata } : undefined
+  const result: NpmArtifactProcessingResult = {}
+
+  if (npmManifest.description !== undefined) {
+    result.description = npmManifest.description
+  }
+
+  if (npmManifest.metadata) {
+    result.ecosystemMetadata = { npm: npmManifest.metadata }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 export function integrityFromBytes(bytes: Uint8Array): string {
@@ -229,6 +240,13 @@ export function npmInstallArtifact(manifest: ReleaseManifest): ReleaseArtifact {
   }
 
   return artifact
+}
+
+function npmArtifactMetadata(
+  artifact: ReleaseArtifact,
+): NpmReleaseMetadata | undefined {
+  const metadata = artifact.ecosystemMetadata?.npm
+  return isNpmReleaseMetadata(metadata) ? metadata : undefined
 }
 
 export function npmPackageName(packageId: PackageId): string {
@@ -273,7 +291,13 @@ export function tarballUrl(
 export async function readNpmPackageManifestFromTarball(
   bytes: Uint8Array,
 ): Promise<NpmPackageManifestSnapshot> {
-  const rawPackageJson = await readPackageJsonEntry(bytes)
+  let rawPackageJson: string | undefined
+
+  try {
+    rawPackageJson = await readPackageJsonEntry(bytes)
+  } catch {
+    throw new TypeError('npm install artifact must be a readable tarball')
+  }
 
   if (!rawPackageJson) {
     throw new TypeError(
@@ -281,155 +305,15 @@ export async function readNpmPackageManifestFromTarball(
     )
   }
 
-  const value: unknown = JSON.parse(rawPackageJson)
-  return normalizeNpmPackageManifest(value)
-}
+  let value: unknown
 
-async function readNpmPackageJsonDefaults(
-  projectDir: string,
-): Promise<NpmPackageJsonDefaults> {
   try {
-    const packageJson: unknown = JSON.parse(
-      await readFile(join(projectDir, 'package.json'), 'utf8'),
-    )
-
-    if (!isRecord(packageJson)) {
-      return {}
-    }
-
-    return {
-      description:
-        typeof packageJson.description === 'string'
-          ? packageJson.description
-          : undefined,
-      exports:
-        packageJson.exports === undefined
-          ? undefined
-          : normalizePackageExports(packageJson.exports),
-      name: typeof packageJson.name === 'string' ? packageJson.name : undefined,
-      repository: normalizeRepository(packageJson.repository),
-      version:
-        typeof packageJson.version === 'string'
-          ? packageJson.version
-          : undefined,
-    }
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return {}
-    }
-
-    throw error
-  }
-}
-
-function normalizeNpmRegestaConfigInput(
-  value: unknown,
-  packageJsonName: string | undefined,
-): unknown {
-  if (!isRecord(value)) {
-    return value
-  }
-
-  const id = value.id ?? value.package
-
-  if (typeof id === 'string' && !id.includes(':')) {
-    return { ...value, id: npmPackageIdFromName(id) }
-  }
-
-  if (id === undefined && packageJsonName) {
-    return { ...value, id: npmPackageIdFromName(packageJsonName) }
-  }
-
-  return value
-}
-
-async function runPackagePack(
-  projectDir: string,
-  outputDir: string,
-): Promise<void> {
-  const packageManager = await detectPackageManager(projectDir)
-
-  if (packageManager === 'pnpm') {
-    await execFileAsync('pnpm', ['pack', '--pack-destination', outputDir], {
-      cwd: projectDir,
-    })
-    return
-  }
-
-  if (packageManager === 'npm') {
-    await execFileAsync('npm', ['pack', '--pack-destination', outputDir], {
-      cwd: projectDir,
-    })
-    return
-  }
-
-  throw new Error(
-    `Unsupported package manager for npm tarball generation: ${packageManager}`,
-  )
-}
-
-async function detectPackageManager(projectDir: string): Promise<string> {
-  const fromPackageJson = await findPackageManagerField(projectDir)
-
-  if (fromPackageJson) {
-    return fromPackageJson
-  }
-
-  if (await exists(join(projectDir, 'pnpm-lock.yaml'))) {
-    return 'pnpm'
-  }
-
-  if (await exists(join(projectDir, 'package-lock.json'))) {
-    return 'npm'
-  }
-
-  return 'npm'
-}
-
-async function findPackageManagerField(
-  projectDir: string,
-): Promise<string | undefined> {
-  let current = projectDir
-
-  while (true) {
-    try {
-      const packageJson: unknown = JSON.parse(
-        await readFile(join(current, 'package.json'), 'utf8'),
-      )
-
-      if (
-        isRecord(packageJson) &&
-        typeof packageJson.packageManager === 'string'
-      ) {
-        return packageJson.packageManager.split('@')[0]
-      }
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !('code' in error) ||
-        error.code !== 'ENOENT'
-      ) {
-        throw error
-      }
-    }
-
-    const parent = dirname(current)
-
-    if (parent === current || parse(parent).root === parent) {
-      return undefined
-    }
-
-    current = parent
-  }
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
+    value = JSON.parse(rawPackageJson)
   } catch {
-    return false
+    throw new TypeError('npm package.json must be valid JSON')
   }
+
+  return normalizeNpmPackageManifest(value)
 }
 
 function npmPackumentTime(
@@ -511,6 +395,10 @@ function normalizeNpmPackageManifest(
     value.optionalDependencies,
     'npm package.json optionalDependencies',
   )
+  const devDependencies = normalizeStringMap(
+    value.devDependencies,
+    'npm package.json devDependencies',
+  )
   const peerDependencies = normalizeStringMap(
     value.peerDependencies,
     'npm package.json peerDependencies',
@@ -537,6 +425,10 @@ function normalizeNpmPackageManifest(
 
   if (optionalDependencies) {
     metadata.optionalDependencies = optionalDependencies
+  }
+
+  if (devDependencies) {
+    metadata.devDependencies = devDependencies
   }
 
   if (peerDependencies) {
@@ -576,10 +468,91 @@ function normalizeNpmPackageManifest(
   }
 
   return {
+    description:
+      typeof value.description === 'string' ? value.description : undefined,
     metadata: Object.keys(metadata).length === 0 ? undefined : metadata,
     name: typeof value.name === 'string' ? value.name : undefined,
     version: typeof value.version === 'string' ? value.version : undefined,
   }
+}
+
+function isNpmReleaseMetadata(value: unknown): value is NpmReleaseMetadata {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  return (
+    isOptionalStringOrStringMap(value.bin) &&
+    isOptionalBooleanOrStringArray(value.bundleDependencies) &&
+    isOptionalStringArray(value.bundledDependencies) &&
+    isOptionalStringArray(value.cpu) &&
+    isOptionalStringMap(value.dependencies) &&
+    isOptionalStringMap(value.devDependencies) &&
+    isOptionalStringMap(value.engines) &&
+    isOptionalStringArray(value.libc) &&
+    isOptionalStringMap(value.optionalDependencies) &&
+    isOptionalStringArray(value.os) &&
+    isOptionalStringMap(value.peerDependencies) &&
+    isOptionalPeerDependenciesMeta(value.peerDependenciesMeta)
+  )
+}
+
+function isOptionalStringMap(
+  value: unknown,
+): value is Record<string, string> | undefined {
+  if (value === undefined) {
+    return true
+  }
+
+  return (
+    isRecord(value) &&
+    Object.values(value).every((item) => {
+      return typeof item === 'string'
+    })
+  )
+}
+
+function isOptionalStringArray(value: unknown): value is string[] | undefined {
+  if (value === undefined) {
+    return true
+  }
+
+  return (
+    Array.isArray(value) &&
+    value.every((item) => {
+      return typeof item === 'string'
+    })
+  )
+}
+
+function isOptionalStringOrStringMap(
+  value: unknown,
+): value is NpmReleaseMetadata['bin'] {
+  return typeof value === 'string' || isOptionalStringMap(value)
+}
+
+function isOptionalBooleanOrStringArray(
+  value: unknown,
+): value is NpmReleaseMetadata['bundleDependencies'] {
+  return typeof value === 'boolean' || isOptionalStringArray(value)
+}
+
+function isOptionalPeerDependenciesMeta(
+  value: unknown,
+): value is Record<string, NpmPeerDependencyMeta> | undefined {
+  if (value === undefined) {
+    return true
+  }
+
+  return (
+    isRecord(value) &&
+    Object.values(value).every((item) => {
+      return (
+        isRecord(item) &&
+        (item.optional === undefined || typeof item.optional === 'boolean')
+      )
+    })
+  )
 }
 
 function normalizeStringMap(
@@ -698,45 +671,6 @@ function normalizePeerDependenciesMeta(
   }
 
   return Object.keys(output).length === 0 ? undefined : output
-}
-
-function normalizePackageExports(value: unknown): RegestaPackageExport {
-  if (!isPackageExport(value)) {
-    throw new TypeError(
-      'package exports must be JSON string, null, array, or object values',
-    )
-  }
-
-  return value
-}
-
-function normalizeRepository(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value
-  }
-
-  if (isRecord(value)) {
-    const { url } = value
-    return typeof url === 'string' ? url : undefined
-  }
-
-  return undefined
-}
-
-function isPackageExport(value: unknown): value is RegestaPackageExport {
-  if (value === null || typeof value === 'string') {
-    return true
-  }
-
-  if (Array.isArray(value)) {
-    return value.every((item) => isPackageExport(item))
-  }
-
-  if (isRecord(value)) {
-    return Object.values(value).every((item) => isPackageExport(item))
-  }
-
-  return false
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

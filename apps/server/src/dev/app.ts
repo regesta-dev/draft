@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { errorResponse } from '../responses.ts'
 import {
   devLocalhostDomain,
   devLocalhostDomainBinding,
@@ -7,7 +8,7 @@ import {
   devLocalhostPrivateKeyFileText,
   devLocalhostPublicKeyFileText,
   jsonResponse,
-} from './dev-keys.ts'
+} from './keys.ts'
 
 export function createDevLocalhostRoutes(): Hono {
   const app = new Hono()
@@ -40,7 +41,10 @@ export function createDevLocalhostRoutes(): Hono {
 
   app.get('/keys/:kid', (context) => {
     if (context.req.param('kid') !== devLocalhostKeyId) {
-      return context.json({ error: 'Dev key not found' }, 404)
+      return context.json(
+        errorResponse('dev_key_not_found', 'Dev key not found'),
+        404,
+      )
     }
 
     return context.json(devLocalhostDomainBinding.keys[0])

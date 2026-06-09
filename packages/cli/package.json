@@ -23,7 +23,9 @@
     "@regesta/core": "workspace:*",
     "@regesta/npm": "workspace:*",
     "@regesta/protocol": "workspace:*",
-    "cac": "^7.0.0"
+    "cac": "^7.0.0",
+    "json5": "^2.2.3",
+    "tar": "^7.5.15"
   },
   "devDependencies": {
     "tsdown": "^0.22.1"

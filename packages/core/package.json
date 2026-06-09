@@ -16,10 +16,7 @@
     "build": "tsdown"
   },
   "dependencies": {
-    "@regesta/adapters": "workspace:*",
-    "@regesta/protocol": "workspace:*",
-    "json5": "^2.2.3",
-    "tar": "^7.5.15"
+    "@regesta/protocol": "workspace:*"
   },
   "devDependencies": {
     "tsdown": "^0.22.1"

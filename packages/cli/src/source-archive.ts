@@ -1,9 +1,10 @@
 import { access, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join, posix, win32 } from 'node:path'
+import { assertSourceArchivePath, type RegestaConfig } from '@regesta/protocol'
 import * as tar from 'tar'
-import { regestaConfigFile } from './config.ts'
-import type { RegestaConfig } from '@regesta/protocol'
+
+export const regestaConfigFile = 'regesta.json'
 
 const defaultSourceEntries = [
   regestaConfigFile,
@@ -31,6 +32,11 @@ export async function createSourceArchive(
   return { bytes, entries }
 }
 
+export async function temporaryDirectory(prefix: string): Promise<string> {
+  const { mkdtemp } = await import('node:fs/promises')
+  return mkdtemp(join(tmpdir(), `${prefix}-`))
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path)
@@ -50,11 +56,19 @@ async function resolveArchiveEntries(
   projectDir: string,
   config: RegestaConfig,
 ): Promise<string[]> {
-  const requestedEntries =
-    config.source.include ?? config.files ?? defaultSourceEntries
-  const excludedEntries = config.source.exclude ?? []
+  const requestedEntries = normalizeArchivePaths(
+    config.source.include ?? defaultSourceEntries,
+    'regesta source include',
+  )
+  const excludedEntries = normalizeArchivePaths(
+    config.source.exclude ?? [],
+    'regesta source exclude',
+  )
+  if (isExcluded(regestaConfigFile, excludedEntries)) {
+    throw new TypeError('regesta source exclude must not exclude regesta.json')
+  }
   const entries: string[] = []
-  const requireEntries = Boolean(config.source.include || config.files)
+  const requireEntries = Boolean(config.source.include)
 
   for (const entry of requestedEntries) {
     if (isExcluded(entry, excludedEntries)) {
@@ -79,9 +93,35 @@ async function resolveArchiveEntries(
 }
 
 function isExcluded(entry: string, excludedEntries: string[]): boolean {
+  const normalizedEntry = trimTrailingSlashes(entry)
   return excludedEntries.some(
-    (excluded) => entry === excluded || entry.startsWith(`${excluded}/`),
+    (excluded) =>
+      normalizedEntry === trimTrailingSlashes(excluded) ||
+      normalizedEntry.startsWith(`${trimTrailingSlashes(excluded)}/`),
   )
+}
+
+function normalizeArchivePaths(entries: string[], field: string): string[] {
+  return entries.map((entry) => normalizeArchivePath(entry, field))
+}
+
+function normalizeArchivePath(entry: string, field: string): string {
+  assertSourceArchivePath(entry, `${field} paths`)
+
+  if (isAbsolute(entry) || posix.isAbsolute(entry) || win32.isAbsolute(entry)) {
+    throw new TypeError(`${field} paths must be relative`)
+  }
+
+  const normalized = posix.normalize(entry)
+  if (normalized !== entry) {
+    throw new TypeError(`${field} paths must be normalized`)
+  }
+
+  return entry
+}
+
+function trimTrailingSlashes(entry: string): string {
+  return entry.replace(/\/+$/u, '')
 }
 
 function tarOptions(cwd: string, file: string, excludedEntries: string[] = []) {
@@ -94,11 +134,6 @@ function tarOptions(cwd: string, file: string, excludedEntries: string[] = []) {
     noMtime: false,
     portable: true,
   }
-}
-
-export async function temporaryDirectory(prefix: string): Promise<string> {
-  const { mkdtemp } = await import('node:fs/promises')
-  return mkdtemp(join(tmpdir(), `${prefix}-`))
 }
 
 async function temporaryTarballPath(prefix: string): Promise<string> {

@@ -33,6 +33,9 @@ How Regesta aims to achieve this:
 Design drafts:
 
 - [Documentation index](docs/README.md)
+- [Layer architecture](docs/design/layers.md)
 - [API design](docs/design/api.md)
 - [Object schema design](docs/design/object-schema.md)
+- [Transparency and verification design](docs/design/transparency-verification.md)
+- [Ops and governance design](docs/design/ops-governance.md)
 - [Implementation plan](docs/V0_PLAN.md)

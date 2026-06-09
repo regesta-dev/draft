@@ -1,27 +1,75 @@
 import {
-  canonicalJson,
+  assertCanonicalTimestamp,
+  assertPackageChannel,
+  assertPackageVersion,
   parsePackageId,
-  sha256,
+  registryEventDigest,
   type ChannelDeletedEvent,
   type ChannelUpdatedEvent,
   type PackageId,
   type PackageState,
+  type PackageStateRelease,
+  type RegistryEvent,
   type WriteAuthorizationProof,
 } from '@regesta/protocol'
-import type { RegistryAdapters } from '@regesta/adapters'
+import { assertRegistryEventIntegrity } from './events.ts'
+import { enqueueDerivedRegistryJob } from './queue.ts'
+import {
+  RegistryEventIntegrityError,
+  ReleaseNotFoundError,
+  type RegistryAdapters,
+} from './storage.ts'
+import { assertWriteAuthorizationIsFresh } from './write-authorization.ts'
 
 export interface ChannelMutationResult {
   event: ChannelDeletedEvent | ChannelUpdatedEvent
   previousVersion?: string
 }
 
-export async function getPackageState(
-  adapters: RegistryAdapters,
+export function replayPackageState(
+  events: Iterable<RegistryEvent>,
   packageId: PackageId,
-): Promise<PackageState> {
+): PackageState {
   const parsed = parsePackageId(packageId)
-  const releases = await adapters.database.listPackageReleases(packageId)
-  const channels = await adapters.database.getPackageChannels(packageId)
+  const releases = new Map<string, PackageStateRelease>()
+  const channels: Record<string, string> = {}
+
+  for (const event of events) {
+    assertRegistryEventIntegrity(event)
+
+    if (eventPackageId(event) !== packageId) {
+      continue
+    }
+
+    switch (event.eventType) {
+      case 'release.published': {
+        if (releases.has(event.release.version)) {
+          throw new RegistryEventIntegrityError(
+            `Registry event release version already exists: ${event.release.version}`,
+          )
+        }
+
+        releases.set(event.release.version, {
+          createdAt: event.timestamp,
+          manifestDigest: event.release.manifestDigest,
+          version: event.release.version,
+        })
+        channels[event.channel] = event.release.version
+        break
+      }
+      case 'channel.updated': {
+        assertReplayReleaseExists(releases, event.version)
+        assertReplayPreviousVersion(event, channels[event.channel])
+        channels[event.channel] = event.version
+        break
+      }
+      case 'channel.deleted': {
+        assertReplayPreviousVersion(event, channels[event.channel])
+        delete channels[event.channel]
+        break
+      }
+    }
+  }
 
   return {
     ...(Object.keys(channels).length === 0 ? {} : { channels }),
@@ -29,14 +77,59 @@ export async function getPackageState(
     id: packageId,
     name: parsed.name,
     object: 'regesta.package-state',
-    releases: releases
-      .map((release) => ({
-        createdAt: release.manifest.createdAt,
-        manifestDigest: release.manifestDescriptor.digest,
-        version: release.manifest.version,
-      }))
-      .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    releases: [...releases.values()].toSorted((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    ),
     specVersion: 0,
+  }
+}
+
+export async function getPackageState(
+  adapters: RegistryAdapters,
+  packageId: PackageId,
+): Promise<PackageState> {
+  return replayPackageState(
+    await adapters.database.listPackageEvents(packageId),
+    packageId,
+  )
+}
+
+export async function getPackageChannelVersion(
+  adapters: RegistryAdapters,
+  packageId: PackageId,
+  channel: string,
+): Promise<string | undefined> {
+  assertPackageChannel(channel)
+  return (await getPackageState(adapters, packageId)).channels?.[channel]
+}
+
+function eventPackageId(event: RegistryEvent): PackageId {
+  return event.eventType === 'release.published'
+    ? event.release.id
+    : event.package
+}
+
+function assertReplayReleaseExists(
+  releases: ReadonlyMap<string, PackageStateRelease>,
+  version: string,
+): void {
+  assertPackageVersion(version, 'Registry event version')
+
+  if (!releases.has(version)) {
+    throw new RegistryEventIntegrityError(
+      `Registry event channel target version does not exist: ${version}`,
+    )
+  }
+}
+
+function assertReplayPreviousVersion(
+  event: ChannelDeletedEvent | ChannelUpdatedEvent,
+  actualVersion: string | undefined,
+): void {
+  if (event.previousVersion !== actualVersion) {
+    throw new RegistryEventIntegrityError(
+      `Registry event previousVersion does not match replayed channel state: ${event.package}#${event.channel}`,
+    )
   }
 }
 
@@ -50,19 +143,24 @@ export async function updatePackageChannel(
     version: string
   },
 ): Promise<ChannelMutationResult> {
+  assertPackageChannel(input.channel)
+  assertPackageVersion(input.version)
+  await assertWriteAuthorizationIsFresh(adapters, input.authorization)
+  const timestamp = channelMutationTimestamp(input)
+
   const release = await adapters.database.getRelease(
     input.packageId,
     input.version,
   )
 
   if (!release) {
-    throw new Error(`Release not found: ${input.packageId}@${input.version}`)
+    throw new ReleaseNotFoundError(input.packageId, input.version)
   }
 
-  const previousVersion = await adapters.database.setPackageChannel(
+  const previousVersion = await getPackageChannelVersion(
+    adapters,
     input.packageId,
     input.channel,
-    input.version,
   )
   const eventWithoutId = {
     ...(input.authorization ? { authorization: input.authorization } : {}),
@@ -72,16 +170,16 @@ export async function updatePackageChannel(
     package: input.packageId,
     ...(previousVersion ? { previousVersion } : {}),
     specVersion: 0,
-    timestamp: input.timestamp ?? new Date().toISOString(),
+    timestamp,
     version: input.version,
   } satisfies Omit<ChannelUpdatedEvent, 'id'>
   const event = {
     ...eventWithoutId,
-    id: sha256(canonicalJson(eventWithoutId as never)),
+    id: registryEventDigest(eventWithoutId),
   }
 
-  await adapters.database.appendEvent(event)
-  await adapters.queue.enqueue('channel.updated', {
+  await adapters.database.commitPackageChannelUpdate(event)
+  enqueueDerivedRegistryJob(adapters, 'channel.updated', {
     channel: input.channel,
     package: input.packageId,
     version: input.version,
@@ -99,7 +197,12 @@ export async function deletePackageChannel(
     timestamp?: string
   },
 ): Promise<ChannelMutationResult> {
-  const previousVersion = await adapters.database.deletePackageChannel(
+  assertPackageChannel(input.channel)
+  await assertWriteAuthorizationIsFresh(adapters, input.authorization)
+  const timestamp = channelMutationTimestamp(input)
+
+  const previousVersion = await getPackageChannelVersion(
+    adapters,
     input.packageId,
     input.channel,
   )
@@ -111,18 +214,39 @@ export async function deletePackageChannel(
     package: input.packageId,
     ...(previousVersion ? { previousVersion } : {}),
     specVersion: 0,
-    timestamp: input.timestamp ?? new Date().toISOString(),
+    timestamp,
   } satisfies Omit<ChannelDeletedEvent, 'id'>
   const event = {
     ...eventWithoutId,
-    id: sha256(canonicalJson(eventWithoutId as never)),
+    id: registryEventDigest(eventWithoutId),
   }
 
-  await adapters.database.appendEvent(event)
-  await adapters.queue.enqueue('channel.deleted', {
+  await adapters.database.commitPackageChannelDelete(event)
+  enqueueDerivedRegistryJob(adapters, 'channel.deleted', {
     channel: input.channel,
     package: input.packageId,
   })
 
   return { event, ...(previousVersion ? { previousVersion } : {}) }
+}
+
+function channelMutationTimestamp(input: {
+  authorization?: WriteAuthorizationProof
+  timestamp?: string
+}): string {
+  const timestamp = input.timestamp ?? input.authorization?.signedAt
+
+  if (
+    input.authorization &&
+    timestamp !== undefined &&
+    timestamp !== input.authorization.signedAt
+  ) {
+    throw new TypeError(
+      'Channel timestamp must match write authorization signedAt',
+    )
+  }
+
+  return timestamp === undefined
+    ? new Date().toISOString()
+    : assertCanonicalTimestamp(timestamp, 'Channel timestamp')
 }

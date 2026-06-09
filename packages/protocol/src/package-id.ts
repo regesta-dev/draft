@@ -1,10 +1,10 @@
-import type { PackageId } from './package.ts'
+import { assertPackageVersion, type PackageId } from './package.ts'
 
 export interface ParsedPackageId {
   ecosystem: string
   id: PackageId
   name: string
-  scope?: string
+  ownerDomain: string
 }
 
 export interface PackageVersion {
@@ -13,9 +13,14 @@ export interface PackageVersion {
 }
 
 const ecosystemPattern = /^[a-z0-9-]+$/
-const packageNamePattern = /^([^/]+)\/.+$/
+const packageNamePattern = /^([^/]+)\/.*$/
+const domainLabelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
 export function parsePackageId(value: string): ParsedPackageId {
+  if (typeof value !== 'string') {
+    throw new TypeError('Package id must be a string')
+  }
+
   const separatorIndex = value.indexOf(':')
   if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
     throw new TypeError(`Invalid package id: ${value}`)
@@ -44,16 +49,33 @@ export function parsePackageId(value: string): ParsedPackageId {
   }
 
   const [, ownerDomain] = match
-  if (!ownerDomain.includes('.')) {
+  const packageName = name.slice(ownerDomain.length + 1)
+  if (!isCanonicalOwnerDomain(ownerDomain)) {
     throw new TypeError(`Package id owner must be a domain: ${value}`)
+  }
+
+  if (packageName.split('/').some((segment) => segment.length === 0)) {
+    throw new TypeError(
+      `Package id name must not contain empty segments: ${value}`,
+    )
   }
 
   return {
     ecosystem,
     id: `${ecosystem}:${name}`,
     name,
-    ...(ecosystem === 'npm' ? { scope: ownerDomain } : {}),
+    ownerDomain,
   }
+}
+
+export function isCanonicalOwnerDomain(value: string): boolean {
+  if (value.length > 253 || !value.includes('.')) {
+    return false
+  }
+
+  return value.split('.').every((label) => {
+    return domainLabelPattern.test(label)
+  })
 }
 
 function hasControlCharacter(value: string): boolean {
@@ -64,6 +86,10 @@ function hasControlCharacter(value: string): boolean {
 }
 
 export function parsePackageVersion(value: string): PackageVersion {
+  if (typeof value !== 'string') {
+    throw new TypeError('Package version must be a string')
+  }
+
   const separatorIndex = value.lastIndexOf('@')
   const ecosystemSeparatorIndex = value.indexOf(':')
 
@@ -72,10 +98,7 @@ export function parsePackageVersion(value: string): PackageVersion {
   }
 
   const packageId = value.slice(0, separatorIndex)
-  const version = value.slice(separatorIndex + 1)
-  if (!version) {
-    throw new TypeError(`Package version must include a version: ${value}`)
-  }
+  const version = assertPackageVersion(value.slice(separatorIndex + 1))
 
   return {
     id: parsePackageId(packageId).id,

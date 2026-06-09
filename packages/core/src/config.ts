@@ -1,19 +1,15 @@
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import {
+  assertPackageVersion,
+  assertSourceArchivePath,
   canonicalJson,
   parsePackageId,
   sha256,
-  type AbiCompatibility,
-  type RegestaCompatibility,
   type RegestaConfig,
   type RegestaPackageExport,
   type RegestaProvenance,
   type RegestaSourceConfig,
-  type RuntimeCompatibility,
   type Sha256Digest,
 } from '@regesta/protocol'
-import json5 from 'json5'
 
 export const regestaConfigFile = 'regesta.json'
 
@@ -25,53 +21,78 @@ export interface RegestaConfigDefaults {
   version?: string
 }
 
-export async function readRegestaConfig(
-  projectDir: string,
-  defaults: RegestaConfigDefaults = {},
-): Promise<RegestaConfig> {
-  const raw = await readFile(join(projectDir, regestaConfigFile), 'utf8')
-  return normalizeRegestaConfig(json5.parse<unknown>(raw), defaults)
-}
-
 export function normalizeRegestaConfig(
   value: unknown,
   defaults: RegestaConfigDefaults = {},
 ): RegestaConfig {
-  if (!value || typeof value !== 'object') {
+  if (!isRecord(value)) {
     throw new TypeError('regesta.json must be an object')
   }
 
-  const input = value as Record<string, unknown>
+  const input = value
 
-  const id = normalizeConfigId(input.id ?? input.package ?? defaults.id)
+  if (input.$schema !== undefined || input.schema !== undefined) {
+    throw new TypeError('regesta.json schema fields are not supported')
+  }
+
+  if (input.compatibility !== undefined) {
+    throw new TypeError(
+      'regesta.json compatibility is not supported; attach compatibility to publish artifacts',
+    )
+  }
+
+  if (input.dependencies !== undefined) {
+    throw new TypeError(
+      'regesta.json dependencies are not supported; use ecosystem-native manifests',
+    )
+  }
+
+  assertKnownFields(
+    input,
+    [
+      'description',
+      'exports',
+      'family',
+      'id',
+      'languages',
+      'provenance',
+      'repository',
+      'source',
+      'version',
+    ],
+    'regesta.json',
+  )
+
+  const id = normalizeConfigId(input.id === undefined ? defaults.id : input.id)
   if (id === undefined) {
     throw new TypeError('regesta.json id must be a package id string')
   }
 
-  const version = input.version ?? defaults.version
-  if (typeof version !== 'string' || version.length === 0) {
-    throw new TypeError('regesta.json version must be a non-empty string')
-  }
+  const version = input.version === undefined ? defaults.version : input.version
+  const normalizedVersion = assertPackageVersion(
+    version,
+    'regesta.json version',
+  )
 
   const config: RegestaConfig = {
     id,
     provenance: normalizeProvenance(input.provenance),
     source: normalizeSource(input),
-    version,
+    version: normalizedVersion,
   }
 
-  const description = input.description ?? defaults.description
-  if (typeof description === 'string') {
+  const description =
+    input.description === undefined ? defaults.description : input.description
+  if (description !== undefined) {
+    assertOptionalString(description, 'regesta.json description')
     config.description = description
   }
 
-  const repository = input.repository ?? defaults.repository
-  if (typeof repository === 'string') {
+  const repository =
+    input.repository === undefined ? defaults.repository : input.repository
+  if (repository !== undefined) {
+    assertOptionalString(repository, 'regesta.json repository')
     config.repository = repository
-  }
-
-  if (Array.isArray(input.files)) {
-    config.files = normalizeFiles(input.files)
   }
 
   const languages = normalizeStringArray(
@@ -82,89 +103,22 @@ export function normalizeRegestaConfig(
     config.languages = languages
   }
 
-  const exportsValue = input.exports ?? defaults.exports
+  const exportsValue =
+    input.exports === undefined ? defaults.exports : input.exports
   if (exportsValue !== undefined) {
     config.exports = normalizePackageExports(exportsValue)
   }
 
-  if (typeof input.family === 'string') {
+  if (input.family !== undefined) {
+    assertOptionalString(input.family, 'regesta.json family')
     config.family = input.family
-  }
-
-  const compatibility = normalizeCompatibility(input.compatibility)
-  if (compatibility) {
-    config.compatibility = compatibility
   }
 
   return config
 }
 
 export function configDigest(config: RegestaConfig): Sha256Digest {
-  return sha256(canonicalJson(config as never))
-}
-
-function normalizeCompatibility(
-  value: unknown,
-): RegestaConfig['compatibility'] {
-  if (value === undefined) {
-    return undefined
-  }
-
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError('regesta.json compatibility must be an object')
-  }
-
-  const input = value as Record<string, unknown>
-  const compatibility: RegestaCompatibility = {
-    abi: normalizeAbiArray(input.abi),
-    modules: normalizeStringArray(
-      input.modules,
-      'regesta.json compatibility.modules',
-    ),
-    platforms: normalizePlatformArray(input.platforms),
-    runtimes: normalizeRuntimeArray(input.runtimes),
-  }
-
-  const normalized = Object.fromEntries(
-    Object.entries(compatibility).filter(([, item]) => item !== undefined),
-  ) as RegestaCompatibility
-
-  return Object.keys(normalized).length === 0 ? undefined : normalized
-}
-
-function normalizeAbiArray(value: unknown): AbiCompatibility[] | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  if (!Array.isArray(value)) {
-    throw new TypeError('regesta.json compatibility.abi must be an array')
-  }
-
-  return value.map((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new TypeError(
-        'regesta.json compatibility.abi items must be objects',
-      )
-    }
-
-    const input = item as Record<string, unknown>
-    if (typeof input.name !== 'string' || input.name.length === 0) {
-      throw new TypeError(
-        'regesta.json compatibility.abi items must include a name',
-      )
-    }
-
-    const versions = normalizeStringArray(
-      input.versions,
-      'regesta.json compatibility.abi.versions',
-    )
-
-    return {
-      name: input.name,
-      ...(versions ? { versions } : {}),
-    }
-  })
+  return sha256(canonicalJson(config))
 }
 
 function normalizeConfigId(value: unknown): RegestaConfig['id'] | undefined {
@@ -194,11 +148,12 @@ function normalizeProvenance(value: unknown): RegestaProvenance {
     return { level: 'source-attached' }
   }
 
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new TypeError('regesta.json provenance must be an object')
   }
 
-  const input = value as Record<string, unknown>
+  const input = value
+  assertKnownFields(input, ['level'], 'regesta.json provenance')
   const level = input.level ?? 'source-attached'
 
   if (level !== 'source-attached') {
@@ -208,75 +163,33 @@ function normalizeProvenance(value: unknown): RegestaProvenance {
   return { level }
 }
 
-function normalizePlatformArray(
-  value: unknown,
-): RegestaCompatibility['platforms'] {
-  if (value === undefined) {
-    return undefined
-  }
-
-  if (!Array.isArray(value)) {
-    throw new TypeError('regesta.json compatibility.platforms must be an array')
-  }
-
-  return value.map((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new TypeError(
-        'regesta.json compatibility.platforms items must be objects',
-      )
-    }
-
-    const input = item as Record<string, unknown>
-    const arch = normalizeStringArray(
-      input.arch,
-      'regesta.json compatibility.platforms.arch',
-    )
-    const libc = normalizeStringArray(
-      input.libc,
-      'regesta.json compatibility.platforms.libc',
-    )
-    const os = normalizeStringArray(
-      input.os,
-      'regesta.json compatibility.platforms.os',
-    )
-
-    return {
-      ...(arch ? { arch } : {}),
-      ...(libc ? { libc } : {}),
-      ...(os ? { os } : {}),
-    }
-  })
-}
-
 function normalizeSource(input: Record<string, unknown>): RegestaSourceConfig {
   if (input.source === undefined) {
-    return {
-      ...(Array.isArray(input.files)
-        ? { include: normalizeFiles(input.files) }
-        : {}),
-    }
+    throw new TypeError('regesta.json source is required')
   }
 
-  if (
-    !input.source ||
-    typeof input.source !== 'object' ||
-    Array.isArray(input.source)
-  ) {
+  if (!isRecord(input.source)) {
     throw new TypeError('regesta.json source must be an object')
   }
 
-  const source = input.source as Record<string, unknown>
+  const source = input.source
+  assertKnownFields(source, ['exclude', 'include'], 'regesta.json source')
   const config: RegestaSourceConfig = {}
 
   if (source.exclude !== undefined) {
-    config.exclude = normalizeStringArray(
-      source.exclude,
-      'regesta.json source.exclude',
-    )
+    const exclude =
+      normalizeSourcePathArray(source.exclude, 'regesta.json source.exclude') ??
+      []
+    if (exclude.some((entry) => sourcePathMatches(entry, regestaConfigFile))) {
+      throw new TypeError(
+        'regesta.json source.exclude must not exclude regesta.json',
+      )
+    }
+    config.exclude = exclude
   }
 
   if (source.include !== undefined) {
-    config.include = normalizeStringArray(
+    config.include = normalizeSourcePathArray(
       source.include,
       'regesta.json source.include',
     )
@@ -285,58 +198,38 @@ function normalizeSource(input: Record<string, unknown>): RegestaSourceConfig {
   return config
 }
 
-function normalizeRuntimeArray(
+function normalizeSourcePathArray(
   value: unknown,
-): RuntimeCompatibility[] | undefined {
+  field: string,
+): string[] | undefined {
   if (value === undefined) {
     return undefined
   }
 
   if (!Array.isArray(value)) {
-    throw new TypeError('regesta.json compatibility.runtimes must be an array')
+    throw new TypeError(`${field} must be an array`)
   }
 
   return value.map((item) => {
-    if (typeof item === 'string') {
-      return normalizeString(item, 'compatibility.runtimes')
+    if (typeof item !== 'string') {
+      throw new TypeError(`${field} must contain strings`)
     }
 
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new TypeError(
-        'regesta.json compatibility.runtimes items must be strings or objects',
-      )
-    }
-
-    const input = item as Record<string, unknown>
-    if (typeof input.name !== 'string' || input.name.length === 0) {
-      throw new TypeError(
-        'regesta.json compatibility.runtimes items must include a name',
-      )
-    }
-
-    const conditions = normalizeStringArray(
-      input.conditions,
-      'regesta.json compatibility.runtimes.conditions',
-    )
-
-    return {
-      ...(conditions ? { conditions } : {}),
-      name: input.name,
-      ...(input.versions === undefined
-        ? {}
-        : { versions: normalizeString(input.versions, 'versions') }),
-    }
+    return normalizeSourcePath(item, field)
   })
 }
 
-function normalizeFiles(value: unknown[]): string[] {
-  return value.map((file) => {
-    if (typeof file !== 'string' || file.length === 0) {
-      throw new TypeError('regesta.json files must be non-empty strings')
-    }
+function normalizeSourcePath(value: string, field: string): string {
+  const label = `${field} paths`
+  return assertSourceArchivePath(value, label)
+}
 
-    return file
-  })
+function sourcePathMatches(entry: string, target: string): boolean {
+  return trimTrailingSlashes(entry) === target
+}
+
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/u, '')
 }
 
 function normalizeStringArray(
@@ -360,12 +253,26 @@ function normalizeStringArray(
   })
 }
 
-function normalizeString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new TypeError(`regesta.json ${field} must be a non-empty string`)
+function assertOptionalString(
+  value: unknown,
+  field: string,
+): asserts value is string {
+  if (typeof value !== 'string') {
+    throw new TypeError(`${field} must be a string`)
   }
+}
 
-  return value
+function assertKnownFields(
+  value: Record<string, unknown>,
+  knownFields: readonly string[],
+  label: string,
+): void {
+  const known = new Set(knownFields)
+  const unknown = Object.keys(value).find((field) => !known.has(field))
+
+  if (unknown) {
+    throw new TypeError(`${label} must not include unknown field: ${unknown}`)
+  }
 }
 
 function isPackageExport(value: unknown): value is RegestaPackageExport {
@@ -382,4 +289,8 @@ function isPackageExport(value: unknown): value is RegestaPackageExport {
   }
 
   return false
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }

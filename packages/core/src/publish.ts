@@ -1,8 +1,12 @@
 import {
+  assertArtifactDescriptorString,
+  assertCanonicalTimestamp,
+  assertCompatibilityString,
+  assertObjectMediaType,
   canonicalJson,
   defaultPackageChannel,
   parsePackageId,
-  sha256,
+  registryEventDigest,
   type ObjectDescriptor,
   type PublishReleaseEvent,
   type RegestaConfig,
@@ -14,7 +18,13 @@ import {
   type WriteAuthorizationProof,
 } from '@regesta/protocol'
 import { configDigest, normalizeRegestaConfig } from './config.ts'
-import type { RegistryAdapters, StoredRelease } from '@regesta/adapters'
+import { enqueueDerivedRegistryJob } from './queue.ts'
+import {
+  ReleaseAlreadyExistsError,
+  type RegistryAdapters,
+  type StoredRelease,
+} from './storage.ts'
+import { assertWriteAuthorizationIsFresh } from './write-authorization.ts'
 
 export interface PublishArtifactInput {
   bytes: Uint8Array
@@ -41,6 +51,16 @@ export interface PublishResult {
   manifestDescriptor: ObjectDescriptor
 }
 
+type PublishArtifactRecord = Record<string, unknown> & {
+  bytes?: unknown
+  compatibility?: unknown
+  ecosystemMetadata?: unknown
+  filename?: unknown
+  format?: unknown
+  mediaType?: unknown
+  role?: unknown
+}
+
 export async function publishRelease(
   input: PublishInput,
   adapters: RegistryAdapters,
@@ -48,10 +68,14 @@ export async function publishRelease(
   const config = normalizeRegestaConfig(input.config)
   const channel = defaultPackageChannel
   parsePackageId(config.id)
+  validatePublishSource(input.source)
   validatePublishArtifacts(input.artifacts)
+  const createdAt = publishCreatedAt(input)
+
+  await assertWriteAuthorizationIsFresh(adapters, input.authorization)
 
   if (await adapters.database.getRelease(config.id, config.version)) {
-    throw new Error(`Release already exists: ${config.id}@${config.version}`)
+    throw new ReleaseAlreadyExistsError(config.id, config.version)
   }
 
   const source = await adapters.objects.put(
@@ -82,12 +106,10 @@ export async function publishRelease(
   const manifest = createReleaseManifest({
     artifacts,
     config,
-    createdAt: input.createdAt ?? new Date().toISOString(),
+    createdAt,
     source,
   })
-  const manifestBytes = new TextEncoder().encode(
-    `${canonicalJson(manifest as never)}\n`,
-  )
+  const manifestBytes = new TextEncoder().encode(`${canonicalJson(manifest)}\n`)
   const manifestDescriptor = await adapters.objects.put(
     manifestBytes,
     'application/vnd.regesta.release-manifest.v0+json',
@@ -104,10 +126,8 @@ export async function publishRelease(
     manifestDescriptor,
   }
 
-  await adapters.database.putRelease(release)
-  await adapters.database.setPackageChannel(config.id, channel, config.version)
-  await adapters.database.appendEvent(event)
-  await adapters.queue.enqueue('release.published', {
+  await adapters.database.commitPublishedRelease(release, channel)
+  enqueueDerivedRegistryJob(adapters, 'release.published', {
     channel,
     manifestDigest: manifestDescriptor.digest,
     package: config.id,
@@ -120,6 +140,24 @@ export async function publishRelease(
     manifest,
     manifestDescriptor,
   }
+}
+
+function publishCreatedAt(input: PublishInput): string {
+  const createdAt = input.createdAt ?? input.authorization?.signedAt
+
+  if (
+    input.authorization &&
+    createdAt !== undefined &&
+    createdAt !== input.authorization.signedAt
+  ) {
+    throw new TypeError(
+      'Publish createdAt must match write authorization signedAt',
+    )
+  }
+
+  return createdAt === undefined
+    ? new Date().toISOString()
+    : assertCanonicalTimestamp(createdAt, 'Publish createdAt')
 }
 
 function createPublishEvent(
@@ -146,7 +184,7 @@ function createPublishEvent(
 
   return {
     ...eventWithoutId,
-    id: sha256(canonicalJson(eventWithoutId as never)),
+    id: registryEventDigest(eventWithoutId),
   }
 }
 
@@ -164,7 +202,7 @@ function createReleaseManifest(input: {
     ecosystem: packageId.ecosystem,
     name: packageId.name,
     version: input.config.version,
-    artifacts: releaseArtifacts(input.artifacts, input.config),
+    artifacts: input.artifacts,
     configDigest: configDigest(input.config),
     createdAt: input.createdAt,
     ...(input.config.family ? { family: input.config.family } : {}),
@@ -179,30 +217,12 @@ function createReleaseManifest(input: {
   return manifest
 }
 
-function releaseArtifacts(
-  artifacts: ReleaseArtifact[],
-  config: RegestaConfig,
-): ReleaseArtifact[] {
-  return artifacts.map((artifact) => ({
-    ...artifact,
-    ...(artifact.role === 'install' &&
-    artifact.compatibility === undefined &&
-    config.compatibility
-      ? { compatibility: config.compatibility }
-      : {}),
-  }))
-}
-
-function validatePublishArtifacts(artifacts: PublishArtifactInput[]): void {
-  const installArtifacts = artifacts.filter((artifact) => {
-    return artifact.role === 'install'
-  })
-
-  if (installArtifacts.length !== 1) {
-    throw new TypeError(
-      'Publish request must include exactly one install artifact',
-    )
+function validatePublishArtifacts(artifacts: unknown): void {
+  if (!Array.isArray(artifacts)) {
+    throw new TypeError('Publish artifacts must be an array')
   }
+
+  assertPublishArtifactRecords(artifacts)
 
   for (const artifact of artifacts) {
     if (!(artifact.bytes instanceof Uint8Array)) {
@@ -213,21 +233,206 @@ function validatePublishArtifacts(artifacts: PublishArtifactInput[]): void {
       throw new TypeError('Publish artifacts must not be empty')
     }
 
-    if (artifact.mediaType.length === 0) {
+    if (
+      typeof artifact.mediaType !== 'string' ||
+      artifact.mediaType.length === 0
+    ) {
       throw new TypeError('Publish artifacts must include mediaType')
     }
+    assertObjectMediaType(artifact.mediaType, 'Publish artifact mediaType')
 
-    if (artifact.role.length === 0) {
+    if (typeof artifact.role !== 'string' || artifact.role.length === 0) {
       throw new TypeError('Publish artifacts must include role')
+    }
+    assertArtifactDescriptorString(artifact.role, 'Publish artifact role')
+
+    if (
+      artifact.filename !== undefined &&
+      (typeof artifact.filename !== 'string' || artifact.filename.length === 0)
+    ) {
+      throw new TypeError('Publish artifact filename must be non-empty')
+    }
+    if (artifact.filename !== undefined) {
+      assertArtifactDescriptorString(
+        artifact.filename,
+        'Publish artifact filename',
+      )
+    }
+
+    if (
+      artifact.format !== undefined &&
+      (typeof artifact.format !== 'string' || artifact.format.length === 0)
+    ) {
+      throw new TypeError('Publish artifact format must be non-empty')
+    }
+    if (artifact.format !== undefined) {
+      assertArtifactDescriptorString(artifact.format, 'Publish artifact format')
+    }
+
+    if (artifact.compatibility !== undefined) {
+      validatePublishArtifactCompatibility(artifact.compatibility)
+    }
+
+    if (
+      artifact.ecosystemMetadata !== undefined &&
+      !isRecord(artifact.ecosystemMetadata)
+    ) {
+      throw new TypeError(
+        'Publish artifact ecosystemMetadata must be an object',
+      )
+    }
+  }
+
+  const installArtifacts = artifacts.filter((artifact) => {
+    return artifact.role === 'install'
+  })
+
+  if (installArtifacts.length !== 1) {
+    throw new TypeError(
+      'Publish request must include exactly one install artifact',
+    )
+  }
+}
+
+function assertPublishArtifactRecords(
+  artifacts: unknown[],
+): asserts artifacts is PublishArtifactRecord[] {
+  for (const artifact of artifacts) {
+    if (!isRecord(artifact)) {
+      throw new TypeError('Publish artifact must be an object')
+    }
+  }
+}
+
+function validatePublishSource(source: Uint8Array): void {
+  if (!(source instanceof Uint8Array)) {
+    throw new TypeError('Publish source must be a Uint8Array')
+  }
+
+  if (source.byteLength === 0) {
+    throw new TypeError('Publish source must not be empty')
+  }
+}
+
+function validatePublishArtifactCompatibility(compatibility: unknown): void {
+  if (!isRecord(compatibility)) {
+    throw new TypeError('Publish artifact compatibility must be an object')
+  }
+
+  assertKnownFields(
+    compatibility,
+    ['abi', 'modules', 'platforms', 'runtimes'],
+    'Publish artifact compatibility',
+  )
+
+  for (const abi of optionalArray(
+    compatibility.abi,
+    'Publish artifact compatibility abi',
+  )) {
+    if (!isRecord(abi)) {
+      throw new TypeError(
+        'Publish artifact ABI compatibility must be an object',
+      )
+    }
+
+    assertKnownFields(
+      abi,
+      ['name', 'versions'],
+      'Publish artifact ABI compatibility',
+    )
+    assertCompatibilityString(
+      abi.name,
+      'Publish artifact ABI compatibility name',
+    )
+    assertOptionalStringArray(
+      abi.versions,
+      'Publish artifact ABI compatibility versions',
+    )
+  }
+
+  assertOptionalStringArray(
+    compatibility.modules,
+    'Publish artifact compatibility modules',
+  )
+
+  for (const platform of optionalArray(
+    compatibility.platforms,
+    'Publish artifact compatibility platforms',
+  )) {
+    if (!isRecord(platform)) {
+      throw new TypeError(
+        'Publish artifact platform compatibility must be an object',
+      )
+    }
+
+    assertKnownFields(
+      platform,
+      ['arch', 'libc', 'os'],
+      'Publish artifact platform compatibility',
+    )
+    assertOptionalStringArray(
+      platform.arch,
+      'Publish artifact platform compatibility arch',
+    )
+    assertOptionalStringArray(
+      platform.libc,
+      'Publish artifact platform compatibility libc',
+    )
+    assertOptionalStringArray(
+      platform.os,
+      'Publish artifact platform compatibility os',
+    )
+  }
+
+  for (const runtime of optionalArray(
+    compatibility.runtimes,
+    'Publish artifact compatibility runtimes',
+  )) {
+    if (typeof runtime === 'string') {
+      assertCompatibilityString(
+        runtime,
+        'Publish artifact runtime compatibility',
+      )
+      continue
+    }
+
+    if (!isRecord(runtime)) {
+      throw new TypeError(
+        'Publish artifact runtime compatibility must be a string or object',
+      )
+    }
+
+    assertKnownFields(
+      runtime,
+      ['conditions', 'name', 'versions'],
+      'Publish artifact runtime compatibility',
+    )
+    assertOptionalStringArray(
+      runtime.conditions,
+      'Publish artifact runtime compatibility conditions',
+    )
+    assertCompatibilityString(
+      runtime.name,
+      'Publish artifact runtime compatibility name',
+    )
+    if (runtime.versions !== undefined) {
+      assertCompatibilityString(
+        runtime.versions,
+        'Publish artifact runtime compatibility versions',
+      )
     }
   }
 }
 
 function releaseMetadata(config: RegestaConfig): ReleaseMetadata | undefined {
   const metadata: ReleaseMetadata = {
-    ...(config.description ? { description: config.description } : {}),
-    ...(config.exports ? { exports: config.exports } : {}),
-    ...(config.repository ? { repository: config.repository } : {}),
+    ...(config.description === undefined
+      ? {}
+      : { description: config.description }),
+    ...(config.exports === undefined ? {} : { exports: config.exports }),
+    ...(config.repository === undefined
+      ? {}
+      : { repository: config.repository }),
   }
 
   return Object.keys(metadata).length === 0 ? undefined : metadata
@@ -238,4 +443,49 @@ function releaseProvenance(): ReleaseProvenance {
     level: 'source-attached',
     verified: false,
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function assertKnownFields(
+  value: Record<string, unknown>,
+  knownFields: readonly string[],
+  label: string,
+): void {
+  const known = new Set(knownFields)
+  const unknown = Object.keys(value).find((key) => {
+    return !known.has(key)
+  })
+
+  if (unknown) {
+    throw new TypeError(`${label} must not include unknown field: ${unknown}`)
+  }
+}
+
+function assertOptionalStringArray(value: unknown, label: string): void {
+  if (value === undefined) {
+    return
+  }
+
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array`)
+  }
+
+  value.forEach((item, index) => {
+    assertCompatibilityString(item, `${label}[${index}]`)
+  })
+}
+
+function optionalArray(value: unknown, label: string): unknown[] {
+  if (value === undefined) {
+    return []
+  }
+
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array`)
+  }
+
+  return value
 }

@@ -16,17 +16,14 @@ export type {
 } from './config.ts'
 export type {
   ChannelDeletedEvent,
+  ChannelDeletedEventPayload,
   ChannelUpdatedEvent,
+  ChannelUpdatedEventPayload,
   PublishReleaseEvent,
+  PublishReleaseEventPayload,
   RegistryEvent,
+  RegistryEventPayload,
 } from './event.ts'
-export type {
-  NpmPackument,
-  NpmPackumentTime,
-  NpmPackumentVersion,
-  NpmPeerDependencyMeta,
-  NpmReleaseMetadata,
-} from './npm.ts'
 export type {
   PackageEcosystem,
   PackageId,

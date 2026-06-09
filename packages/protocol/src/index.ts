@@ -1,7 +1,24 @@
 export { canonicalJson, defaultCanonicalJsonCodec } from './canonical-json.ts'
-export { assertSha256Digest, sha256 } from './digest.ts'
-export { parsePackageId, parsePackageVersion } from './package-id.ts'
-export { defaultPackageChannel } from './package.ts'
+export { assertCompatibilityString } from './compatibility.ts'
+export { assertSourceArchivePath } from './config.ts'
+export { assertObjectMediaType, assertSha256Digest, sha256 } from './digest.ts'
+export {
+  assertRegistryEventId,
+  registryEventDigest,
+  registryEventPayload,
+} from './event.ts'
+export {
+  isCanonicalOwnerDomain,
+  parsePackageId,
+  parsePackageVersion,
+} from './package-id.ts'
+export {
+  assertPackageChannel,
+  assertPackageVersion,
+  defaultPackageChannel,
+} from './package.ts'
+export { assertArtifactDescriptorString } from './release.ts'
+export { assertCanonicalTimestamp } from './timestamp.ts'
 export type { Ed25519PublicKeyJwk, WriteAuthorizationProof } from './auth.ts'
 export type {
   CanonicalJsonCodec,
@@ -24,17 +41,14 @@ export type {
 export type { ObjectDescriptor, Sha256Digest } from './digest.ts'
 export type {
   ChannelDeletedEvent,
+  ChannelDeletedEventPayload,
   ChannelUpdatedEvent,
+  ChannelUpdatedEventPayload,
   PublishReleaseEvent,
+  PublishReleaseEventPayload,
   RegistryEvent,
+  RegistryEventPayload,
 } from './event.ts'
-export type {
-  NpmPackument,
-  NpmPackumentTime,
-  NpmPackumentVersion,
-  NpmPeerDependencyMeta,
-  NpmReleaseMetadata,
-} from './npm.ts'
 export type { PackageVersion, ParsedPackageId } from './package-id.ts'
 export type {
   PackageEcosystem,

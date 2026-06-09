@@ -25,8 +25,8 @@ Canonical package ids use:
 Rules:
 
 - `ecosystem` is lowercase ASCII plus digits and hyphens.
-- `owner-domain` is the domain that owns and authorizes the package namespace.
-- `package-name` is the package name inside that owner domain.
+- `owner-domain` is the canonical lowercase DNS-style domain that owns and authorizes the package namespace. Labels must not be empty or start/end with `-`.
+- `package-name` is the package name inside that owner domain. It may contain `/` for ecosystems that use path-like names, but path segments must not be empty.
 - The path after the ecosystem prefix must not contain control characters.
 - Regesta public objects always store the full id.
 - Ecosystem-specific tools may omit the prefix when the ecosystem context is known, and projections may map the core id into native package-manager names.
@@ -50,6 +50,10 @@ pypi:some.dev/sdk@1.2.3
 ```
 
 Parsers should split package id from version at the last `@`.
+Release versions are ecosystem-defined strings. Regesta v0 does not require
+semver, but version strings must be non-empty and must not contain control
+characters because versions appear in signed intents, events, URLs, and
+ecosystem projections.
 
 ## `regesta.json`
 
@@ -57,9 +61,18 @@ Parsers should split package id from version at the last `@`.
 
 The file is named `regesta.json` for ecosystem familiarity, but parsers should accept JSON5 syntax so authors can use comments, unquoted object keys, single-quoted strings, and trailing commas.
 
-There is no `$schema` field in `regesta.json`.
+There is no `$schema` or `schema` field in `regesta.json`. Parsers should
+reject schema fields instead of silently ignoring them.
 
-There is no generic `dependencies` field in `regesta.json`. Dependency semantics belong to the native package ecosystem.
+There is no generic `dependencies` field in `regesta.json`. Dependency
+semantics belong to the native package ecosystem, so parsers should reject this
+field instead of silently treating it as Regesta metadata.
+
+There is no generic `compatibility` field in `regesta.json`. Parsers should reject it instead of silently ignoring it. Runtime, platform, module, and ABI declarations belong to artifact descriptors because different artifacts in one release can target different environments.
+
+V0 parsers should reject unknown `regesta.json` fields instead of silently
+dropping them. The normalized config is part of the signed publish intent and
+the release manifest digest, so unsupported publisher intent must fail closed.
 
 Package id inference belongs to publish clients. A client may infer the canonical Regesta id from native manifests, such as `package.json`, `pyproject.toml`, `Cargo.toml`, Go module files, or OCI image metadata, but the registry object model stores only the resulting canonical id.
 
@@ -85,22 +98,6 @@ Draft example for npm:
     "include": ["package.json", "README.md", "src"],
     "exclude": ["dist", "node_modules"]
   },
-  "compatibility": {
-    "runtimes": [
-      {
-        "name": "node",
-        "versions": ">=20"
-      },
-      "bun"
-    ],
-    "platforms": [
-      {
-        "os": ["darwin", "linux", "windows"],
-        "arch": ["arm64", "x64"]
-      }
-    ],
-    "modules": ["esm"]
-  },
   "provenance": {
     "level": "source-attached"
   },
@@ -117,31 +114,6 @@ Draft example for a Python package with native code:
   "source": {
     "include": ["pyproject.toml", "README.md", "src", "crates"]
   },
-  "compatibility": {
-    "runtimes": [
-      {
-        "name": "python",
-        "versions": ">=3.10"
-      }
-    ],
-    "platforms": [
-      {
-        "os": ["linux"],
-        "arch": ["x64", "arm64"],
-        "libc": ["glibc", "musl"]
-      },
-      {
-        "os": ["darwin"],
-        "arch": ["x64", "arm64"]
-      }
-    ],
-    "abi": [
-      {
-        "name": "cpython",
-        "versions": ["cp310", "cp311", "cp312"]
-      }
-    ]
-  },
   "provenance": {
     "level": "source-attached"
   },
@@ -151,23 +123,39 @@ Draft example for a Python package with native code:
 
 ### Config Fields
 
-| Field           | Required | Description                                                                  |
-| --------------- | -------- | ---------------------------------------------------------------------------- |
-| `id`            | yes      | Canonical package id, formatted as `ecosystem:owner-domain/package-name`.    |
-| `version`       | optional | Release version if it cannot be inferred from the native ecosystem manifest. |
-| `languages`     | optional | Declared source or artifact languages.                                       |
-| `source`        | yes      | Source archive selection rules.                                              |
-| `compatibility` | optional | Declared runtime, platform, module, and ABI compatibility.                   |
-| `provenance`    | optional | Defaults to `{ "level": "source-attached" }` in v0.                          |
-| `family`        | optional | Cross-ecosystem package family id, such as `some.dev/sdk`.                   |
+| Field        | Required | Description                                                                  |
+| ------------ | -------- | ---------------------------------------------------------------------------- |
+| `id`         | yes      | Canonical package id, formatted as `ecosystem:owner-domain/package-name`.    |
+| `version`    | optional | Release version if it cannot be inferred from the native ecosystem manifest. |
+| `languages`  | optional | Declared source or artifact languages.                                       |
+| `source`     | yes      | Source archive selection rules.                                              |
+| `provenance` | optional | Defaults to `{ "level": "source-attached" }` in v0.                          |
+| `family`     | optional | Cross-ecosystem package family id, such as `some.dev/sdk`.                   |
+
+`package` is not an alias for `id`; clients should infer or normalize the
+canonical `id` before submitting publish intent.
+
+`files` is not a Regesta config field; source archive selection belongs in
+`source.include` and `source.exclude`.
+
+The `source` field is required for v0 publish intent so the source-attached
+release is explicit in the signed config.
+
+Source include and exclude entries are archive paths, not arbitrary host
+filesystem paths. Parsers should accept only normalized, forward-slash,
+relative paths and reject absolute paths, parent-directory segments, null
+bytes or other control characters, backslashes, or ambiguous forms such as
+`./src` and `src//index.ts`.
+V0 source archives must include `regesta.json`; `source.exclude` must not
+exclude it.
 
 `kind` is intentionally not required. If product taxonomy is needed later, it should be optional metadata and must not control registry semantics.
 
-`compatibility.ecosystems` is intentionally omitted. The primary ecosystem is already declared by `id`.
+`compatibility.ecosystems` is intentionally omitted from artifact compatibility objects. The primary ecosystem is already declared by `id`.
 
 ## Compatibility
 
-Compatibility is a declaration. It is useful for package managers, scanners, UI, and policy engines, but v0 verification must not treat it as proof.
+Compatibility is an artifact-level declaration. It is useful for package managers, scanners, UI, and policy engines, but v0 verification must not treat it as proof.
 
 Draft shape:
 
@@ -196,6 +184,10 @@ Draft shape:
   ]
 }
 ```
+
+Compatibility strings are ecosystem-defined declarations. V0 does not validate
+that a runtime, platform, ABI, module, or version range is true, but these
+strings must be non-empty and must not contain control characters.
 
 ### Runtime Names
 
@@ -283,6 +275,8 @@ Rules:
 - `mediaType` identifies the object format.
 - URLs are retrieval locations, not identity.
 - Objects must be retrievable by digest.
+
+Because object APIs are digest-addressed and cacheable, a registry must not later associate the same digest with a different descriptor media type or size. Rewriting identical bytes with the same descriptor is idempotent; writing identical bytes with conflicting descriptor metadata should be rejected instead of mutating object response headers.
 
 ## Package State
 
@@ -407,12 +401,13 @@ Example:
 | `artifacts`    | yes      | Release artifact descriptors.                |
 | `provenance`   | yes      | V0 source-attached provenance.               |
 | `configDigest` | yes      | Digest of normalized `regesta.json` config.  |
+| `metadata`     | optional | Small ecosystem-neutral release metadata.    |
 
 The manifest should not contain its own digest. The digest is computed over the canonical manifest bytes.
 
 The manifest should not contain channels such as `latest`, `next`, or `beta`. The default `latest` channel is assigned by the publish event, and later channel changes must be represented by channel events.
 
-The manifest should not define a generic cross-ecosystem dependency model. However, artifact descriptors may include small ecosystem-native metadata snapshots that are needed to produce projection APIs without downloading install artifacts. For npm, the registry can extract resolver-relevant fields from `package/package.json` at publish time, attach them to the install artifact descriptor, and expose them through the npm packument.
+The manifest should not define a generic cross-ecosystem dependency model. However, it may contain small release-level metadata that is broadly useful across projections, such as `metadata.description`. Artifact descriptors may include ecosystem-native metadata snapshots that are needed to produce projection APIs without downloading install artifacts. For npm, the registry can extract the package description for release metadata and resolver-relevant fields from `package/package.json` at publish time, attach resolver metadata to the install artifact descriptor, and expose both through the npm packument.
 
 Example npm metadata snapshot:
 
@@ -424,6 +419,9 @@ Example npm metadata snapshot:
     "npm": {
       "dependencies": {
         "@some.dev/core": "^1.0.0"
+      },
+      "devDependencies": {
+        "@some.dev/test-helper": "^1.0.0"
       },
       "optionalDependencies": {
         "@some.dev/native-linux-x64": "^1.0.0"
@@ -485,6 +483,10 @@ Recommended fields:
 - `filename`
 - `compatibility`
 - `ecosystemMetadata`
+
+Descriptor string fields such as `role`, `format`, and `filename` are
+ecosystem-defined labels. V0 does not require a closed set of roles or formats,
+but these strings must be non-empty and must not contain control characters.
 
 Common roles:
 
@@ -561,9 +563,18 @@ Example publish event:
 }
 ```
 
-Event ids are computed from canonical event bytes excluding `id`, then stored in `id`.
+Event ids are computed from canonical event bytes excluding `id`, then stored in `id`. Storage adapters must reject events whose `id` does not match the canonical event payload digest, and they must reject duplicate event ids.
 
 V0 write events should include `authorization` when accepted through the public API. The proof snapshots the verified domain key and signed payload digest so historical events remain auditable even if the domain's well-known file changes later.
+
+The event's `release.manifestDigest` commits to the stored manifest. For public v0, the signed `release.publish` write intent also includes `artifactDescriptorDigest`, which binds the domain owner's signature to client-controlled artifact descriptor metadata before persistence. This covers descriptor fields such as artifact digest, `role`, `mediaType`, `filename`, `format`, and `compatibility`. Server-derived `ecosystemMetadata` remains outside the signed descriptor digest.
+
+The `authorization` object is not a complete public signed-intent transcript in
+v0. It records the proof produced by server-side verification, but it does not
+include the original canonical write intent or nonce. A future protocol revision
+should add a public signed-intent representation before Regesta claims that
+auditors can independently re-run Ed25519 authorization verification from event
+data alone.
 
 Example channel update event:
 

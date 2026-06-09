@@ -1,6 +1,6 @@
-import domainBindingJson from './dev/domain-binding.json' with { type: 'json' }
-import privateKeyJson from './dev/private-key.json' with { type: 'json' }
-import publicKeyJson from './dev/public-key.json' with { type: 'json' }
+import domainBindingJson from './domain-binding.json' with { type: 'json' }
+import privateKeyJson from './private-key.json' with { type: 'json' }
+import publicKeyJson from './public-key.json' with { type: 'json' }
 import type {
   DomainBinding,
   DomainBindingKey,
@@ -39,16 +39,6 @@ export const devLocalhostPrivateKeyFileText = jsonText(
 )
 export const devLocalhostPublicKeyFileText = jsonText(devLocalhostPublicKeyFile)
 
-const devLocalhostDomainBindingUrl = `https://${devLocalhostDomain}/.well-known/regesta.json`
-
-export const fetchDevDomainBinding: typeof fetch = (input, init) => {
-  if (fetchInputUrl(input) === devLocalhostDomainBindingUrl) {
-    return Promise.resolve(jsonResponse(devLocalhostDomainBindingText))
-  }
-
-  return fetch(input, init)
-}
-
 export function jsonResponse(body: string): Response {
   return new Response(body, {
     headers: {
@@ -56,18 +46,6 @@ export function jsonResponse(body: string): Response {
       'content-type': 'application/json; charset=utf-8',
     },
   })
-}
-
-function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
-  if (typeof input === 'string') {
-    return input
-  }
-
-  if (input instanceof URL) {
-    return input.href
-  }
-
-  return input.url
 }
 
 function jsonText(value: unknown): string {

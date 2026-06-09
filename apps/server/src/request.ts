@@ -1,4 +1,3 @@
-import { parsePackageId, type PackageId } from '@regesta/protocol'
 import * as v from 'valibot'
 
 export const nonEmptyStringSchema = v.pipe(
@@ -18,6 +17,10 @@ export class RequestValidationError extends Error {
   }
 }
 
+export interface BinaryFieldOptions {
+  maxBytes?: number
+}
+
 export function requiredParam(value: string | undefined, name: string): string {
   return validateRequest(nonEmptyStringSchema, value, `Missing ${name}`)
 }
@@ -25,12 +28,20 @@ export function requiredParam(value: string | undefined, name: string): string {
 export async function readBinaryField(
   value: File | string | undefined,
   name: string,
+  options: BinaryFieldOptions = {},
 ): Promise<Uint8Array> {
   const file = validateRequest(
     fileFieldSchema,
     value,
     `Invalid publish request field ${name}`,
   )
+
+  if (options.maxBytes !== undefined && file.size > options.maxBytes) {
+    throw new RequestValidationError(
+      `Publish request field ${name} is too large`,
+      [`${name}: Must be at most ${options.maxBytes} bytes`],
+    )
+  }
 
   return new Uint8Array(await file.arrayBuffer())
 }
@@ -67,6 +78,24 @@ export async function readJsonBody(body: Promise<unknown>): Promise<unknown> {
   }
 }
 
+export async function readFormBody(
+  body: Promise<unknown>,
+): Promise<Record<string, File | string | undefined>> {
+  let value: unknown
+
+  try {
+    value = await body
+  } catch {
+    throw new RequestValidationError('Invalid form request body')
+  }
+
+  if (!isRecord(value)) {
+    throw new RequestValidationError('Invalid form request body')
+  }
+
+  return normalizeFormBody(value)
+}
+
 export async function readJsonField<TSchema extends v.GenericSchema>(
   value: File | string | undefined,
   name: string,
@@ -82,16 +111,6 @@ export async function readJsonField<TSchema extends v.GenericSchema>(
   }
 
   return validateRequest(schema, json, `Invalid ${name}`)
-}
-
-export function parseRequestPackageId(value: string): PackageId {
-  try {
-    return parsePackageId(value).id
-  } catch (error) {
-    throw new RequestValidationError('Invalid package id', [
-      error instanceof Error ? error.message : 'Invalid package id',
-    ])
-  }
 }
 
 export function decodeRequestComponent(value: string): string {
@@ -126,4 +145,27 @@ function formatIssue(issue: v.GenericIssue): string {
     .join('.')
 
   return path ? `${path}: ${issue.message}` : issue.message
+}
+
+function normalizeFormBody(
+  value: Record<string, unknown>,
+): Record<string, File | string | undefined> {
+  const output: Record<string, File | string | undefined> = {}
+
+  for (const [key, field] of Object.entries(value)) {
+    if (typeof field === 'string' || field instanceof File) {
+      output[key] = field
+      continue
+    }
+
+    throw new RequestValidationError('Invalid form request body', [
+      `${key}: Must be a string or file`,
+    ])
+  }
+
+  return output
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }

@@ -1,7 +1,8 @@
 {
   "name": "@dev.localhost/hello-regesta",
   "type": "module",
-  "version": "0.0.4",
+  "version": "0.0.5",
+  "description": "Demo Description",
   "exports": {
     ".": "./dist/index.mjs"
   },
