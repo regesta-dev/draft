@@ -86,6 +86,11 @@ npm install \
   @dev.localhost/hello-regesta@0.0.5
 ```
 
+The npm projection supports gradual migration: packages published to Regesta
+are served from Regesta, while missing packages can fall back to
+`registry.npmjs.org`. The same fallback policy can also be handled by a
+client/package manager instead of the server projection.
+
 `--replace-registry-host=never` prevents npm from rewriting upstream npmjs.org
 tarball URLs through the Regesta npm projection during fallback installs.
 

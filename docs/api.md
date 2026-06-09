@@ -240,8 +240,20 @@ The npm projection derives:
 - dependency and resolver metadata from npm artifact `ecosystemMetadata`;
 - tarball URLs from install artifact object descriptors.
 
-If a package is not found locally, the npm projection can fall back to
-`registry.npmjs.org`. Upstream tarball URLs are not proxied.
+### Progressive Migration And Fallback
+
+The npm projection is also a compatibility layer for gradual migration. If a
+package is not found in Regesta, the projection can fall back to
+`registry.npmjs.org` so existing dependency graphs keep resolving while only
+selected packages move to Regesta.
+
+Fallback is not part of the core package state. It can be implemented by the
+server projection, or by a client/package manager that tries Regesta first and
+then asks the ecosystem's default registry for missing packages.
+
+Upstream tarball URLs are not proxied during fallback. npm clients should keep
+the upstream tarball URL instead of rewriting it through the Regesta npm
+projection.
 
 ## Errors
 

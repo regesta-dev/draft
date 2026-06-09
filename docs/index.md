@@ -24,6 +24,11 @@ features:
     details: Content-addressed objects, deterministic projections, and storage adapters keep the protocol portable.
 ---
 
+::: warning Project Status
+Regesta is an early draft and experimental implementation, not a production
+registry.
+:::
+
 ## What Regesta Is
 
 Regesta is a draft architecture for a transparent universal package registry.

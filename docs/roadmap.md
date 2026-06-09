@@ -39,6 +39,8 @@ specification and it is not limited to one implementation stage.
 
 - [ ] Keep ecosystem projection code outside the core registry model.
 - [ ] Maintain npm-compatible packument, version, tag, and tarball projection.
+- [ ] Keep progressive migration fallback policies in projections or clients,
+      not in core registry state.
 - [ ] Define PyPI Simple API projection behavior.
 - [ ] Define Cargo crate index projection behavior.
 - [ ] Define Go module proxy projection behavior.
