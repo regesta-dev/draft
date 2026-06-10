@@ -245,7 +245,7 @@ export function createCoreRegistryApp(
   const app = new Hono()
   const uploadLimits = normalizePublishUploadLimits(options.publishUploadLimits)
 
-  app.post('/api/v0/releases', async (context) => {
+  app.post('/releases', async (context) => {
     const body = await readFormBody(context.req.parseBody())
     const config = await readJsonField(body.config, 'config', configSchema)
     const artifacts = await readArtifacts(body, uploadLimits)
@@ -304,23 +304,23 @@ export function createCoreRegistryApp(
     return context.json(result, 201)
   })
 
-  app.get('/api/v0/events', (context) => {
+  app.get('/events', (context) => {
     return serveEventLogRequest(context, adapters)
   })
 
-  app.on('HEAD', '/api/v0/events', (context) => {
+  app.on('HEAD', '/events', (context) => {
     return serveEventLogRequest(context, adapters)
   })
 
-  app.get('/api/v0/events/:algorithm/:hex', (context) => {
+  app.get('/events/:algorithm/:hex', (context) => {
     return serveEventRequest(context, adapters)
   })
 
-  app.on('HEAD', '/api/v0/events/:algorithm/:hex', (context) => {
+  app.on('HEAD', '/events/:algorithm/:hex', (context) => {
     return serveEventRequest(context, adapters)
   })
 
-  app.get('/api/v0/objects/:digest', (context) => {
+  app.get('/objects/:digest', (context) => {
     const digest = assertSha256Digest(
       validateRequest(
         digestSchema,
@@ -331,7 +331,7 @@ export function createCoreRegistryApp(
     return serveObject(context, adapters, digest, true)
   })
 
-  app.on('HEAD', '/api/v0/objects/:digest', (context) => {
+  app.on('HEAD', '/objects/:digest', (context) => {
     const digest = assertSha256Digest(
       validateRequest(
         digestSchema,
@@ -343,7 +343,7 @@ export function createCoreRegistryApp(
     return serveObject(context, adapters, digest, false)
   })
 
-  app.get('/api/v0/objects/:algorithm/:hex', (context) => {
+  app.get('/objects/:algorithm/:hex', (context) => {
     const digestParts = validateRequest(
       digestPartsSchema,
       {
@@ -358,7 +358,7 @@ export function createCoreRegistryApp(
     return serveObject(context, adapters, digest, true)
   })
 
-  app.on('HEAD', '/api/v0/objects/:algorithm/:hex', (context) => {
+  app.on('HEAD', '/objects/:algorithm/:hex', (context) => {
     const digestParts = validateRequest(
       digestPartsSchema,
       {
@@ -374,32 +374,32 @@ export function createCoreRegistryApp(
     return serveObject(context, adapters, digest, false)
   })
 
-  app.get('/api/v0/packages/:packageId', (context) => {
+  app.get('/packages/:packageId', (context) => {
     return servePackageStateRequest(context, adapters)
   })
 
-  app.on('HEAD', '/api/v0/packages/:packageId', (context) => {
+  app.on('HEAD', '/packages/:packageId', (context) => {
     return servePackageStateRequest(context, adapters)
   })
 
-  app.get('/api/v0/packages/:packageId/releases/:version', (context) => {
+  app.get('/packages/:packageId/releases/:version', (context) => {
     return serveReleaseEnvelopeRequest(context, adapters)
   })
 
-  app.on('HEAD', '/api/v0/packages/:packageId/releases/:version', (context) => {
+  app.on('HEAD', '/packages/:packageId/releases/:version', (context) => {
     return serveReleaseEnvelopeRequest(context, adapters)
   })
 
-  app.get('/api/v0/packages/:packageId/channels/:channel', (context) => {
+  app.get('/packages/:packageId/channels/:channel', (context) => {
     return servePackageChannelRequest(context, adapters)
   })
 
-  app.on('HEAD', '/api/v0/packages/:packageId/channels/:channel', (context) => {
+  app.on('HEAD', '/packages/:packageId/channels/:channel', (context) => {
     return servePackageChannelRequest(context, adapters)
   })
 
   app.get(
-    '/api/v0/packages/:packageId/releases/:version/verification',
+    '/packages/:packageId/releases/:version/verification',
     async (context) => {
       const packageId = parseRequestPackageId(context.req.param('packageId'))
       const version = parseRequestVersion(context.req.param('version'))
@@ -409,7 +409,7 @@ export function createCoreRegistryApp(
     },
   )
 
-  app.put('/api/v0/packages/:packageId/channels/:channel', async (context) => {
+  app.put('/packages/:packageId/channels/:channel', async (context) => {
     const packageId = parseRequestPackageId(context.req.param('packageId'))
     const channel = parseRequestChannel(context.req.param('channel'))
     const body = validateRequest(
@@ -484,76 +484,73 @@ export function createCoreRegistryApp(
     })
   })
 
-  app.delete(
-    '/api/v0/packages/:packageId/channels/:channel',
-    async (context) => {
-      const packageId = parseRequestPackageId(context.req.param('packageId'))
-      const channel = parseRequestChannel(context.req.param('channel'))
-      const body = validateRequest(
-        deleteChannelBodySchema,
-        await readJsonBody(context.req.json()),
-        'Invalid channel request body',
-      )
-      const previousVersion = await getPackageChannelVersion(
-        adapters,
+  app.delete('/packages/:packageId/channels/:channel', async (context) => {
+    const packageId = parseRequestPackageId(context.req.param('packageId'))
+    const channel = parseRequestChannel(context.req.param('channel'))
+    const body = validateRequest(
+      deleteChannelBodySchema,
+      await readJsonBody(context.req.json()),
+      'Invalid channel request body',
+    )
+    const previousVersion = await getPackageChannelVersion(
+      adapters,
+      packageId,
+      channel,
+    )
+    let result: Awaited<ReturnType<typeof deletePackageChannel>>
+
+    try {
+      const authorization = await services.verifyChannelDeleteAuthorization({
+        authorization: body.authorization,
+        channel,
+        fetchBinding: bindingFetchForRequest(services, context.req.url),
         packageId,
+        ...(previousVersion ? { previousVersion } : {}),
+      })
+      result = await deletePackageChannel(adapters, {
+        authorization,
         channel,
-      )
-      let result: Awaited<ReturnType<typeof deletePackageChannel>>
-
-      try {
-        const authorization = await services.verifyChannelDeleteAuthorization({
-          authorization: body.authorization,
+        packageId,
+        timestamp: authorization.signedAt,
+      })
+    } catch (error) {
+      await writeCoreAuditLog(
+        options.auditLog,
+        rejectedCoreWriteAuditEntry(error, {
+          action: 'channel.delete',
           channel,
-          fetchBinding: bindingFetchForRequest(services, context.req.url),
-          packageId,
+          package: packageId,
           ...(previousVersion ? { previousVersion } : {}),
-        })
-        result = await deletePackageChannel(adapters, {
-          authorization,
-          channel,
-          packageId,
-          timestamp: authorization.signedAt,
-        })
-      } catch (error) {
-        await writeCoreAuditLog(
-          options.auditLog,
-          rejectedCoreWriteAuditEntry(error, {
-            action: 'channel.delete',
-            channel,
-            package: packageId,
-            ...(previousVersion ? { previousVersion } : {}),
-            ...auditRequestFields(context),
-          }),
-        )
-        throw error
-      }
+          ...auditRequestFields(context),
+        }),
+      )
+      throw error
+    }
 
-      await writeCoreAuditLog(options.auditLog, {
-        action: 'channel.delete',
-        channel,
-        eventId: result.event.id,
-        eventType: result.event.eventType,
-        kind: 'regesta.core-audit',
-        outcome: 'accepted',
-        package: packageId,
-        ...(result.previousVersion
-          ? { previousVersion: result.previousVersion }
-          : {}),
-        ...auditRequestFields(context),
-        timestamp: result.event.timestamp,
-      })
+    await writeCoreAuditLog(options.auditLog, {
+      action: 'channel.delete',
+      channel,
+      eventId: result.event.id,
+      eventType: result.event.eventType,
+      kind: 'regesta.core-audit',
+      outcome: 'accepted',
+      package: packageId,
+      ...(result.previousVersion
+        ? { previousVersion: result.previousVersion }
+        : {}),
+      ...auditRequestFields(context),
+      timestamp: result.event.timestamp,
+    })
 
-      return context.json({
-        channel,
-        event: result.event,
-        package: packageId,
-        ...(result.previousVersion
-          ? { previousVersion: result.previousVersion }
-          : {}),
-      })
-    },
-  )
+    return context.json({
+      channel,
+      event: result.event,
+      package: packageId,
+      ...(result.previousVersion
+        ? { previousVersion: result.previousVersion }
+        : {}),
+    })
+  })
 
   return app
 }

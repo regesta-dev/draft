@@ -285,7 +285,7 @@ describe('createRegestaApp', () => {
     expect(response.headers.get('access-control-allow-origin')).toBe('*')
 
     const preflight = await app.request(
-      'http://random.registry.test/api/v0/releases',
+      'http://random.registry.test/releases',
       {
         headers: {
           'access-control-request-headers': 'content-type,x-regesta-test',
@@ -420,7 +420,7 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', auth.fetch)
 
     try {
-      const response = await app.request('/api/v0/releases', {
+      const response = await app.request('/releases', {
         body: form,
         headers: {
           'x-request-id': 'publish-audit-001',
@@ -490,7 +490,7 @@ describe('createRegestaApp', () => {
 
     try {
       const response = await app.request(
-        `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
         {
           body: JSON.stringify({
             authorization: auth.sign(
@@ -573,7 +573,7 @@ describe('createRegestaApp', () => {
     )
 
     const response = await app.request(
-      `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+      `/packages/${encodeURIComponent(packageId)}/channels/latest`,
       {
         body: JSON.stringify({
           authorization: auth.sign(
@@ -629,7 +629,7 @@ describe('createRegestaApp', () => {
       },
     })
 
-    const response = await app.request('http://registry.test/api/v0/releases', {
+    const response = await app.request('http://registry.test/releases', {
       body: 'upload',
       headers: {
         'content-length': '6',
@@ -696,7 +696,7 @@ describe('createRegestaApp', () => {
 
   it('returns 400 for invalid object digest requests', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
-    const response = await app.request('/api/v0/objects/not-a-digest')
+    const response = await app.request('/objects/not-a-digest')
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
@@ -712,47 +712,35 @@ describe('createRegestaApp', () => {
       'application/octet-stream',
     )
     const [algorithm, hex] = descriptor.digest.split(':')
-    const digestGet = await app.request(`/api/v0/objects/${descriptor.digest}`)
+    const digestGet = await app.request(`/objects/${descriptor.digest}`)
 
-    const digestHead = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
-      {
-        method: 'HEAD',
-      },
-    )
-    const partsHead = await app.request(`/api/v0/objects/${algorithm}/${hex}`, {
+    const digestHead = await app.request(`/objects/${descriptor.digest}`, {
       method: 'HEAD',
     })
-    const conditionalGet = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
-      {
-        headers: {
-          'if-none-match': `W/"${descriptor.digest}"`,
-        },
+    const partsHead = await app.request(`/objects/${algorithm}/${hex}`, {
+      method: 'HEAD',
+    })
+    const conditionalGet = await app.request(`/objects/${descriptor.digest}`, {
+      headers: {
+        'if-none-match': `W/"${descriptor.digest}"`,
       },
-    )
-    const conditionalHead = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
-      {
-        headers: {
-          'if-none-match': `"${descriptor.digest}"`,
-        },
-        method: 'HEAD',
+    })
+    const conditionalHead = await app.request(`/objects/${descriptor.digest}`, {
+      headers: {
+        'if-none-match': `"${descriptor.digest}"`,
       },
-    )
-    const rangeGet = await app.request(`/api/v0/objects/${descriptor.digest}`, {
+      method: 'HEAD',
+    })
+    const rangeGet = await app.request(`/objects/${descriptor.digest}`, {
       headers: {
         range: 'bytes=0-5',
       },
     })
-    const invalidRange = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
-      {
-        headers: {
-          range: 'bytes=100-200',
-        },
+    const invalidRange = await app.request(`/objects/${descriptor.digest}`, {
+      headers: {
+        range: 'bytes=100-200',
       },
-    )
+    })
 
     expect(digestGet.status).toBe(200)
     expect(digestGet.headers.get('accept-ranges')).toBe('bytes')
@@ -826,20 +814,17 @@ describe('createRegestaApp', () => {
     }
     const app = createRegestaApp(adapters)
 
-    const head = await app.request(`/api/v0/objects/${descriptor.digest}`, {
+    const head = await app.request(`/objects/${descriptor.digest}`, {
       method: 'HEAD',
     })
-    const rangeHead = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
-      {
-        headers: {
-          range: 'bytes=6-11',
-        },
-        method: 'HEAD',
+    const rangeHead = await app.request(`/objects/${descriptor.digest}`, {
+      headers: {
+        range: 'bytes=6-11',
       },
-    )
+      method: 'HEAD',
+    })
     const invalidRangeHead = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
+      `/objects/${descriptor.digest}`,
       {
         headers: {
           range: 'bytes=100-200',
@@ -847,22 +832,16 @@ describe('createRegestaApp', () => {
         method: 'HEAD',
       },
     )
-    const conditional = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
-      {
-        headers: {
-          'if-none-match': `"${descriptor.digest}"`,
-        },
+    const conditional = await app.request(`/objects/${descriptor.digest}`, {
+      headers: {
+        'if-none-match': `"${descriptor.digest}"`,
       },
-    )
-    const invalidRangeGet = await app.request(
-      `/api/v0/objects/${descriptor.digest}`,
-      {
-        headers: {
-          range: 'bytes=100-200',
-        },
+    })
+    const invalidRangeGet = await app.request(`/objects/${descriptor.digest}`, {
+      headers: {
+        range: 'bytes=100-200',
       },
-    )
+    })
 
     expect(head.status).toBe(200)
     expect(head.headers.get('content-length')).toBe(String(descriptor.size))
@@ -887,7 +866,7 @@ describe('createRegestaApp', () => {
     expect(await invalidRangeGet.text()).toBe('')
     expect(objectGetCalls).toBe(0)
 
-    const get = await app.request(`/api/v0/objects/${descriptor.digest}`)
+    const get = await app.request(`/objects/${descriptor.digest}`)
 
     expect(get.status).toBe(200)
     expect(await get.text()).toBe('large object bytes')
@@ -922,29 +901,23 @@ describe('createRegestaApp', () => {
     )
     const [algorithm, hex] = publish.event.id.split(':')
 
-    const response = await app.request(`/api/v0/events/${algorithm}/${hex}`)
-    const head = await app.request(`/api/v0/events/${algorithm}/${hex}`, {
+    const response = await app.request(`/events/${algorithm}/${hex}`)
+    const head = await app.request(`/events/${algorithm}/${hex}`, {
       method: 'HEAD',
     })
-    const conditional = await app.request(
-      `/api/v0/events/${algorithm}/${hex}`,
-      {
-        headers: {
-          'if-none-match': `"${publish.event.id}"`,
-        },
+    const conditional = await app.request(`/events/${algorithm}/${hex}`, {
+      headers: {
+        'if-none-match': `"${publish.event.id}"`,
       },
-    )
-    const conditionalHead = await app.request(
-      `/api/v0/events/${algorithm}/${hex}`,
-      {
-        headers: {
-          'if-none-match': `W/"${publish.event.id}"`,
-        },
-        method: 'HEAD',
+    })
+    const conditionalHead = await app.request(`/events/${algorithm}/${hex}`, {
+      headers: {
+        'if-none-match': `W/"${publish.event.id}"`,
       },
-    )
-    const missing = await app.request(`/api/v0/events/sha256/${'0'.repeat(64)}`)
-    const invalid = await app.request(`/api/v0/events/sha512/${hex}`)
+      method: 'HEAD',
+    })
+    const missing = await app.request(`/events/sha256/${'0'.repeat(64)}`)
+    const invalid = await app.request(`/events/sha512/${hex}`)
 
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe(
@@ -1048,33 +1021,30 @@ describe('createRegestaApp', () => {
       )
     }
 
-    const fullPage = await app.request('/api/v0/events')
-    const firstPage = await app.request('/api/v0/events?limit=1')
-    const firstPageHead = await app.request('/api/v0/events?limit=1', {
+    const fullPage = await app.request('/events')
+    const firstPage = await app.request('/events?limit=1')
+    const firstPageHead = await app.request('/events?limit=1', {
       method: 'HEAD',
     })
-    const conditionalFirstPage = await app.request('/api/v0/events?limit=1', {
+    const conditionalFirstPage = await app.request('/events?limit=1', {
       headers: {
         'if-none-match': `"regesta.event-log.v0:${first.event.id}:1"`,
       },
     })
-    const conditionalFirstPageHead = await app.request(
-      '/api/v0/events?limit=1',
-      {
-        headers: {
-          'if-none-match': `W/"regesta.event-log.v0:${first.event.id}:1"`,
-        },
-        method: 'HEAD',
+    const conditionalFirstPageHead = await app.request('/events?limit=1', {
+      headers: {
+        'if-none-match': `W/"regesta.event-log.v0:${first.event.id}:1"`,
       },
-    )
+      method: 'HEAD',
+    })
     const secondPage = await app.request(
-      `/api/v0/events?after=${encodeURIComponent(first.event.id)}&limit=1`,
+      `/events?after=${encodeURIComponent(first.event.id)}&limit=1`,
     )
     const emptyPage = await app.request(
-      `/api/v0/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
+      `/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
     )
     const conditionalEmptyPage = await app.request(
-      `/api/v0/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
+      `/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
       {
         headers: {
           'if-none-match': `W/"regesta.event-log.v0:${second.event.id}:0"`,
@@ -1082,7 +1052,7 @@ describe('createRegestaApp', () => {
       },
     )
     const conditionalEmptyPageHead = await app.request(
-      `/api/v0/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
+      `/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
       {
         headers: {
           'if-none-match': `"regesta.event-log.v0:${second.event.id}:0"`,
@@ -1091,11 +1061,11 @@ describe('createRegestaApp', () => {
       },
     )
     const missingCursor = await app.request(
-      `/api/v0/events?after=${encodeURIComponent(
+      `/events?after=${encodeURIComponent(
         sha256(bytes('missing event cursor')),
       )}&limit=1`,
     )
-    const invalid = await app.request('/api/v0/events?limit=0')
+    const invalid = await app.request('/events?limit=0')
 
     expect(fullPage.status).toBe(200)
     await expect(fullPage.json()).resolves.toMatchObject({
@@ -1197,7 +1167,7 @@ describe('createRegestaApp', () => {
       return Promise.resolve([])
     }
     const app = createRegestaApp(adapters)
-    const response = await app.request('/api/v0/events')
+    const response = await app.request('/events')
 
     expect(response.status).toBe(200)
     expect(listOptions).toEqual({
@@ -1216,7 +1186,7 @@ describe('createRegestaApp', () => {
     form.set('config', '{')
     form.set('artifacts', '[]')
     form.set('source', new File(['source'], 'source.tgz'))
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1232,7 +1202,7 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
 
     try {
-      const response = await app.request('/api/v0/releases', {
+      const response = await app.request('/releases', {
         body: '--not-the-declared-boundary\r\n',
         headers: {
           'content-type': 'multipart/form-data; boundary=regesta-boundary',
@@ -1283,7 +1253,7 @@ describe('createRegestaApp', () => {
     form.set('artifact.install', new File(['ok'], 'artifact.bin'))
     form.set('source', new File(['source'], 'source.tgz'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1327,7 +1297,7 @@ describe('createRegestaApp', () => {
     form.set('artifact.install', new File(['artifact'], 'artifact.bin'))
     form.set('source', new File(['source'], 'source.tgz'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1369,7 +1339,7 @@ describe('createRegestaApp', () => {
     )
     form.set('artifact.install', new File(['artifact'], 'artifact.bin'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1405,7 +1375,7 @@ describe('createRegestaApp', () => {
     )
     form.set('artifact.install', new File(['artifact'], 'artifact.bin'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1447,7 +1417,7 @@ describe('createRegestaApp', () => {
     )
     form.set('artifact.install', new File(['artifact'], 'artifact.bin'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1488,7 +1458,7 @@ describe('createRegestaApp', () => {
     )
     form.set('artifact.install', new File(['artifact'], 'artifact.bin'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1535,7 +1505,7 @@ describe('createRegestaApp', () => {
     )
     form.set('artifact.install', new File(['artifact'], 'artifact.bin'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1579,7 +1549,7 @@ describe('createRegestaApp', () => {
     )
     form.set('artifact.install', new File([brokenGzip], 'package.tgz'))
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1622,7 +1592,7 @@ describe('createRegestaApp', () => {
       new File([blobPart(invalidPackageManifestTarball())], 'package.tgz'),
     )
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1678,7 +1648,7 @@ describe('createRegestaApp', () => {
       ),
     )
 
-    const response = await app.request('/api/v0/releases', {
+    const response = await app.request('/releases', {
       body: form,
       method: 'POST',
     })
@@ -1693,7 +1663,7 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
     const response = await app.request(
-      `/api/v0/packages/${packageId}/channels/latest`,
+      `/packages/${packageId}/channels/latest`,
       {
         body: JSON.stringify({}),
         headers: {
@@ -1713,18 +1683,15 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
 
-    const update = await app.request(
-      `/api/v0/packages/${packageId}/channels/latest`,
-      {
-        body: '{',
-        headers: {
-          'content-type': 'application/json',
-        },
-        method: 'PUT',
+    const update = await app.request(`/packages/${packageId}/channels/latest`, {
+      body: '{',
+      headers: {
+        'content-type': 'application/json',
       },
-    )
+      method: 'PUT',
+    })
     const deletion = await app.request(
-      `/api/v0/packages/${packageId}/channels/latest`,
+      `/packages/${packageId}/channels/latest`,
       {
         body: '{',
         headers: {
@@ -1748,22 +1715,19 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
 
-    const update = await app.request(
-      `/api/v0/packages/${packageId}/channels/latest`,
-      {
-        body: JSON.stringify({
-          authorization: {},
-          package: 'npm:example.com/other',
-          version: '0.0.1',
-        }),
-        headers: {
-          'content-type': 'application/json',
-        },
-        method: 'PUT',
+    const update = await app.request(`/packages/${packageId}/channels/latest`, {
+      body: JSON.stringify({
+        authorization: {},
+        package: 'npm:example.com/other',
+        version: '0.0.1',
+      }),
+      headers: {
+        'content-type': 'application/json',
       },
-    )
+      method: 'PUT',
+    })
     const deletion = await app.request(
-      `/api/v0/packages/${packageId}/channels/latest`,
+      `/packages/${packageId}/channels/latest`,
       {
         body: JSON.stringify({
           authorization: {},
@@ -1817,15 +1781,12 @@ describe('createRegestaApp', () => {
       adapters,
     )
 
-    const state = await app.request(`/api/v0/packages/${encodedPackageId}`)
-    const stateHead = await app.request(
-      `/api/v0/packages/${encodedPackageId}`,
-      {
-        method: 'HEAD',
-      },
-    )
+    const state = await app.request(`/packages/${encodedPackageId}`)
+    const stateHead = await app.request(`/packages/${encodedPackageId}`, {
+      method: 'HEAD',
+    })
     const conditionalState = await app.request(
-      `/api/v0/packages/${encodedPackageId}`,
+      `/packages/${encodedPackageId}`,
       {
         headers: {
           'if-none-match': `"${published.event.id}"`,
@@ -1833,16 +1794,16 @@ describe('createRegestaApp', () => {
       },
     )
     const release = await app.request(
-      `/api/v0/packages/${encodedPackageId}/releases/0.0.1`,
+      `/packages/${encodedPackageId}/releases/0.0.1`,
     )
     const releaseHead = await app.request(
-      `/api/v0/packages/${encodedPackageId}/releases/0.0.1`,
+      `/packages/${encodedPackageId}/releases/0.0.1`,
       {
         method: 'HEAD',
       },
     )
     const conditionalRelease = await app.request(
-      `/api/v0/packages/${encodedPackageId}/releases/0.0.1`,
+      `/packages/${encodedPackageId}/releases/0.0.1`,
       {
         headers: {
           'if-none-match': `"${published.event.id}"`,
@@ -1850,16 +1811,16 @@ describe('createRegestaApp', () => {
       },
     )
     const channel = await app.request(
-      `/api/v0/packages/${encodedPackageId}/channels/latest`,
+      `/packages/${encodedPackageId}/channels/latest`,
     )
     const channelHead = await app.request(
-      `/api/v0/packages/${encodedPackageId}/channels/latest`,
+      `/packages/${encodedPackageId}/channels/latest`,
       {
         method: 'HEAD',
       },
     )
     const verification = await app.request(
-      `/api/v0/packages/${encodedPackageId}/releases/0.0.1/verification`,
+      `/packages/${encodedPackageId}/releases/0.0.1/verification`,
     )
 
     expect(state.status).toBe(200)
@@ -1975,7 +1936,7 @@ describe('createRegestaApp', () => {
     )
 
     const response = await app.request(
-      `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+      `/packages/${encodeURIComponent(packageId)}/channels/latest`,
     )
 
     expect(response.status).toBe(200)
@@ -1989,7 +1950,7 @@ describe('createRegestaApp', () => {
     })
 
     const conditional = await app.request(
-      `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+      `/packages/${encodeURIComponent(packageId)}/channels/latest`,
       {
         headers: {
           'if-none-match': `"${publish.event.id}"`,
@@ -2006,9 +1967,7 @@ describe('createRegestaApp', () => {
   it('returns 404 for missing package channels', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
-    const response = await app.request(
-      `/api/v0/packages/${packageId}/channels/beta`,
-    )
+    const response = await app.request(`/packages/${packageId}/channels/beta`)
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toMatchObject({
@@ -2020,7 +1979,7 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
     const response = await app.request(
-      `/api/v0/packages/${packageId}/channels/${encodeURIComponent('latest\r\nx')}`,
+      `/packages/${packageId}/channels/${encodeURIComponent('latest\r\nx')}`,
     )
 
     expect(response.status).toBe(400)
@@ -2034,7 +1993,7 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
     const response = await app.request(
-      `/api/v0/packages/${packageId}/releases/${encodeURIComponent('0.0.1\r\nx')}`,
+      `/packages/${packageId}/releases/${encodeURIComponent('0.0.1\r\nx')}`,
     )
 
     expect(response.status).toBe(400)
@@ -2048,7 +2007,7 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
     const response = await app.request(
-      `/api/v0/packages/${packageId}/channels/latest`,
+      `/packages/${packageId}/channels/latest`,
       {
         body: JSON.stringify({
           authorization: {},
@@ -2114,7 +2073,7 @@ describe('createRegestaApp', () => {
 
     try {
       const first = await app.request(
-        `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
         {
           body,
           headers: {
@@ -2124,7 +2083,7 @@ describe('createRegestaApp', () => {
         },
       )
       const replayed = await app.request(
-        `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
         {
           body,
           headers: {
@@ -2194,7 +2153,7 @@ describe('createRegestaApp', () => {
 
     try {
       const response = await app.request(
-        `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
         {
           body: JSON.stringify({
             authorization,
@@ -2234,7 +2193,7 @@ describe('createRegestaApp', () => {
 
     try {
       const response = await app.request(
-        `/api/v0/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
         {
           body: JSON.stringify({
             authorization,
@@ -2325,13 +2284,10 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', devLocalhostFetch)
 
     try {
-      const response = await app.request(
-        'http://localhost:4321/api/v0/releases',
-        {
-          body: form,
-          method: 'POST',
-        },
-      )
+      const response = await app.request('http://localhost:4321/releases', {
+        body: form,
+        method: 'POST',
+      })
 
       expect(response.status).toBe(409)
       await expect(response.json()).resolves.toMatchObject({
@@ -2421,13 +2377,10 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', devLocalhostFetch)
 
     try {
-      const response = await app.request(
-        'http://localhost:4321/api/v0/releases',
-        {
-          body: form,
-          method: 'POST',
-        },
-      )
+      const response = await app.request('http://localhost:4321/releases', {
+        body: form,
+        method: 'POST',
+      })
 
       expect(response.status).toBe(409)
       await expect(response.json()).resolves.toMatchObject({
@@ -2503,13 +2456,10 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', devLocalhostFetch)
 
     try {
-      const response = await app.request(
-        'http://localhost:4321/api/v0/releases',
-        {
-          body: form,
-          method: 'POST',
-        },
-      )
+      const response = await app.request('http://localhost:4321/releases', {
+        body: form,
+        method: 'POST',
+      })
 
       expect(response.status).toBe(201)
       await expect(response.json()).resolves.toMatchObject({
@@ -2621,13 +2571,10 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', devLocalhostFetch)
 
     try {
-      const response = await app.request(
-        'http://localhost:4321/api/v0/releases',
-        {
-          body: form,
-          method: 'POST',
-        },
-      )
+      const response = await app.request('http://localhost:4321/releases', {
+        body: form,
+        method: 'POST',
+      })
 
       expect(response.status).toBe(201)
       await expect(response.json()).resolves.toMatchObject({
@@ -2726,13 +2673,10 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', devLocalhostFetch)
 
     try {
-      const response = await app.request(
-        'http://localhost:4321/api/v0/releases',
-        {
-          body: form,
-          method: 'POST',
-        },
-      )
+      const response = await app.request('http://localhost:4321/releases', {
+        body: form,
+        method: 'POST',
+      })
 
       expect(response.status).toBe(401)
       await expect(response.json()).resolves.toMatchObject({
@@ -2816,7 +2760,7 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', auth.fetch)
 
     try {
-      const response = await app.request('/api/v0/releases', {
+      const response = await app.request('/releases', {
         body: publishForm,
         method: 'POST',
       })
@@ -2831,7 +2775,7 @@ describe('createRegestaApp', () => {
       })
 
       const latest = await app.request(
-        `/api/v0/packages/${encodeURIComponent(prepared.config.id)}/channels/latest`,
+        `/packages/${encodeURIComponent(prepared.config.id)}/channels/latest`,
       )
 
       expect(latest.status).toBe(200)
@@ -2919,7 +2863,7 @@ describe('createRegestaApp', () => {
     vi.stubGlobal('fetch', auth.fetch)
 
     try {
-      const response = await app.request('/api/v0/releases', {
+      const response = await app.request('/releases', {
         body: publishForm,
         method: 'POST',
       })
@@ -3010,7 +2954,7 @@ describe('createRegestaApp', () => {
     let npmProjectionEtag: string | undefined
 
     try {
-      const publish = await app.request('/api/v0/releases', {
+      const publish = await app.request('/releases', {
         body: publishForm,
         method: 'POST',
       })
@@ -3425,7 +3369,7 @@ describe('createRegestaApp', () => {
       vi.stubGlobal('fetch', auth.fetch)
 
       try {
-        const publish = await firstApp.request('/api/v0/releases', {
+        const publish = await firstApp.request('/releases', {
           body: publishForm,
           method: 'POST',
         })
@@ -3447,9 +3391,7 @@ describe('createRegestaApp', () => {
 
       const restartedApp = createRegestaApp(createLocalRegistryAdapters(root))
       const packageId = encodeURIComponent(prepared.config.id)
-      const packageState = await restartedApp.request(
-        `/api/v0/packages/${packageId}`,
-      )
+      const packageState = await restartedApp.request(`/packages/${packageId}`)
 
       expect(packageState.status).toBe(200)
       await expect(packageState.json()).resolves.toMatchObject({
@@ -3466,7 +3408,7 @@ describe('createRegestaApp', () => {
       })
 
       const verification = await restartedApp.request(
-        `/api/v0/packages/${packageId}/releases/${prepared.config.version}/verification`,
+        `/packages/${packageId}/releases/${prepared.config.version}/verification`,
       )
 
       expect(verification.status).toBe(200)

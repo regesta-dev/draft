@@ -9,9 +9,9 @@ describe('transport routing', () => {
   it('maps ordinary registry hosts to the core layer', () => {
     expect(routePrefixForHostname('registry.dev')).toBe('/root')
     expect(registryRoutePath(new Request('http://registry.dev/'))).toBe('/root')
-    expect(
-      registryRoutePath(new Request('http://registry.dev/api/v0/events')),
-    ).toBe('/root/api/v0/events')
+    expect(registryRoutePath(new Request('http://registry.dev/events'))).toBe(
+      '/root/events',
+    )
   })
 
   it('maps npm hosts to the npm projection layer', () => {

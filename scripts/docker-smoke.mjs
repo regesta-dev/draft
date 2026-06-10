@@ -57,7 +57,7 @@ try {
   ])
 
   const packageState = await getJson(
-    `${baseUrl}/api/v0/packages/${encodeURIComponent(
+    `${baseUrl}/packages/${encodeURIComponent(
       'npm:dev.localhost/hello-regesta',
     )}`,
   )

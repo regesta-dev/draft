@@ -35,19 +35,19 @@ describe('verifyReleaseFromRegistry', () => {
       false,
     )
     expect(fetch.requests).toEqual([
-      'https://registry.example/api/v0/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
-      `https://registry.example/api/v0/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifestDescriptor.digest.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifestDescriptor.digest.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifest.source.digest.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifest.source.digest.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifest.artifacts[0]!.digest.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifest.artifacts[0]!.digest.slice('sha256:'.length)}`,
+      'https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
+      `https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifestDescriptor.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifestDescriptor.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifest.source.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifest.source.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifest.artifacts[0]!.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifest.artifacts[0]!.digest.slice('sha256:'.length)}`,
     ])
     expect(fetch.headRequests).toEqual([
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifestDescriptor.digest.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifest.source.digest.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/objects/sha256/${fixture.release.manifest.artifacts[0]!.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifestDescriptor.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifest.source.digest.slice('sha256:'.length)}`,
+      `https://registry.example/objects/sha256/${fixture.release.manifest.artifacts[0]!.digest.slice('sha256:'.length)}`,
     ])
   })
 
@@ -121,7 +121,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object descriptor read failed: Invalid object Content-Length header: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object descriptor read failed: Invalid object Content-Length header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -165,7 +165,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object descriptor read failed: Missing object Content-Length header: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object descriptor read failed: Missing object Content-Length header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -208,7 +208,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object descriptor read failed: Missing object Content-Type header: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object descriptor read failed: Missing object Content-Type header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -252,7 +252,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object read failed: Public object Content-Length does not match body: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object read failed: Public object Content-Length does not match body: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -295,7 +295,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object read failed: Missing object Content-Length header: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object read failed: Missing object Content-Length header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -338,7 +338,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object read failed: Public object Content-Type mismatch: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object read failed: Public object Content-Type mismatch: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -380,7 +380,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object read failed: Missing object Content-Type header: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object read failed: Missing object Content-Type header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -424,7 +424,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object descriptor read failed: Public object ETag does not match digest: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object descriptor read failed: Public object ETag does not match digest: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -468,7 +468,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object descriptor read failed: Missing object ETag header: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object descriptor read failed: Missing object ETag header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -511,7 +511,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toContain(
-      `Source object read failed: Missing object ETag header: https://registry.example/api/v0/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+      `Source object read failed: Missing object ETag header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
     )
   })
 
@@ -571,7 +571,7 @@ describe('verifyReleaseFromRegistry', () => {
     expect(result).toEqual({
       ok: false,
       problems: [
-        'Public release request failed: Invalid JSON Content-Type header: https://registry.example/api/v0/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
+        'Public release request failed: Invalid JSON Content-Type header: https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
       ],
     })
   })
@@ -611,7 +611,7 @@ describe('verifyReleaseFromRegistry', () => {
     const mismatchedReleaseEtagFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input)
-        if (url.includes('/api/v0/packages/')) {
+        if (url.includes('/packages/')) {
           fetch.requests.push(url)
 
           return Promise.resolve(
@@ -664,7 +664,7 @@ describe('verifyReleaseFromRegistry', () => {
 
     expect(result.ok).toBe(false)
     expect(result.problems).toEqual([
-      'Public release request failed: Registry request failed: 404 https://registry.example/api/v0/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
+      'Public release request failed: Registry request failed: 404 https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
     ])
   })
 
@@ -674,7 +674,7 @@ describe('verifyReleaseFromRegistry', () => {
     const failingFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input)
-        if (url.includes('/api/v0/events/')) {
+        if (url.includes('/events/')) {
           fetch.requests.push(url)
           return Promise.resolve(new Response('not found', { status: 404 }))
         }
@@ -694,7 +694,7 @@ describe('verifyReleaseFromRegistry', () => {
     expect(result.ok).toBe(false)
     expect(result.manifest?.id).toBe(fixture.release.manifest.id)
     expect(result.problems).toEqual([
-      `Public event request failed: Registry request failed: 404 https://registry.example/api/v0/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+      `Public event request failed: Registry request failed: 404 https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
     ])
   })
 
@@ -704,7 +704,7 @@ describe('verifyReleaseFromRegistry', () => {
     const mismatchedEventEtagFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input)
-        if (url.includes('/api/v0/events/')) {
+        if (url.includes('/events/')) {
           fetch.requests.push(url)
 
           return Promise.resolve(
@@ -740,7 +740,7 @@ describe('verifyReleaseFromRegistry', () => {
     const missingEventEtagFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input)
-        if (url.includes('/api/v0/events/')) {
+        if (url.includes('/events/')) {
           fetch.requests.push(url)
 
           return Promise.resolve(Response.json(fixture.release.event))
@@ -768,7 +768,7 @@ describe('verifyReleaseFromRegistry', () => {
     const invalidEventContentTypeFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input)
-        if (url.includes('/api/v0/events/')) {
+        if (url.includes('/events/')) {
           fetch.requests.push(url)
 
           return Promise.resolve(
@@ -795,7 +795,7 @@ describe('verifyReleaseFromRegistry', () => {
     expect(result.ok).toBe(false)
     expect(result.manifest?.id).toBe(fixture.release.manifest.id)
     expect(result.problems).toEqual([
-      `Public event request failed: Invalid JSON Content-Type header: https://registry.example/api/v0/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+      `Public event request failed: Invalid JSON Content-Type header: https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
     ])
   })
 
@@ -813,7 +813,7 @@ describe('verifyReleaseFromRegistry', () => {
     const mismatchedFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input)
-        if (url.includes('/api/v0/events/')) {
+        if (url.includes('/events/')) {
           fetch.requests.push(url)
           return Promise.resolve(
             jsonResponse(mismatchedEvent, {
@@ -848,7 +848,7 @@ describe('verifyReleaseFromRegistry', () => {
     const invalidEventFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input)
-        if (url.includes('/api/v0/events/')) {
+        if (url.includes('/events/')) {
           fetch.requests.push(url)
 
           return Promise.resolve(
@@ -912,13 +912,13 @@ describe('verifyEventLogFromRegistry', () => {
       problems: [],
     })
     expect(fetch.requests).toEqual([
-      'https://registry.example/api/v0/events?limit=1',
-      `https://registry.example/api/v0/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/events?after=${encodeURIComponent(
+      'https://registry.example/events?limit=1',
+      `https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+      `https://registry.example/events?after=${encodeURIComponent(
         fixture.release.event.id,
       )}&limit=1`,
-      `https://registry.example/api/v0/events/sha256/${channelEvent.id.slice('sha256:'.length)}`,
-      `https://registry.example/api/v0/events?after=${encodeURIComponent(
+      `https://registry.example/events/sha256/${channelEvent.id.slice('sha256:'.length)}`,
+      `https://registry.example/events?after=${encodeURIComponent(
         channelEvent.id,
       )}&limit=1`,
     ])
@@ -1014,7 +1014,7 @@ describe('verifyEventLogFromRegistry', () => {
     })
   })
 
-  it('rejects event log page limits outside the v0 API range', async () => {
+  it('rejects event log page limits outside the public API range', async () => {
     const result = await verifyEventLogFromRegistry({
       fetch: publicEventLogFetch([]),
       limit: 1000,
@@ -1209,8 +1209,7 @@ function publicRegistryFetch(fixture: {
     const { pathname } = new URL(url)
 
     if (
-      pathname ===
-      '/api/v0/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0'
+      pathname === '/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0'
     ) {
       return Promise.resolve(
         jsonResponse(fixture.release, {
@@ -1223,7 +1222,7 @@ function publicRegistryFetch(fixture: {
 
     if (
       pathname ===
-      `/api/v0/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`
+      `/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`
     ) {
       return Promise.resolve(
         jsonResponse(fixture.release.event, {
@@ -1234,7 +1233,7 @@ function publicRegistryFetch(fixture: {
       )
     }
 
-    if (pathname.startsWith('/api/v0/objects/sha256/')) {
+    if (pathname.startsWith('/objects/sha256/')) {
       const digest = `sha256:${pathname.split('/').pop()}`
       const object = fixture.objects.get(digest)
 
@@ -1281,7 +1280,7 @@ function publicEventLogFetch(
     }
 
     const parsed = new URL(url)
-    if (parsed.pathname.startsWith('/api/v0/events/sha256/')) {
+    if (parsed.pathname.startsWith('/events/sha256/')) {
       const digest = `sha256:${parsed.pathname.split('/').pop()}`
       const event =
         options.eventEndpointEvents?.get(digest) ??
@@ -1300,7 +1299,7 @@ function publicEventLogFetch(
       )
     }
 
-    if (parsed.pathname !== '/api/v0/events') {
+    if (parsed.pathname !== '/events') {
       return Promise.resolve(new Response('not found', { status: 404 }))
     }
 

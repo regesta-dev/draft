@@ -94,7 +94,7 @@ cli
         )
       }
 
-      const response = await fetch(`${registry}/api/v0/releases`, {
+      const response = await fetch(`${registry}/releases`, {
         body: form,
         method: 'POST',
       })

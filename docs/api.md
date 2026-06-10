@@ -1,7 +1,7 @@
 # API
 
-This page documents the current V0 HTTP API shape. It covers implemented
-routes and the intended boundary between core APIs and ecosystem projections.
+This page documents the current HTTP API surface. It covers implemented routes
+and the intended boundary between core APIs and ecosystem projections.
 
 ## API Principles
 
@@ -29,7 +29,7 @@ or reserved words such as `channels` and `releases`.
 ## Publish Release
 
 ```http
-POST /api/v0/releases
+POST /releases
 Content-Type: multipart/form-data
 ```
 
@@ -93,8 +93,8 @@ Response shape:
 ## Package State
 
 ```http
-GET  /api/v0/packages/{packageId}
-HEAD /api/v0/packages/{packageId}
+GET  /packages/{packageId}
+HEAD /packages/{packageId}
 ```
 
 Returns package state replayed from ordered package events:
@@ -125,16 +125,16 @@ later publish events can add releases.
 ## Release Reads
 
 ```http
-GET  /api/v0/packages/{packageId}/releases/{version}
-HEAD /api/v0/packages/{packageId}/releases/{version}
+GET  /packages/{packageId}/releases/{version}
+HEAD /packages/{packageId}/releases/{version}
 ```
 
 Returns the stored release envelope: manifest, manifest descriptor, event,
 source descriptor, and artifact descriptors.
 
 ```http
-GET  /api/v0/packages/{packageId}/channels/{channel}
-HEAD /api/v0/packages/{packageId}/channels/{channel}
+GET  /packages/{packageId}/channels/{channel}
+HEAD /packages/{packageId}/channels/{channel}
 ```
 
 Resolves a mutable channel to the current release and returns the same release
@@ -143,8 +143,8 @@ envelope as the versioned release endpoint.
 ## Objects
 
 ```http
-GET  /api/v0/objects/{algorithm}/{hex}
-HEAD /api/v0/objects/{algorithm}/{hex}
+GET  /objects/{algorithm}/{hex}
+HEAD /objects/{algorithm}/{hex}
 ```
 
 Objects are immutable content-addressed bytes. Current V0 object reads are used
@@ -163,10 +163,10 @@ download bytes when proving object integrity.
 ## Events
 
 ```http
-GET  /api/v0/events?after={eventId}&limit={count}
-HEAD /api/v0/events?after={eventId}&limit={count}
-GET  /api/v0/events/{algorithm}/{hex}
-HEAD /api/v0/events/{algorithm}/{hex}
+GET  /events?after={eventId}&limit={count}
+HEAD /events?after={eventId}&limit={count}
+GET  /events/{algorithm}/{hex}
+HEAD /events/{algorithm}/{hex}
 ```
 
 The event log is sequence ordered. `after` is the last event id already seen,

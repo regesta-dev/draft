@@ -685,14 +685,14 @@ function releaseUrl(
   packageId: PackageId,
   version: string,
 ): string {
-  return `${registry}/api/v0/packages/${encodeURIComponent(
+  return `${registry}/packages/${encodeURIComponent(
     packageId,
   )}/releases/${encodeURIComponent(version)}`
 }
 
 function eventUrl(registry: string, digest: Sha256Digest): string {
   const { algorithm, hex } = digestParts(digest)
-  return `${registry}/api/v0/events/${algorithm}/${hex}`
+  return `${registry}/events/${algorithm}/${hex}`
 }
 
 function eventLogUrl(
@@ -702,7 +702,7 @@ function eventLogUrl(
     limit: number
   },
 ): string {
-  const url = new URL(`${registry}/api/v0/events`)
+  const url = new URL(`${registry}/events`)
   if (options.after) {
     url.searchParams.set('after', options.after)
   }
@@ -712,7 +712,7 @@ function eventLogUrl(
 
 function objectUrl(registry: string, digest: Sha256Digest): string {
   const { algorithm, hex } = digestParts(digest)
-  return `${registry}/api/v0/objects/${algorithm}/${hex}`
+  return `${registry}/objects/${algorithm}/${hex}`
 }
 
 function digestFromObjectUrl(url: string): Sha256Digest {
