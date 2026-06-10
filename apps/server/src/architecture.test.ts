@@ -209,7 +209,8 @@ describe('server layer boundaries', () => {
     expect(compose).toContain('regesta-data:/data')
   })
 
-  it('keeps Docker development mode wired to dev.localhost support', async () => {
+  it('keeps Docker deployment mode explicit and dev.localhost guarded', async () => {
+    const dockerfile = await readFile(join(workspaceRoot, 'Dockerfile'), 'utf8')
     const compose = await readFile(join(workspaceRoot, 'compose.yaml'), 'utf8')
     const app = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
     const devBinding = await readFile(
@@ -217,7 +218,9 @@ describe('server layer boundaries', () => {
       'utf8',
     )
 
-    expect(compose).toContain('NODE_ENV: development')
+    expect(dockerfile).toContain('ENV NITRO_PRESET=node_server')
+    expect(compose).toContain('NITRO_PRESET: node_server')
+    expect(compose).toContain('NODE_ENV: production')
     expect(app).toContain(
       "import.meta.dev || process.env.NODE_ENV === 'development'",
     )

@@ -46,3 +46,13 @@ Run the VitePress docs locally:
 ```sh
 pnpm docs:dev
 ```
+
+Run the registry demo with Docker Compose:
+
+```sh
+docker compose up -d --build
+curl http://127.0.0.1:4321/ready
+```
+
+The Compose setup stores SQLite metadata and object bytes in the
+`regesta-data` volume. Override `REGESTA_PORT` to bind a different host port.

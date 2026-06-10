@@ -13,14 +13,15 @@ ARG REGESTA_GIT_SHA
 ENV REGESTA_BUILD_TIME=$REGESTA_BUILD_TIME
 ENV REGESTA_GIT_DIRTY=$REGESTA_GIT_DIRTY
 ENV REGESTA_GIT_SHA=$REGESTA_GIT_SHA
+ENV NITRO_PRESET=node_server
 COPY . .
-RUN pnpm --filter @regesta/server... build \
-  && test -f apps/server/.output/server/index.mjs
+RUN pnpm --filter @regesta/server build
 
 FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
+ENV NITRO_PRESET=node_server
 ENV PORT=4321
 ENV REGESTA_DATA_DIR=/data
 RUN mkdir -p /data && chown -R node:node /data /app
