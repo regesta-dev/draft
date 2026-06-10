@@ -24,6 +24,17 @@ describe('parsePackageId', () => {
     })
   })
 
+  it('uses the same domain-scoped package id shape for planned ecosystems', () => {
+    for (const ecosystem of ['npm', 'pypi', 'cargo', 'go', 'oci']) {
+      expect(parsePackageId(`${ecosystem}:some.dev/sdk`)).toEqual({
+        ecosystem,
+        id: `${ecosystem}:some.dev/sdk`,
+        name: 'some.dev/sdk',
+        ownerDomain: 'some.dev',
+      })
+    }
+  })
+
   it('allows multi-segment package names for ecosystems that need paths', () => {
     expect(parsePackageId('go:some.dev/releases/pkg')).toEqual({
       ecosystem: 'go',
@@ -37,6 +48,17 @@ describe('parsePackageId', () => {
     expect(() => parsePackageId('npm:@some.dev/sdk')).toThrow(
       'Package id must not include native package syntax',
     )
+  })
+
+  it('requires ecosystem keys to be lowercase portable identifiers', () => {
+    for (const id of [
+      'NPM:some.dev/sdk',
+      'npm_js:some.dev/sdk',
+      'npm.js:some.dev/sdk',
+      'npm+js:some.dev/sdk',
+    ]) {
+      expect(() => parsePackageId(id)).toThrow('Invalid package ecosystem')
+    }
   })
 
   it('rejects non-string package id inputs', () => {

@@ -142,6 +142,8 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         this.channelVersion(event.package, event.channel),
       )
       this.assertReleaseExists(event.package, event.version)
+      this.assertEventCanBeInserted(event, authorizationPayloadDigest)
+      assertAppendableRegistryEvent(this.packageEvents(event), event)
       this.insertRegistryEvent(event, authorizationPayloadDigest)
       this.db
         .prepare(
@@ -185,6 +187,8 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         event.previousVersion,
         this.channelVersion(event.package, event.channel),
       )
+      this.assertEventCanBeInserted(event, authorizationPayloadDigest)
+      assertAppendableRegistryEvent(this.packageEvents(event), event)
       this.insertRegistryEvent(event, authorizationPayloadDigest)
       this.db
         .prepare(
@@ -226,6 +230,14 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
 
     try {
       this.db.exec('BEGIN IMMEDIATE')
+      this.assertEventCanBeInserted(release.event, authorizationPayloadDigest)
+      if (this.releaseExists(packageId, release.manifest.version)) {
+        throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
+      }
+      assertAppendableRegistryEvent(
+        this.packageEvents(release.event),
+        release.event,
+      )
       this.insertRegistryEvent(release.event, authorizationPayloadDigest)
       this.db
         .prepare(
@@ -632,6 +644,22 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         authorizationPayloadDigest,
         encodeJson(event),
       )
+  }
+
+  private assertEventCanBeInserted(
+    event: RegistryEvent,
+    authorizationPayloadDigest: Sha256Digest | null,
+  ): void {
+    if (this.eventExists(event.id)) {
+      throw new RegistryEventAlreadyExistsError(event.id)
+    }
+
+    if (
+      authorizationPayloadDigest &&
+      this.authorizationPayloadDigestExists(authorizationPayloadDigest)
+    ) {
+      throw new WriteAuthorizationReplayError(authorizationPayloadDigest)
+    }
   }
 
   private assertExpectedChannelVersion(

@@ -1,5 +1,9 @@
-node_modules
-dist
+**/node_modules
+**/.nitro
+**/.output
+**/.vite
+**/.vite-temp
+**/dist
 coverage
 .git
 .regesta-data

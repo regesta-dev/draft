@@ -9,13 +9,16 @@ import {
   type Ed25519PrivateKeyJwk,
 } from '@regesta/auth'
 import { configDigest } from '@regesta/core'
-import { parsePackageVersion, sha256 } from '@regesta/protocol'
+import { parsePackageId, parsePackageVersion, sha256 } from '@regesta/protocol'
 import { cac } from 'cac'
 import pkg from '../package.json' with { type: 'json' }
+import { compareMirrorDirectories, mirrorRegistry } from './mirror.ts'
 import { prepareNpmPublish } from './npm-publish.ts'
 import { releasePublishArtifactDescriptors } from './publish-intent.ts'
 import {
+  compareEventLogsFromRegistries,
   verifyEventLogFromRegistry,
+  verifyPackageStateFromRegistry,
   verifyReleaseFromRegistry,
 } from './verify.ts'
 
@@ -150,6 +153,113 @@ cli
       }
     },
   )
+
+cli
+  .command('verify-package <package-id>', 'Verify public package state')
+  .option('--registry <url>', 'Registry base URL', { default: defaultRegistry })
+  .option('--limit <count>', 'Event log page size')
+  .option('--max-pages <count>', 'Maximum number of event log pages to fetch')
+  .action(
+    async (
+      packageId: string,
+      options: {
+        limit?: string
+        maxPages?: string
+        registry: string
+      },
+    ) => {
+      const body = await verifyPackageStateFromRegistry({
+        limit: parseOptionalPositiveInteger(options.limit, '--limit'),
+        maxPages: parseOptionalPositiveInteger(options.maxPages, '--max-pages'),
+        packageId: parsePackageId(packageId).id,
+        registry: options.registry,
+      })
+
+      console.info(JSON.stringify(body, null, 2))
+
+      if (!body.ok) {
+        process.exitCode = 1
+      }
+    },
+  )
+
+cli
+  .command(
+    'compare-logs <left-registry> <right-registry>',
+    'Compare two public registry event-log views',
+  )
+  .option('--limit <count>', 'Event log page size')
+  .option('--max-pages <count>', 'Maximum number of event log pages to fetch')
+  .action(
+    async (
+      leftRegistry: string,
+      rightRegistry: string,
+      options: {
+        limit?: string
+        maxPages?: string
+      },
+    ) => {
+      const body = await compareEventLogsFromRegistries({
+        leftRegistry,
+        limit: parseOptionalPositiveInteger(options.limit, '--limit'),
+        maxPages: parseOptionalPositiveInteger(options.maxPages, '--max-pages'),
+        rightRegistry,
+      })
+
+      console.info(JSON.stringify(body, null, 2))
+
+      if (!body.ok) {
+        process.exitCode = 1
+      }
+    },
+  )
+
+cli
+  .command('mirror <output-dir>', 'Mirror public registry facts to a directory')
+  .option('--registry <url>', 'Registry base URL', { default: defaultRegistry })
+  .option('--limit <count>', 'Event and object inventory page size')
+  .option(
+    '--max-pages <count>',
+    'Maximum number of event or object inventory pages to fetch',
+  )
+  .action(
+    async (
+      outputDir: string,
+      options: {
+        limit?: string
+        maxPages?: string
+        registry: string
+      },
+    ) => {
+      const body = await mirrorRegistry({
+        limit: parseOptionalPositiveInteger(options.limit, '--limit'),
+        maxPages: parseOptionalPositiveInteger(options.maxPages, '--max-pages'),
+        outputDir,
+        registry: options.registry,
+      })
+
+      console.info(JSON.stringify(body, null, 2))
+
+      if (!body.ok) {
+        process.exitCode = 1
+      }
+    },
+  )
+
+cli
+  .command(
+    'compare-mirrors <left-dir> <right-dir>',
+    'Compare two local mirror directories',
+  )
+  .action(async (leftDir: string, rightDir: string) => {
+    const body = await compareMirrorDirectories({ leftDir, rightDir })
+
+    console.info(JSON.stringify(body, null, 2))
+
+    if (!body.ok) {
+      process.exitCode = 1
+    }
+  })
 
 cli
   .command('pack [cwd]', 'Prepare publish payload without uploading')

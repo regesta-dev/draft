@@ -65,8 +65,17 @@ node --conditions=regesta-source packages/cli/src/index.ts verify-log \
   --registry http://127.0.0.1:4321
 ```
 
-The verifier reads public APIs and checks release, event, and object integrity.
-It does not treat the convenience server endpoint as the source of truth.
+Verify that mutable package state matches public event-log replay:
+
+```sh
+node --conditions=regesta-source packages/cli/src/index.ts verify-package \
+  npm:dev.localhost/hello-regesta \
+  --registry http://127.0.0.1:4321
+```
+
+The verifier reads public APIs and checks release, event, object, event-log,
+and package-state integrity. It does not treat the convenience server endpoint
+as the source of truth.
 
 ## Inspect The npm Projection
 
@@ -104,5 +113,18 @@ pnpm smoke:docker
 
 The smoke test builds the OCI image, starts a development-mode container with a
 persistent Docker volume, publishes the example package, restarts the
-container, verifies release and event-log data, checks the npm projection, and
-runs a real `npm install`.
+container, verifies release, event-log, and package-state data, checks the npm
+projection, and runs a real `npm install`.
+
+For a local load smoke against the same server code and local SQLite/filesystem
+adapters:
+
+```sh
+pnpm smoke:load
+```
+
+This publishes a few temporary npm packages and repeatedly reads core package
+state, releases, events, objects, npm packuments, npm version manifests, and npm
+tarballs. It is an operational smoke check, not a benchmark.
+
+For storage and recovery boundaries, see [Operations](/operations).

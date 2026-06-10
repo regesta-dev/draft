@@ -152,6 +152,114 @@ describe('npm package projection', () => {
     })
   })
 
+  it('extracts and projects npm resolver metadata from install artifacts', async () => {
+    const processing = await processNpmPublishArtifacts(npmConfig(), [
+      {
+        bytes: await packageJsonTarball({
+          bin: {
+            sdk: './bin/sdk.js',
+          },
+          bundledDependencies: ['@some.dev/bundled'],
+          cpu: ['x64'],
+          dependencies: {
+            '@some.dev/base': '^1.0.0',
+          },
+          engines: {
+            node: '>=24',
+          },
+          libc: ['glibc'],
+          name: '@some.dev/sdk',
+          os: ['linux'],
+          peerDependencies: {
+            '@some.dev/peer': '^2.0.0',
+          },
+          peerDependenciesMeta: {
+            '@some.dev/peer': {
+              optional: true,
+            },
+          },
+          version: '1.0.0',
+        }),
+        role: 'install',
+      },
+    ])
+    const ecosystemMetadata = processing?.ecosystemMetadata
+
+    expect(ecosystemMetadata).toEqual({
+      npm: {
+        bin: {
+          sdk: './bin/sdk.js',
+        },
+        bundledDependencies: ['@some.dev/bundled'],
+        cpu: ['x64'],
+        dependencies: {
+          '@some.dev/base': '^1.0.0',
+        },
+        engines: {
+          node: '>=24',
+        },
+        libc: ['glibc'],
+        os: ['linux'],
+        peerDependencies: {
+          '@some.dev/peer': '^2.0.0',
+        },
+        peerDependenciesMeta: {
+          '@some.dev/peer': {
+            optional: true,
+          },
+        },
+      },
+    })
+
+    if (!ecosystemMetadata) {
+      throw new Error('Expected npm ecosystem metadata')
+    }
+
+    expect(
+      createNpmPackument(
+        'npm:some.dev/sdk',
+        [
+          {
+            manifest: releaseManifest({
+              artifacts: [
+                {
+                  digest: sha256('artifact'),
+                  ecosystemMetadata,
+                  mediaType: 'application/gzip',
+                  role: 'install',
+                  size: 8,
+                },
+              ],
+            }),
+          },
+        ],
+        'https://registry.test',
+      ).versions['1.0.0'],
+    ).toMatchObject({
+      bin: {
+        sdk: './bin/sdk.js',
+      },
+      bundledDependencies: ['@some.dev/bundled'],
+      cpu: ['x64'],
+      dependencies: {
+        '@some.dev/base': '^1.0.0',
+      },
+      engines: {
+        node: '>=24',
+      },
+      libc: ['glibc'],
+      os: ['linux'],
+      peerDependencies: {
+        '@some.dev/peer': '^2.0.0',
+      },
+      peerDependenciesMeta: {
+        '@some.dev/peer': {
+          optional: true,
+        },
+      },
+    })
+  })
+
   it('projects core release description into npm metadata fields', () => {
     const packument = createNpmPackument(
       'npm:some.dev/sdk',
@@ -340,7 +448,6 @@ function releaseManifest(
       mediaType: 'application/vnd.regesta.source-archive+tgz',
       size: 6,
     },
-    specVersion: 0,
     version: '1.0.0',
     ...overrides,
   }

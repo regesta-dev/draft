@@ -14,6 +14,7 @@ export {
 } from './memory.ts'
 export { SQLiteRegistryDatabase } from './sqlite.ts'
 export type {
+  ObjectDescriptorListOptions,
   ObjectStore,
   QueueAdapter,
   RegistryAdapters,

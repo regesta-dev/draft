@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { assertPackageChannel, assertPackageVersion } from './package.ts'
+import { sha256 } from './digest.ts'
+import {
+  assertPackageChannel,
+  assertPackageVersion,
+  parsePackageState,
+  type PackageState,
+} from './package.ts'
 
 describe('assertPackageChannel', () => {
   it('returns custom channel names', () => {
@@ -39,3 +45,78 @@ describe('assertPackageVersion', () => {
     )
   })
 })
+
+describe('parsePackageState', () => {
+  it('parses package states without unsafe narrowing', () => {
+    const state = packageState()
+
+    expect(parsePackageState(state)).toEqual(state)
+  })
+
+  it('rejects package states whose ecosystem does not match the package id', () => {
+    expect(() =>
+      parsePackageState({
+        ...packageState(),
+        ecosystem: 'cargo',
+      }),
+    ).toThrow('Package state ecosystem must match package id')
+  })
+
+  it('rejects package states whose name does not match the package id', () => {
+    expect(() =>
+      parsePackageState({
+        ...packageState(),
+        name: 'example.com/other',
+      }),
+    ).toThrow('Package state name must match package id')
+  })
+
+  it('rejects package states with unknown fields', () => {
+    expect(() =>
+      parsePackageState({
+        ...packageState(),
+        operatorHint: 'not verified',
+      }),
+    ).toThrow('Package state must not include unknown field: operatorHint')
+  })
+
+  it('rejects invalid release manifest digests', () => {
+    const state = packageState()
+
+    expect(() =>
+      parsePackageState({
+        ...state,
+        releases: [
+          {
+            ...state.releases[0],
+            manifestDigest: 'sha256:not-valid',
+          },
+        ],
+      }),
+    ).toThrow('Invalid sha256 digest')
+  })
+})
+
+function packageState(): PackageState {
+  return {
+    channels: {
+      beta: '1.0.0',
+      latest: '1.0.0',
+    },
+    ecosystem: 'npm',
+    id: 'npm:example.com/hello-regesta',
+    name: 'example.com/hello-regesta',
+    object: 'regesta.package-state',
+    releases: [
+      {
+        createdAt: '2026-06-01T00:00:00.000Z',
+        manifestDigest: sha256(bytes('manifest')),
+        version: '1.0.0',
+      },
+    ],
+  }
+}
+
+function bytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value)
+}

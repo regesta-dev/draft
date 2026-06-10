@@ -33,6 +33,18 @@ Rules:
 npm's leading `@` is projection syntax, not part of the core id. The npm
 projection maps `npm:some.dev/sdk` to `@some.dev/sdk`.
 
+Native package names are ecosystem projection details, not core identifiers.
+Clients may infer a Regesta id from a native manifest during publish, but the
+publish request still carries the canonical Regesta id. For example, the
+current npm-first CLI can infer `npm:some.dev/sdk` from a package named
+`@some.dev/sdk`.
+
+Future PyPI, Cargo, Go, OCI, or other clients should define their own
+reversible native-name mapping rules in their projection/client specs. Those
+rules must not change the stored core id shape, and core must not need to know
+whether a package came from `package.json`, `pyproject.toml`, `Cargo.toml`,
+`go.mod`, an OCI manifest, or another ecosystem-native manifest.
+
 ## `regesta.json`
 
 `regesta.json` describes Regesta-specific release intent. It should stay thin.
@@ -72,7 +84,8 @@ ids from `package.json`, but core stores only the normalized Regesta id.
 
 The protocol defines the semantics of package ids, manifests, artifacts,
 channels, and events. The concrete V0 object shapes are summarized in
-[Schema](./schema.md).
+[Schema](./schema.md). A machine-readable JSON Schema reference is published at
+[`/schema/regesta-v0.schema.json`](/schema/regesta-v0.schema.json).
 
 ## Channels
 
@@ -103,11 +116,51 @@ Storage adapters must reject:
 - authorization replay;
 - invalid package ids, digests, timestamps, channels, and versions.
 
+## Write Authorization
+
+V0 write requests carry a signed authorization object:
+
+```json
+{
+  "alg": "EdDSA",
+  "kid": "ed25519:example",
+  "payload": {
+    "object": "regesta.write-intent",
+    "operation": "release.publish",
+    "package": "npm:some.dev/sdk",
+    "domain": "some.dev",
+    "version": "1.2.3",
+    "channel": "latest",
+    "configDigest": "sha256:...",
+    "sourceDigest": "sha256:...",
+    "artifactDigests": ["sha256:..."],
+    "artifactDescriptorDigest": "sha256:...",
+    "timestamp": "2026-06-03T00:00:00.000Z",
+    "nonce": "..."
+  },
+  "signature": "..."
+}
+```
+
+The signature is an Ed25519 signature over the canonical JSON form of
+`payload`. The owner domain comes from the package id, and the server verifies
+the signature against the current domain binding at write time.
+
+Current write intent operations are:
+
+- `release.publish`;
+- `channel.update`;
+- `channel.delete`.
+
+Accepted events snapshot `regesta.authorization-proof` material, including the
+public key, signature, signed timestamp, payload digest, and well-known binding
+digest. V0 events do not publish the full signed intent payload.
+
 ## API Boundary
 
 The protocol defines object semantics. The HTTP API exposes those objects and
 derived views. See [API](./api.md) for current routes, request shapes, caching
-rules, and projection endpoints.
+rules, projection endpoints, and the published OpenAPI reference.
 
 ## Verification Boundary
 
@@ -118,6 +171,8 @@ V0 can verify release-level facts:
 - event id correctness;
 - release/event consistency;
 - object availability and response headers;
+- reproducible npm artifact `ecosystemMetadata` extraction when npm metadata is
+  present;
 - package state replay from public events;
 - authorization proof structure.
 

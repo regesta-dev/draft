@@ -1,9 +1,10 @@
 import { Buffer } from 'node:buffer'
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
+  ObjectCursorNotFoundError,
   PackageChannelConflictError,
   RegistryEventAlreadyExistsError,
   RegistryEventIntegrityError,
@@ -21,6 +22,7 @@ import {
   type PackageId,
   type PublishReleaseEvent,
   type RegistryEvent,
+  type Sha256Digest,
 } from '@regesta/protocol'
 import { describe, expect, it } from 'vitest'
 import {
@@ -28,7 +30,11 @@ import {
   LocalQueueAdapter,
   LocalSignerAdapter,
 } from './local.ts'
-import { MemoryObjectStore, MemoryRegistryDatabase } from './memory.ts'
+import {
+  MemoryObjectStore,
+  MemoryRegistryDatabase,
+  MemorySignerAdapter,
+} from './memory.ts'
 import { describeRegistryDatabaseConformance } from './registry-database.conformance.ts'
 import { SQLiteRegistryDatabase } from './sqlite.ts'
 import type { StoredRelease } from './interfaces.ts'
@@ -90,7 +96,6 @@ describe('createLocalRegistryAdapters', () => {
           },
           signature: TEST_ED25519_SIGNATURE,
           signedAt: '2026-06-01T00:00:00.000Z',
-          specVersion: 0,
           wellKnownDigest: sha256(bytes('well-known')),
         },
         artifactDigests: [artifact.digest],
@@ -103,7 +108,6 @@ describe('createLocalRegistryAdapters', () => {
           version: '0.0.1',
         },
         sourceDigest: source.digest,
-        specVersion: 0,
         timestamp: '2026-06-01T00:00:00.000Z',
       })
 
@@ -208,6 +212,75 @@ describe('createLocalRegistryAdapters', () => {
     }
   })
 
+  it('does not expose mutable local object byte or descriptor references', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
+
+    try {
+      const adapters = createLocalRegistryAdapters(root)
+      const objectBytes = bytes('object bytes')
+      const descriptor = await adapters.objects.put(
+        objectBytes,
+        'application/octet-stream',
+      )
+      const expectedDescriptor = { ...descriptor }
+
+      objectBytes[0] = 0
+      descriptor.size = 0
+
+      const firstRead = await adapters.objects.get(expectedDescriptor.digest)
+
+      expect(text(firstRead?.bytes)).toBe('object bytes')
+      expect(firstRead?.descriptor).toEqual(expectedDescriptor)
+
+      if (!firstRead) {
+        throw new Error('Expected stored object to exist')
+      }
+
+      firstRead.bytes[0] = 0
+      firstRead.descriptor.size = 0
+
+      const secondRead = await adapters.objects.get(expectedDescriptor.digest)
+
+      expect(text(secondRead?.bytes)).toBe('object bytes')
+      expect(secondRead?.descriptor).toEqual(expectedDescriptor)
+
+      const descriptorRead = await adapters.objects.getDescriptor(
+        expectedDescriptor.digest,
+      )
+      expect(descriptorRead).toEqual(expectedDescriptor)
+
+      if (!descriptorRead) {
+        throw new Error('Expected stored object descriptor to exist')
+      }
+
+      descriptorRead.size = 0
+
+      await expect(
+        adapters.objects.getDescriptor(expectedDescriptor.digest),
+      ).resolves.toEqual(expectedDescriptor)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects invalid local object digests before building filesystem paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
+
+    try {
+      const adapters = createLocalRegistryAdapters(root)
+      const digest: Sha256Digest = JSON.parse('"sha256:../../outside"')
+
+      await expect(adapters.objects.get(digest)).rejects.toThrow(
+        'Invalid sha256 digest: sha256:../../outside',
+      )
+      await expect(adapters.objects.getDescriptor(digest)).rejects.toThrow(
+        'Invalid sha256 digest: sha256:../../outside',
+      )
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it('checks local object store readiness without committing probe objects', async () => {
     const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
 
@@ -250,10 +323,134 @@ describe('createLocalRegistryAdapters', () => {
     }
   })
 
+  it('appends local queue messages as newline-delimited JSON', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-queue-'))
+
+    try {
+      const queue = new LocalQueueAdapter(root)
+
+      await queue.enqueue('release.published', {
+        package: 'npm:example.com/queued',
+        version: '0.0.1',
+      })
+      await queue.enqueue('channel.updated', {
+        channel: 'latest',
+        package: 'npm:example.com/queued',
+        version: '0.0.1',
+      })
+
+      const text = await readFile(join(root, 'queue.ndjson'), 'utf8')
+
+      expect(text.endsWith('\n')).toBe(true)
+      expect(
+        text
+          .trimEnd()
+          .split('\n')
+          .map((line) => JSON.parse(line)),
+      ).toEqual([
+        {
+          payload: {
+            package: 'npm:example.com/queued',
+            version: '0.0.1',
+          },
+          topic: 'release.published',
+        },
+        {
+          payload: {
+            channel: 'latest',
+            package: 'npm:example.com/queued',
+            version: '0.0.1',
+          },
+          topic: 'channel.updated',
+        },
+      ])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('preserves parseable local queue entries across concurrent shared-root adapters', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-queue-'))
+
+    try {
+      const firstQueue = new LocalQueueAdapter(root)
+      const secondQueue = new LocalQueueAdapter(root)
+      const messages = Array.from({ length: 20 }, (_, index) => {
+        return {
+          payload: {
+            index,
+            package: 'npm:example.com/concurrent-queue',
+          },
+          topic: index % 2 === 0 ? 'release.published' : 'channel.updated',
+        }
+      })
+
+      await Promise.all(
+        messages.map((message, index) => {
+          const queue = index % 2 === 0 ? firstQueue : secondQueue
+          return queue.enqueue(message.topic, message.payload)
+        }),
+      )
+
+      const text = await readFile(join(root, 'queue.ndjson'), 'utf8')
+      const entries = text
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line))
+
+      expect(text.endsWith('\n')).toBe(true)
+      expect(entries).toHaveLength(messages.length)
+      expect(entries).toEqual(
+        expect.arrayContaining(
+          messages.map((message) => {
+            return {
+              payload: message.payload,
+              topic: message.topic,
+            }
+          }),
+        ),
+      )
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects non-serializable local queue messages without appending partial entries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-queue-'))
+
+    try {
+      const queue = new LocalQueueAdapter(root)
+      const payload: Record<string, unknown> = {}
+      payload.self = payload
+
+      await expect(queue.enqueue('release.published', payload)).rejects.toThrow(
+        /circular|cyclic/iu,
+      )
+      await expect(readdirRecursive(root)).resolves.toEqual([])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it('checks local signer readiness', async () => {
     const signer = new LocalSignerAdapter()
 
     await expect(signer.checkReadiness()).resolves.toBeUndefined()
+  })
+
+  it('keeps local and memory signer adapters deterministic', async () => {
+    const payload = bytes('server-side signing payload')
+    const expectedSignature = bytes(sha256(payload))
+
+    await expect(new LocalSignerAdapter().sign(payload)).resolves.toEqual(
+      expectedSignature,
+    )
+    await expect(new MemorySignerAdapter().sign(payload)).resolves.toEqual(
+      expectedSignature,
+    )
+    await expect(
+      new MemorySignerAdapter().checkReadiness(),
+    ).resolves.toBeUndefined()
   })
 
   it('rejects partially missing local object files', async () => {
@@ -447,6 +644,164 @@ describe('createLocalRegistryAdapters', () => {
       await rm(root, { force: true, recursive: true })
     }
   })
+
+  it('serializes concurrent local object writes for the same digest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
+
+    try {
+      const adapters = createLocalRegistryAdapters(root)
+      const objectBytes = bytes('concurrent same object bytes')
+      const descriptors = await Promise.all(
+        Array.from({ length: 8 }, () => {
+          return adapters.objects.put(objectBytes, 'text/plain')
+        }),
+      )
+      const [firstDescriptor] = descriptors
+
+      expect(firstDescriptor).toBeDefined()
+      expect(descriptors).toEqual(
+        Array.from({ length: 8 }, () => firstDescriptor),
+      )
+      await expect(
+        adapters.objects.getDescriptor(firstDescriptor!.digest),
+      ).resolves.toEqual(firstDescriptor)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects concurrent local object media type conflicts for the same digest', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
+
+    try {
+      const adapters = createLocalRegistryAdapters(root)
+      const objectBytes = bytes('concurrent object media type conflict')
+      const results = await Promise.allSettled([
+        adapters.objects.put(objectBytes, 'text/plain'),
+        adapters.objects.put(objectBytes, 'application/octet-stream'),
+      ])
+      const fulfilled = results.find((result) => {
+        return result.status === 'fulfilled'
+      })
+      const rejected = results.find((result) => {
+        return result.status === 'rejected'
+      })
+
+      if (!fulfilled || fulfilled.status !== 'fulfilled') {
+        throw new Error('Expected one concurrent object write to succeed')
+      }
+
+      if (!rejected || rejected.status !== 'rejected') {
+        throw new Error('Expected one concurrent object write to fail')
+      }
+
+      expect(String(rejected.reason)).toContain(
+        `Local object mediaType conflict: ${fulfilled.value.digest}`,
+      )
+      await expect(
+        adapters.objects.getDescriptor(fulfilled.value.digest),
+      ).resolves.toEqual(fulfilled.value)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('lists local object descriptors in digest order with cursor pagination', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
+
+    try {
+      const adapters = createLocalRegistryAdapters(root)
+      const descriptors = await Promise.all([
+        adapters.objects.put(bytes('object c'), 'text/plain'),
+        adapters.objects.put(bytes('object a'), 'application/octet-stream'),
+        adapters.objects.put(bytes('object b'), 'application/json'),
+      ])
+      const sorted = descriptors.toSorted((left, right) => {
+        return left.digest.localeCompare(right.digest)
+      })
+
+      await expect(adapters.objects.listDescriptors()).resolves.toEqual(sorted)
+      await expect(
+        adapters.objects.listDescriptors({ limit: 2 }),
+      ).resolves.toEqual(sorted.slice(0, 2))
+      await expect(
+        adapters.objects.listDescriptors({
+          after: sorted[1]!.digest,
+          limit: 2,
+        }),
+      ).resolves.toEqual(sorted.slice(2))
+
+      const read = await adapters.objects.listDescriptors({ limit: 1 })
+      read[0]!.size = 0
+
+      await expect(
+        adapters.objects.getDescriptor(read[0]!.digest),
+      ).resolves.toEqual(sorted[0])
+      await expect(
+        adapters.objects.listDescriptors({ after: sha256(bytes('missing')) }),
+      ).rejects.toThrow(ObjectCursorNotFoundError)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('keeps local object descriptors immutable across concurrent adapter instances', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
+
+    try {
+      const firstAdapters = createLocalRegistryAdapters(root)
+      const secondAdapters = createLocalRegistryAdapters(root)
+      const objectBytes = bytes('shared root same object bytes')
+      const [first, second] = await Promise.all([
+        firstAdapters.objects.put(objectBytes, 'text/plain'),
+        secondAdapters.objects.put(objectBytes, 'text/plain'),
+      ])
+
+      expect(second).toEqual(first)
+      await expect(
+        firstAdapters.objects.getDescriptor(first.digest),
+      ).resolves.toEqual(first)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects local object media type conflicts across concurrent adapter instances', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-object-'))
+
+    try {
+      const firstAdapters = createLocalRegistryAdapters(root)
+      const secondAdapters = createLocalRegistryAdapters(root)
+      const objectBytes = bytes('shared root media type conflict')
+      const results = await Promise.allSettled([
+        firstAdapters.objects.put(objectBytes, 'text/plain'),
+        secondAdapters.objects.put(objectBytes, 'application/octet-stream'),
+      ])
+      const fulfilled = results.find((result) => {
+        return result.status === 'fulfilled'
+      })
+      const rejected = results.find((result) => {
+        return result.status === 'rejected'
+      })
+
+      if (!fulfilled || fulfilled.status !== 'fulfilled') {
+        throw new Error('Expected one shared root object write to succeed')
+      }
+
+      if (!rejected || rejected.status !== 'rejected') {
+        throw new Error('Expected one shared root object write to fail')
+      }
+
+      expect(String(rejected.reason)).toContain(
+        `Local object mediaType conflict: ${fulfilled.value.digest}`,
+      )
+      await expect(
+        firstAdapters.objects.getDescriptor(fulfilled.value.digest),
+      ).resolves.toEqual(fulfilled.value)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 })
 
 describe('MemoryObjectStore', () => {
@@ -551,6 +906,36 @@ describe('MemoryObjectStore', () => {
     expect(() => store.put(objectBytes, 'application/octet-stream')).toThrow(
       `Memory object mediaType conflict: ${first.digest}`,
     )
+  })
+
+  it('lists memory object descriptors in digest order with cursor pagination', async () => {
+    const store = new MemoryObjectStore()
+    const descriptors = await Promise.all([
+      store.put(bytes('object c'), 'text/plain'),
+      store.put(bytes('object a'), 'application/octet-stream'),
+      store.put(bytes('object b'), 'application/json'),
+    ])
+    const sorted = descriptors.toSorted((left, right) => {
+      return left.digest.localeCompare(right.digest)
+    })
+
+    await expect(store.listDescriptors()).resolves.toEqual(sorted)
+    await expect(store.listDescriptors({ limit: 2 })).resolves.toEqual(
+      sorted.slice(0, 2),
+    )
+    await expect(
+      store.listDescriptors({ after: sorted[1]!.digest, limit: 2 }),
+    ).resolves.toEqual(sorted.slice(2))
+
+    const read = await store.listDescriptors({ limit: 1 })
+    read[0]!.size = 0
+
+    await expect(store.getDescriptor(read[0]!.digest)).resolves.toEqual(
+      sorted[0],
+    )
+    expect(() =>
+      store.listDescriptors({ after: sha256(bytes('missing')) }),
+    ).toThrow(ObjectCursorNotFoundError)
   })
 })
 
@@ -670,6 +1055,113 @@ describe('SQLiteRegistryDatabase', () => {
     }
   })
 
+  it('rejects replay-inconsistent release commits before writing projections', async () => {
+    const release = storedRelease(
+      'npm:example.com/replay-invalid-release-commit',
+      '0.0.1',
+    )
+    const conflictingEvent = publishEventForPackage(
+      release.manifest.id,
+      release.manifest.version,
+      '2026-06-01T00:01:00.000Z',
+    )
+    const memory = new MemoryRegistryDatabase()
+    const sqlite = new SQLiteRegistryDatabase(':memory:')
+
+    try {
+      await memory.appendEvent(conflictingEvent)
+      expect(() => memory.commitPublishedRelease(release, 'latest')).toThrow(
+        RegistryEventIntegrityError,
+      )
+      await expect(
+        memory.getRelease(release.manifest.id, release.manifest.version),
+      ).resolves.toBeUndefined()
+      await expect(
+        memory.getPackageChannels(release.manifest.id),
+      ).resolves.toEqual({})
+
+      await sqlite.appendEvent(conflictingEvent)
+      expect(() => sqlite.commitPublishedRelease(release, 'latest')).toThrow(
+        RegistryEventIntegrityError,
+      )
+      await expect(
+        sqlite.getRelease(release.manifest.id, release.manifest.version),
+      ).resolves.toBeUndefined()
+      await expect(
+        sqlite.getPackageChannels(release.manifest.id),
+      ).resolves.toEqual({})
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('rejects replay-inconsistent channel update commits before writing projections', async () => {
+    const packageId: PackageId = 'npm:example.com/replay-invalid-update-commit'
+    const firstRelease = storedRelease(packageId, '0.0.1')
+    const secondRelease = storedRelease(packageId, '0.0.2')
+    const event = channelUpdatedEvent(packageId, {
+      previousVersion: '0.0.1',
+      version: '0.0.2',
+    })
+    const memory = new MemoryRegistryDatabase()
+    const sqlite = new SQLiteRegistryDatabase(':memory:')
+
+    try {
+      await memory.putRelease(firstRelease)
+      await memory.putRelease(secondRelease)
+      await memory.setPackageChannel(packageId, 'latest', '0.0.1')
+      expect(() => memory.commitPackageChannelUpdate(event)).toThrow(
+        RegistryEventIntegrityError,
+      )
+      await expect(memory.getEvent(event.id)).resolves.toBeUndefined()
+      await expect(memory.getPackageChannels(packageId)).resolves.toEqual({
+        latest: '0.0.1',
+      })
+
+      await sqlite.putRelease(firstRelease)
+      await sqlite.putRelease(secondRelease)
+      await sqlite.setPackageChannel(packageId, 'latest', '0.0.1')
+      expect(() => sqlite.commitPackageChannelUpdate(event)).toThrow(
+        RegistryEventIntegrityError,
+      )
+      await expect(sqlite.getEvent(event.id)).resolves.toBeUndefined()
+      await expect(sqlite.getPackageChannels(packageId)).resolves.toEqual({
+        latest: '0.0.1',
+      })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('rejects replay-inconsistent channel delete commits before writing projections', async () => {
+    const packageId: PackageId = 'npm:example.com/replay-invalid-delete-commit'
+    const event = channelDeletedEvent(packageId)
+    const memory = new MemoryRegistryDatabase()
+    const sqlite = new SQLiteRegistryDatabase(':memory:')
+
+    try {
+      await memory.setPackageChannel(packageId, 'latest', '0.0.1')
+      expect(() => memory.commitPackageChannelDelete(event)).toThrow(
+        RegistryEventIntegrityError,
+      )
+      await expect(memory.getEvent(event.id)).resolves.toBeUndefined()
+      await expect(memory.getPackageChannels(packageId)).resolves.toEqual({
+        latest: '0.0.1',
+      })
+
+      await sqlite.setPackageChannel(packageId, 'latest', '0.0.1')
+      expect(() => sqlite.commitPackageChannelDelete(event)).toThrow(
+        RegistryEventIntegrityError,
+      )
+      await expect(sqlite.getEvent(event.id)).resolves.toBeUndefined()
+      await expect(sqlite.getPackageChannels(packageId)).resolves.toEqual({
+        latest: '0.0.1',
+      })
+    } finally {
+      sqlite.close()
+    }
+  })
+
   it('does not commit publish events when release projection write fails', async () => {
     const release = storedRelease('npm:example.com/atomic-release', '0.0.1')
     const memory = new MemoryRegistryDatabase()
@@ -716,7 +1208,6 @@ describe('SQLiteRegistryDatabase', () => {
         version: release.manifest.version,
       },
       sourceDigest: release.manifest.source.digest,
-      specVersion: 0,
       timestamp: release.manifest.createdAt,
     })
     const inconsistentRelease = {
@@ -792,7 +1283,6 @@ describe('SQLiteRegistryDatabase', () => {
             object: 'regesta.event',
             release: release.event.release,
             sourceDigest: release.event.sourceDigest,
-            specVersion: 0,
             timestamp: release.event.timestamp,
           })
         },
@@ -808,7 +1298,6 @@ describe('SQLiteRegistryDatabase', () => {
             object: 'regesta.event',
             release: release.event.release,
             sourceDigest: release.event.sourceDigest,
-            specVersion: 0,
             timestamp: release.manifest.createdAt,
           })
         },
@@ -924,7 +1413,6 @@ describe('SQLiteRegistryDatabase', () => {
               manifestDigest: digest,
             },
             sourceDigest: release.event.sourceDigest,
-            specVersion: 0,
             timestamp: release.event.timestamp,
           })
         },
@@ -1296,7 +1784,6 @@ describe('SQLiteRegistryDatabase', () => {
         },
         signature: TEST_ED25519_SIGNATURE,
         signedAt: '2026-06-01T00:00:00.000Z',
-        specVersion: 0,
         wellKnownDigest: sha256(bytes('well-known')),
       },
       artifactDigests: [sha256(bytes('artifact'))],
@@ -1309,7 +1796,6 @@ describe('SQLiteRegistryDatabase', () => {
         version: '0.0.1',
       },
       sourceDigest: sha256(bytes('source')),
-      specVersion: 0,
       timestamp: '2026-06-01T00:00:00.000Z',
     })
 
@@ -1456,7 +1942,6 @@ describe('SQLiteRegistryDatabase', () => {
         version: '0.0.1',
       },
       sourceDigest: sha256(bytes('source')),
-      specVersion: 0,
       timestamp: '2026-06-01T00:00:00.000Z',
     })
     Object.assign(event, {
@@ -1913,7 +2398,6 @@ function authorizedPublishEvent(
       },
       signature: TEST_ED25519_SIGNATURE,
       signedAt: '2026-06-01T00:00:00.000Z',
-      specVersion: 0,
       wellKnownDigest: sha256(bytes('well-known')),
     },
     artifactDigests: [sha256(bytes(`artifact ${content}`))],
@@ -1926,7 +2410,6 @@ function authorizedPublishEvent(
       version: '0.0.1',
     },
     sourceDigest: sha256(bytes(`source ${content}`)),
-    specVersion: 0,
     timestamp: '2026-06-01T00:00:00.000Z',
   })
 }
@@ -1961,7 +2444,6 @@ function storedRelease(packageId: string, version: string): StoredRelease {
       verified: false,
     },
     source,
-    specVersion: 0,
     version,
   } satisfies StoredRelease['manifest']
   const manifestBytes = bytes(`${canonicalJson(manifest)}\n`)
@@ -1981,7 +2463,6 @@ function storedRelease(packageId: string, version: string): StoredRelease {
       version,
     },
     sourceDigest: source.digest,
-    specVersion: 0,
     timestamp: '2026-06-01T00:00:00.000Z',
   })
 
@@ -2004,7 +2485,6 @@ function unsignedPublishEvent(content: string): RegistryEvent {
       version: '0.0.1',
     },
     sourceDigest: sha256(bytes(`source ${content}`)),
-    specVersion: 0,
     timestamp: '2026-06-01T00:00:00.000Z',
   })
 }
@@ -2025,7 +2505,6 @@ function publishEventForPackage(
       version,
     },
     sourceDigest: sha256(bytes(`source ${packageId} ${version}`)),
-    specVersion: 0,
     timestamp,
   })
 }
@@ -2045,7 +2524,6 @@ function channelUpdatedEvent(
     ...(options.previousVersion
       ? { previousVersion: options.previousVersion }
       : {}),
-    specVersion: 0,
     timestamp: '2026-06-01T00:01:00.000Z',
     version: options.version ?? '0.0.1',
   } satisfies Omit<ChannelUpdatedEvent, 'id'>
@@ -2063,7 +2541,6 @@ function channelDeletedEvent(packageId: string): ChannelDeletedEvent {
     object: 'regesta.event',
     package: packageId,
     previousVersion: '0.0.1',
-    specVersion: 0,
     timestamp: '2026-06-01T00:02:00.000Z',
   } satisfies Omit<ChannelDeletedEvent, 'id'>
 

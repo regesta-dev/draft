@@ -33,18 +33,27 @@ export function createRequestLogger(log: RequestLogSink): MiddlewareHandler {
     await next()
     context.header(requestIdHeader, requestId)
 
+    const entry = {
+      durationMs: elapsedMilliseconds(startedAt),
+      host: context.req.header('host') ?? new URL(context.req.url).host,
+      kind: 'regesta.request',
+      method: context.req.method,
+      path: new URL(context.req.url).pathname,
+      requestId,
+      status: context.res.status,
+    } satisfies RequestLogEntry
+
     try {
-      await log({
-        durationMs: elapsedMilliseconds(startedAt),
-        host: context.req.header('host') ?? new URL(context.req.url).host,
-        kind: 'regesta.request',
-        method: context.req.method,
-        path: new URL(context.req.url).pathname,
-        requestId,
-        status: context.res.status,
-      })
+      await log(entry)
     } catch (error) {
-      console.error(error)
+      console.error('Transport request log sink failed', {
+        error,
+        kind: 'regesta.request-log-error',
+        method: entry.method,
+        path: entry.path,
+        requestId: entry.requestId,
+        status: entry.status,
+      })
     }
   }
 }

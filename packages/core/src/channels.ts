@@ -80,7 +80,6 @@ export function replayPackageState(
     releases: [...releases.values()].toSorted((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     ),
-    specVersion: 0,
   }
 }
 
@@ -169,7 +168,6 @@ export async function updatePackageChannel(
     object: 'regesta.event',
     package: input.packageId,
     ...(previousVersion ? { previousVersion } : {}),
-    specVersion: 0,
     timestamp,
     version: input.version,
   } satisfies Omit<ChannelUpdatedEvent, 'id'>
@@ -213,7 +211,6 @@ export async function deletePackageChannel(
     object: 'regesta.event',
     package: input.packageId,
     ...(previousVersion ? { previousVersion } : {}),
-    specVersion: 0,
     timestamp,
   } satisfies Omit<ChannelDeletedEvent, 'id'>
   const event = {

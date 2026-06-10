@@ -23,6 +23,7 @@ describe('verifyWriteAuthorization', () => {
   it('returns an auditable authorization proof for valid write signatures', async () => {
     const fixture = createAuthorizationFixture()
     const bindingText = JSON.stringify(fixture.binding)
+    const bindingBytes = bytes(bindingText)
 
     await expect(
       verifyWriteAuthorization({
@@ -30,7 +31,7 @@ describe('verifyWriteAuthorization', () => {
         expectedIntent: fixture.intent,
         fetchBinding: () =>
           Promise.resolve(
-            new Response(bindingText, {
+            new Response(bindingBytes, {
               headers: {
                 'content-type': 'application/json',
               },
@@ -47,8 +48,34 @@ describe('verifyWriteAuthorization', () => {
       publicKeyJwk: fixture.binding.keys[0]!.publicKeyJwk,
       signature: fixture.authorization.signature,
       signedAt: fixture.authorization.payload.timestamp,
-      specVersion: 0,
-      wellKnownDigest: sha256(bindingText),
+      wellKnownDigest: sha256(bindingBytes),
+    })
+  })
+
+  it('records the digest of exact domain binding response bytes', async () => {
+    const fixture = createAuthorizationFixture()
+    const bindingText = JSON.stringify(fixture.binding)
+    const bindingBytes = concatBytes(
+      new Uint8Array([0xef, 0xbb, 0xbf]),
+      bytes(bindingText),
+    )
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        fetchBinding: () =>
+          Promise.resolve(
+            new Response(bindingBytes, {
+              headers: {
+                'content-type': 'application/json',
+              },
+            }),
+          ),
+        now: fixture.now,
+      }),
+    ).resolves.toMatchObject({
+      wellKnownDigest: sha256(bindingBytes),
     })
   })
 
@@ -75,6 +102,29 @@ describe('verifyWriteAuthorization', () => {
     })
   })
 
+  it('rejects domain binding responses that are not valid UTF-8', async () => {
+    const fixture = createAuthorizationFixture()
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        fetchBinding: () =>
+          Promise.resolve(
+            new Response(new Uint8Array([0xff]), {
+              headers: {
+                'content-type': 'application/json',
+              },
+            }),
+          ),
+        now: fixture.now,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Domain binding response must be UTF-8',
+      name: WriteAuthorizationError.name,
+    })
+  })
+
   it('rejects explicit non-JSON domain binding responses', async () => {
     const fixture = createAuthorizationFixture()
 
@@ -90,6 +140,22 @@ describe('verifyWriteAuthorization', () => {
               },
             }),
           ),
+        now: fixture.now,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Domain binding response must be JSON',
+      name: WriteAuthorizationError.name,
+    })
+  })
+
+  it('rejects domain binding responses without a JSON content type', async () => {
+    const fixture = createAuthorizationFixture()
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        fetchBinding: () => Promise.resolve(new Response('{}')),
         now: fixture.now,
       }),
     ).rejects.toMatchObject({
@@ -143,6 +209,7 @@ describe('verifyWriteAuthorization', () => {
       'application/json',
     )
     expect(capturedInit?.method).toBe('GET')
+    expect(capturedInit?.redirect).toBe('error')
     expect(capturedInit?.signal).toBeInstanceOf(AbortSignal)
   })
 
@@ -225,6 +292,63 @@ describe('verifyWriteAuthorization', () => {
     })
   })
 
+  it('rejects domain binding Content-Length mismatches', async () => {
+    const fixture = createAuthorizationFixture()
+    const bindingText = JSON.stringify(fixture.binding)
+
+    for (const contentLength of [
+      String(bytes(bindingText).byteLength - 1),
+      String(bytes(bindingText).byteLength + 1),
+    ]) {
+      await expect(
+        verifyWriteAuthorization({
+          authorization: fixture.authorization,
+          expectedIntent: fixture.intent,
+          fetchBinding: () =>
+            Promise.resolve(
+              new Response(bindingText, {
+                headers: {
+                  'content-length': contentLength,
+                  'content-type': 'application/json',
+                },
+              }),
+            ),
+          now: fixture.now,
+        }),
+      ).rejects.toMatchObject({
+        message: 'Domain binding Content-Length does not match response body',
+        name: WriteAuthorizationError.name,
+      })
+    }
+  })
+
+  it('rejects invalid domain binding Content-Length headers', async () => {
+    const fixture = createAuthorizationFixture()
+    const bindingText = JSON.stringify(fixture.binding)
+
+    for (const contentLength of ['', '-1', '1.0', '1e0', 'NaN']) {
+      await expect(
+        verifyWriteAuthorization({
+          authorization: fixture.authorization,
+          expectedIntent: fixture.intent,
+          fetchBinding: () =>
+            Promise.resolve(
+              new Response(bindingText, {
+                headers: {
+                  'content-length': contentLength,
+                  'content-type': 'application/json',
+                },
+              }),
+            ),
+          now: fixture.now,
+        }),
+      ).rejects.toMatchObject({
+        message: 'Domain binding Content-Length is invalid',
+        name: WriteAuthorizationError.name,
+      })
+    }
+  })
+
   it('rejects non-canonical domain binding domains', async () => {
     const fixture = createAuthorizationFixture()
 
@@ -261,6 +385,25 @@ describe('verifyWriteAuthorization', () => {
       }),
     ).rejects.toMatchObject({
       message: 'Domain binding domain mismatch',
+      name: WriteAuthorizationError.name,
+    })
+  })
+
+  it('rejects domain bindings without write keys', async () => {
+    const fixture = createAuthorizationFixture()
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        fetchBinding: bindingFetch({
+          ...fixture.binding,
+          keys: [],
+        }),
+        now: fixture.now,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Domain binding keys must not be empty',
       name: WriteAuthorizationError.name,
     })
   })
@@ -854,6 +997,61 @@ describe('write intent helpers', () => {
     expect(intent.artifactDigests).toEqual([sha256(bytes('artifact'))])
   })
 
+  it('binds release publish authorization to artifacts, config, and source bytes', async () => {
+    const now = new Date()
+    const fixture = createAuthorizationFixture({
+      now,
+      timestamp: now.toISOString(),
+    })
+    const baseInput = {
+      artifacts: [
+        {
+          bytes: bytes('artifact'),
+          mediaType: 'application/gzip',
+          role: 'install',
+        },
+      ],
+      authorization: fixture.authorization,
+      configDigest: sha256(bytes('config')),
+      fetchBinding: bindingFetch(fixture.binding),
+      packageId: 'npm:example.com/auth-test',
+      source: bytes('source'),
+      version: '0.0.1',
+    }
+
+    await expect(verifyPublishAuthorization(baseInput)).resolves.toMatchObject({
+      kid: 'ed25519:test',
+      object: 'regesta.authorization-proof',
+      payloadDigest: sha256(canonicalJson(fixture.authorization.payload)),
+    })
+
+    for (const input of [
+      {
+        ...baseInput,
+        artifacts: [
+          {
+            bytes: bytes('tampered artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+      },
+      {
+        ...baseInput,
+        configDigest: sha256(bytes('tampered config')),
+      },
+      {
+        ...baseInput,
+        source: bytes('tampered source'),
+      },
+    ]) {
+      await expect(verifyPublishAuthorization(input)).rejects.toMatchObject({
+        message: 'Write authorization payload mismatch',
+        name: WriteAuthorizationError.name,
+      })
+    }
+  })
+
   it('binds release publish authorization to artifact descriptor metadata', async () => {
     const fixture = createAuthorizationFixture({
       now: new Date(),
@@ -958,7 +1156,6 @@ function createAuthorizationFixture(
       },
     ],
     object: 'regesta.domain-binding',
-    specVersion: 0,
   }
 
   return {
@@ -996,6 +1193,13 @@ function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value)
 }
 
+function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const output = new Uint8Array(left.byteLength + right.byteLength)
+  output.set(left)
+  output.set(right, left.byteLength)
+  return output
+}
+
 function unreadableResponse(): Response {
   return new Response(
     new ReadableStream({
@@ -1003,6 +1207,11 @@ function unreadableResponse(): Response {
         controller.error(new Error('domain binding body unavailable'))
       },
     }),
+    {
+      headers: {
+        'content-type': 'application/json',
+      },
+    },
   )
 }
 

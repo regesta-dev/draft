@@ -58,7 +58,6 @@ describe('replayPackageState', () => {
           version: '2.0.0',
         },
       ],
-      specVersion: 0,
     })
   })
 
@@ -99,6 +98,22 @@ describe('replayPackageState', () => {
     expect(() =>
       replayPackageState([controlChannelEvent], controlChannelEvent.package),
     ).toThrow('Registry event channel must not include control characters')
+  })
+
+  it('rejects unknown event fields even when the event id matches them', () => {
+    const packageId: PackageId = 'npm:example.com/hello-regesta'
+    const payload = {
+      ...publishEvent(packageId, '1.0.0', '2026-06-01T00:00:00.000Z'),
+      mirrorPolicy: 'not part of the protocol',
+    }
+    const event = {
+      ...payload,
+      id: registryEventDigest(payload),
+    }
+
+    expect(() => replayPackageState([event], packageId)).toThrow(
+      'Registry event must not include unknown field: mirrorPolicy',
+    )
   })
 
   it('rejects duplicate release versions during replay', () => {
@@ -163,7 +178,6 @@ function publishEvent(
       version,
     },
     sourceDigest: sha256(`source:${packageId}@${version}`),
-    specVersion: 0,
     timestamp,
   }
 
@@ -188,7 +202,6 @@ function channelUpdatedEvent(input: {
     ...(input.previousVersion
       ? { previousVersion: input.previousVersion }
       : {}),
-    specVersion: 0,
     timestamp: input.timestamp,
     version: input.version,
   }
@@ -213,7 +226,6 @@ function channelDeletedEvent(input: {
     ...(input.previousVersion
       ? { previousVersion: input.previousVersion }
       : {}),
-    specVersion: 0,
     timestamp: input.timestamp,
   }
 

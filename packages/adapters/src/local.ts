@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  link,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { ObjectCursorNotFoundError } from '@regesta/core'
 import {
   assertObjectMediaType,
   assertSha256Digest,
@@ -10,6 +19,7 @@ import {
 } from '@regesta/protocol'
 import { SQLiteRegistryDatabase } from './sqlite.ts'
 import type {
+  ObjectDescriptorListOptions,
   ObjectStore,
   QueueAdapter,
   RegistryAdapters,
@@ -19,6 +29,8 @@ import type {
 } from './interfaces.ts'
 
 export class LocalObjectStore implements ObjectStore {
+  private readonly objectWriteLocks: Map<Sha256Digest, Promise<void>> =
+    new Map()
   private readonly root: string
 
   constructor(root: string) {
@@ -102,6 +114,28 @@ export class LocalObjectStore implements ObjectStore {
     return descriptor
   }
 
+  async listDescriptors(
+    options: ObjectDescriptorListOptions = {},
+  ): Promise<StoredObject['descriptor'][]> {
+    const digests = await listLocalObjectDigests(this.root)
+    const start = localObjectPageStartIndex(digests, options.after)
+    const limit = options.limit ?? digests.length
+    const page = digests.slice(start, start + limit)
+    const descriptors: StoredObject['descriptor'][] = []
+
+    for (const digest of page) {
+      const descriptor = await this.getDescriptor(digest)
+
+      if (!descriptor) {
+        throw new TypeError(`Local object descriptor disappeared: ${digest}`)
+      }
+
+      descriptors.push(descriptor)
+    }
+
+    return descriptors
+  }
+
   async put(
     bytes: Uint8Array,
     mediaType: string,
@@ -117,23 +151,42 @@ export class LocalObjectStore implements ObjectStore {
     }
     const objectPath = this.objectPath(digest)
     const metaPath = this.metaPath(digest)
-    const existing = await readLocalObjectForPut(objectPath, digest, metaPath)
 
-    if (
-      existing.descriptor?.mediaType !== undefined &&
-      existing.descriptor.mediaType !== mediaType
-    ) {
-      throw new TypeError(`Local object mediaType conflict: ${digest}`)
-    }
+    return await this.writeObjectLocked(digest, async () => {
+      const existing = await readLocalObjectForPut(objectPath, digest, metaPath)
 
-    if (existing.complete && existing.descriptor) {
-      return existing.descriptor
-    }
+      if (
+        existing.descriptor?.mediaType !== undefined &&
+        existing.descriptor.mediaType !== mediaType
+      ) {
+        throw new TypeError(`Local object mediaType conflict: ${digest}`)
+      }
 
-    await writeFileAtomically(objectPath, objectBytes)
-    await writeFileAtomically(metaPath, `${canonicalJson(descriptor)}\n`)
+      if (existing.complete && existing.descriptor) {
+        return existing.descriptor
+      }
 
-    return descriptor
+      await writeFileIfAbsent(objectPath, objectBytes)
+      await writeFileIfAbsent(metaPath, `${canonicalJson(descriptor)}\n`)
+      const committed = await readLocalObjectForPut(
+        objectPath,
+        digest,
+        metaPath,
+      )
+
+      if (
+        committed.descriptor?.mediaType !== undefined &&
+        committed.descriptor.mediaType !== mediaType
+      ) {
+        throw new TypeError(`Local object mediaType conflict: ${digest}`)
+      }
+
+      if (!committed.complete || !committed.descriptor) {
+        throw new TypeError(`Local object write incomplete: ${digest}`)
+      }
+
+      return committed.descriptor
+    })
   }
 
   private metaPath(digest: Sha256Digest): string {
@@ -141,9 +194,100 @@ export class LocalObjectStore implements ObjectStore {
   }
 
   private objectPath(digest: Sha256Digest): string {
-    const hex = digest.slice('sha256:'.length)
+    const normalizedDigest = assertSha256Digest(digest)
+    const hex = normalizedDigest.slice('sha256:'.length)
     return join(this.root, 'objects', hex.slice(0, 2), hex)
   }
+
+  private async writeObjectLocked<T>(
+    digest: Sha256Digest,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.objectWriteLocks.get(digest) ?? Promise.resolve()
+    let releaseCurrent!: () => void
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve
+    })
+    const lock = previous.then(
+      () => current,
+      () => current,
+    )
+
+    this.objectWriteLocks.set(digest, lock)
+
+    try {
+      await previous.catch(() => undefined)
+      return await action()
+    } finally {
+      releaseCurrent()
+
+      if (this.objectWriteLocks.get(digest) === lock) {
+        this.objectWriteLocks.delete(digest)
+      }
+    }
+  }
+}
+
+async function listLocalObjectDigests(root: string): Promise<Sha256Digest[]> {
+  const objectRoot = join(root, 'objects')
+  let prefixes: DirectoryEntry[]
+
+  try {
+    prefixes = await readDirectoryEntries(objectRoot)
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return []
+    }
+
+    throw error
+  }
+
+  const digests: Sha256Digest[] = []
+
+  for (const prefix of prefixes) {
+    if (!prefix.isDirectory() || !/^[a-f0-9]{2}$/u.test(prefix.name)) {
+      continue
+    }
+
+    const entries = await readDirectoryEntries(join(objectRoot, prefix.name))
+
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        continue
+      }
+
+      const match = /^([a-f0-9]{64})\.json$/u.exec(entry.name)
+      if (!match) {
+        continue
+      }
+
+      digests.push(assertSha256Digest(`sha256:${match[1]}`))
+    }
+  }
+
+  return digests.toSorted()
+}
+
+type DirectoryEntry = Awaited<ReturnType<typeof readDirectoryEntries>>[number]
+
+function readDirectoryEntries(path: string) {
+  return readdir(path, { encoding: 'utf8', withFileTypes: true })
+}
+
+function localObjectPageStartIndex(
+  digests: Sha256Digest[],
+  after: Sha256Digest | undefined,
+): number {
+  if (!after) {
+    return 0
+  }
+
+  const index = digests.indexOf(after)
+  if (index === -1) {
+    throw new ObjectCursorNotFoundError(after)
+  }
+
+  return index + 1
 }
 
 async function statLocalObjectFile(
@@ -277,7 +421,7 @@ async function readLocalObjectMetadataFile(
   }
 }
 
-async function writeFileAtomically(
+async function writeFileIfAbsent(
   path: string,
   data: string | Uint8Array,
 ): Promise<void> {
@@ -291,10 +435,16 @@ async function writeFileAtomically(
 
   try {
     await writeFile(temporaryPath, data, { flag: 'wx' })
-    await rename(temporaryPath, path)
+    await link(temporaryPath, path)
   } catch (error) {
+    if (isAlreadyExistsError(error)) {
+      return
+    }
+
     await rm(temporaryPath, { force: true })
     throw error
+  } finally {
+    await rm(temporaryPath, { force: true })
   }
 }
 
@@ -323,6 +473,10 @@ async function exists(path: string): Promise<boolean> {
 
 function isNotFoundError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'EEXIST'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

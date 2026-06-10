@@ -1,0 +1,1206 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Regesta V0 HTTP API",
+    "version": "0.0.0",
+    "summary": "Machine-readable reference for the current Regesta V0 HTTP API surface.",
+    "description": "This document describes implemented core registry routes and the current npm projection routes. Regesta-native object shapes are referenced from the V0 JSON Schema reference. Protocol semantics remain defined by the TypeScript protocol and core validation code."
+  },
+  "servers": [
+    {
+      "url": "https://registry.example",
+      "description": "Core registry API host"
+    },
+    {
+      "url": "https://npm.registry.example",
+      "description": "npm projection host"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Transport",
+      "description": "HTTP mechanics such as deployment info, health, and readiness."
+    },
+    {
+      "name": "Core Registry",
+      "description": "Regesta-native packages, releases, channels, objects, and events."
+    },
+    {
+      "name": "npm Projection",
+      "description": "npm-compatible projection over Regesta-native package data, with optional upstream fallback for missing packages."
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["Transport"],
+        "summary": "Read deployment information",
+        "responses": {
+          "200": {
+            "description": "Deployment information for this registry instance.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeploymentInfo" }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": ["Transport"],
+        "summary": "Read deployment information headers",
+        "responses": {
+          "200": { "description": "Deployment information is available." }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["Transport"],
+        "summary": "Read liveness status",
+        "responses": {
+          "200": {
+            "description": "Process is alive.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthStatus" }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": ["Transport"],
+        "summary": "Read liveness headers",
+        "responses": {
+          "200": { "description": "Process is alive." }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": ["Transport"],
+        "summary": "Read storage readiness status",
+        "responses": {
+          "200": {
+            "description": "Storage dependencies are ready.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReadinessStatus" }
+              }
+            }
+          },
+          "503": {
+            "description": "At least one storage dependency is not ready.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReadinessStatus" }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": ["Transport"],
+        "summary": "Read storage readiness headers",
+        "responses": {
+          "200": { "description": "Storage dependencies are ready." },
+          "503": {
+            "description": "At least one storage dependency is not ready."
+          }
+        }
+      }
+    },
+    "/releases": {
+      "post": {
+        "tags": ["Core Registry"],
+        "summary": "Publish a release",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "authorization": {
+                    "description": "Signed release.publish authorization JSON.",
+                    "type": "string",
+                    "contentMediaType": "application/json",
+                    "contentSchema": {
+                      "$ref": "#/components/schemas/WriteAuthorization"
+                    }
+                  },
+                  "config": {
+                    "description": "Normalized Regesta publish config JSON.",
+                    "type": "string",
+                    "contentMediaType": "application/json"
+                  },
+                  "source": {
+                    "description": "Source archive bytes.",
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "artifacts": {
+                    "description": "JSON array describing uploaded artifact binary parts.",
+                    "type": "string",
+                    "contentMediaType": "application/json"
+                  }
+                },
+                "required": ["authorization", "config", "source", "artifacts"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Release accepted and committed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PublishResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/packages/{packageId}": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Read package state",
+        "parameters": [{ "$ref": "#/components/parameters/PackageId" }],
+        "responses": {
+          "200": {
+            "description": "Package state replayed from package events.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PackageState" }
+              }
+            }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Read package state headers",
+        "parameters": [{ "$ref": "#/components/parameters/PackageId" }],
+        "responses": {
+          "200": {
+            "description": "Package state exists."
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/packages/{packageId}/releases/{version}": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Read an immutable release envelope",
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/Version" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored release envelope.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReleaseEnvelope" }
+              }
+            }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Read immutable release envelope headers",
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/Version" }
+        ],
+        "responses": {
+          "200": { "description": "Release exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/packages/{packageId}/releases/{version}/verification": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Verify a release",
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/Version" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Release verification passed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VerificationResult" }
+              }
+            }
+          },
+          "422": {
+            "description": "Release verification found problems.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VerificationResult" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/packages/{packageId}/channels/{channel}": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Resolve a channel to a release envelope",
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/Channel" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current channel target release envelope.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReleaseEnvelope" }
+              }
+            }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Resolve channel headers",
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/Channel" }
+        ],
+        "responses": {
+          "200": { "description": "Channel target exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "put": {
+        "tags": ["Core Registry"],
+        "summary": "Update a channel",
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/Channel" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/WriteAuthorization"
+                  },
+                  "version": { "$ref": "#/components/schemas/NonEmptyString" }
+                },
+                "required": ["authorization", "version"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Channel updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelMutationResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Core Registry"],
+        "summary": "Delete a channel",
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/Channel" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/WriteAuthorization"
+                  }
+                },
+                "required": ["authorization"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Channel deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelMutationResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/objects": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Read a page of object descriptors",
+        "parameters": [
+          { "$ref": "#/components/parameters/AfterObjectDigest" },
+          { "$ref": "#/components/parameters/ObjectLimit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Object descriptor inventory page.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectInventoryPage"
+                }
+              }
+            }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Read object descriptor inventory page headers",
+        "parameters": [
+          { "$ref": "#/components/parameters/AfterObjectDigest" },
+          { "$ref": "#/components/parameters/ObjectLimit" }
+        ],
+        "responses": {
+          "200": { "description": "Object descriptor inventory page exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/objects/{digest}": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Read immutable object bytes by digest",
+        "parameters": [{ "$ref": "#/components/parameters/Digest" }],
+        "responses": {
+          "200": {
+            "description": "Object bytes.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "206": {
+            "description": "Object byte range."
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Read immutable object headers by digest",
+        "parameters": [{ "$ref": "#/components/parameters/Digest" }],
+        "responses": {
+          "200": { "description": "Object exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      }
+    },
+    "/objects/{algorithm}/{hex}": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Read immutable object bytes by digest parts",
+        "parameters": [
+          { "$ref": "#/components/parameters/Algorithm" },
+          { "$ref": "#/components/parameters/HexDigest" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Object bytes.",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "206": { "description": "Object byte range." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Read immutable object headers by digest parts",
+        "parameters": [
+          { "$ref": "#/components/parameters/Algorithm" },
+          { "$ref": "#/components/parameters/HexDigest" }
+        ],
+        "responses": {
+          "200": { "description": "Object exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Read a page of registry events",
+        "parameters": [
+          { "$ref": "#/components/parameters/AfterEventId" },
+          { "$ref": "#/components/parameters/EventLimit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ordered event page.",
+            "headers": {
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EventPage" }
+              }
+            }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Read event page headers",
+        "parameters": [
+          { "$ref": "#/components/parameters/AfterEventId" },
+          { "$ref": "#/components/parameters/EventLimit" }
+        ],
+        "responses": {
+          "200": { "description": "Event page exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/events/{algorithm}/{hex}": {
+      "get": {
+        "tags": ["Core Registry"],
+        "summary": "Read an immutable registry event by id",
+        "parameters": [
+          { "$ref": "#/components/parameters/Algorithm" },
+          { "$ref": "#/components/parameters/HexDigest" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Registry event.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RegistryEvent" }
+              }
+            }
+          },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["Core Registry"],
+        "summary": "Read immutable registry event headers",
+        "parameters": [
+          { "$ref": "#/components/parameters/Algorithm" },
+          { "$ref": "#/components/parameters/HexDigest" }
+        ],
+        "responses": {
+          "200": { "description": "Registry event exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/-/ping": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "npm ping",
+        "responses": {
+          "200": {
+            "description": "npm-compatible ping response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ping": { "const": "pong" }
+                  },
+                  "required": ["ping"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "npm ping headers",
+        "responses": {
+          "200": { "description": "npm projection is reachable." }
+        }
+      }
+    },
+    "/-/package/{encoded}/dist-tags": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm dist-tags for an encoded package name",
+        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "responses": {
+          "200": {
+            "description": "npm dist-tags object.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NpmDistTags" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm dist-tags headers for an encoded package name",
+        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "responses": {
+          "200": { "description": "dist-tags exist." },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/-/package/{scope}/{name}/dist-tags": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm dist-tags for a scoped package name",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" }
+        ],
+        "responses": {
+          "200": {
+            "description": "npm dist-tags object.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NpmDistTags" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm dist-tags headers for a scoped package name",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" }
+        ],
+        "responses": {
+          "200": { "description": "dist-tags exist." },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/{encoded}": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm packument for an encoded package name",
+        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "responses": {
+          "200": {
+            "description": "npm packument.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NpmPackument" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm packument headers for an encoded package name",
+        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "responses": {
+          "200": { "description": "packument exists." },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/{scope}/{name}": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm scoped packument or unscoped package version",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" }
+        ],
+        "responses": {
+          "200": {
+            "description": "npm packument or version manifest.",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm scoped packument or unscoped package version headers",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" }
+        ],
+        "responses": {
+          "200": { "description": "npm projection resource exists." },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/{scope}/{name}/{tagOrVersion}": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm version manifest by version or tag",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmTagOrVersion" }
+        ],
+        "responses": {
+          "200": {
+            "description": "npm version manifest.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NpmVersionManifest" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm version manifest headers",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmTagOrVersion" }
+        ],
+        "responses": {
+          "200": { "description": "npm version manifest exists." },
+          "404": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/{name}/-/{file}": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm tarball for an unscoped package",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmTarballFile" }
+        ],
+        "responses": {
+          "200": {
+            "description": "npm install artifact bytes.",
+            "content": {
+              "application/gzip": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "206": { "description": "npm tarball byte range." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm tarball headers for an unscoped package",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmTarballFile" }
+        ],
+        "responses": {
+          "200": { "description": "npm tarball exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      }
+    },
+    "/{scope}/{name}/-/{file}": {
+      "get": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm tarball for a scoped package",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmTarballFile" }
+        ],
+        "responses": {
+          "200": {
+            "description": "npm install artifact bytes.",
+            "content": {
+              "application/gzip": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "206": { "description": "npm tarball byte range." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      },
+      "head": {
+        "tags": ["npm Projection"],
+        "summary": "Read npm tarball headers for a scoped package",
+        "parameters": [
+          { "$ref": "#/components/parameters/NpmScope" },
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmTarballFile" }
+        ],
+        "responses": {
+          "200": { "description": "npm tarball exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Requested range not satisfiable." }
+        }
+      }
+    }
+  },
+  "components": {
+    "headers": {
+      "StrongDigestEtag": {
+        "description": "Strong digest-based validator.",
+        "schema": { "type": "string" }
+      },
+      "WeakEtag": {
+        "description": "Weak validator for mutable projections.",
+        "schema": { "type": "string" }
+      }
+    },
+    "parameters": {
+      "AfterEventId": {
+        "in": "query",
+        "name": "after",
+        "required": false,
+        "schema": { "$ref": "#/components/schemas/Sha256Digest" }
+      },
+      "AfterObjectDigest": {
+        "in": "query",
+        "name": "after",
+        "required": false,
+        "schema": { "$ref": "#/components/schemas/Sha256Digest" }
+      },
+      "Algorithm": {
+        "in": "path",
+        "name": "algorithm",
+        "required": true,
+        "schema": { "const": "sha256" }
+      },
+      "Channel": {
+        "in": "path",
+        "name": "channel",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/NonEmptyString" }
+      },
+      "Digest": {
+        "in": "path",
+        "name": "digest",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/Sha256Digest" }
+      },
+      "EncodedNpmName": {
+        "in": "path",
+        "name": "encoded",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/NonEmptyString" }
+      },
+      "EventLimit": {
+        "in": "query",
+        "name": "limit",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        }
+      },
+      "ObjectLimit": {
+        "in": "query",
+        "name": "limit",
+        "required": false,
+        "schema": { "$ref": "#/components/schemas/ObjectLimit" }
+      },
+      "HexDigest": {
+        "in": "path",
+        "name": "hex",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "NpmName": {
+        "in": "path",
+        "name": "name",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/NonEmptyString" }
+      },
+      "NpmScope": {
+        "in": "path",
+        "name": "scope",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/NonEmptyString" }
+      },
+      "NpmTagOrVersion": {
+        "in": "path",
+        "name": "tagOrVersion",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/NonEmptyString" }
+      },
+      "NpmTarballFile": {
+        "in": "path",
+        "name": "file",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/NonEmptyString" }
+      },
+      "PackageId": {
+        "in": "path",
+        "name": "packageId",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/PackageId" },
+        "description": "URL-encoded as one path segment, for example npm%3Asome.dev%2Fsdk."
+      },
+      "Version": {
+        "in": "path",
+        "name": "version",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/NonEmptyString" }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Structured public error response.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "NotModified": {
+        "description": "Client validator still matches current representation."
+      }
+    },
+    "schemas": {
+      "ChannelMutationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "channel": { "$ref": "#/components/schemas/NonEmptyString" },
+          "event": { "$ref": "#/components/schemas/RegistryEvent" },
+          "package": { "$ref": "#/components/schemas/PackageId" },
+          "previousVersion": { "$ref": "#/components/schemas/NonEmptyString" },
+          "version": { "$ref": "#/components/schemas/NonEmptyString" }
+        },
+        "required": ["channel", "event", "package"]
+      },
+      "DeploymentInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "api": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "version": { "type": "string" }
+            },
+            "required": ["version"]
+          },
+          "build": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "time": { "type": "string" }
+            },
+            "required": ["time"]
+          },
+          "git": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dirty": {
+                "type": ["boolean", "null"]
+              },
+              "sha": { "type": "string" }
+            },
+            "required": ["dirty", "sha"]
+          },
+          "object": { "const": "regesta.deployment-info" },
+          "runtime": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" }
+            },
+            "required": ["name", "version"]
+          },
+          "service": { "type": "string" },
+          "version": { "type": "string" }
+        },
+        "required": [
+          "api",
+          "build",
+          "git",
+          "object",
+          "runtime",
+          "service",
+          "version"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "code": { "type": "string" },
+          "error": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "required": ["error"]
+      },
+      "EventPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/RegistryEvent" }
+          },
+          "nextAfter": { "$ref": "#/components/schemas/Sha256Digest" }
+        },
+        "required": ["events"]
+      },
+      "HealthStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": { "const": true }
+        },
+        "required": ["ok"]
+      },
+      "NonEmptyString": {
+        "type": "string",
+        "minLength": 1
+      },
+      "NpmDistTags": {
+        "type": "object",
+        "additionalProperties": { "type": "string" }
+      },
+      "NpmPackument": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "dist-tags": { "$ref": "#/components/schemas/NpmDistTags" },
+          "name": { "type": "string" },
+          "time": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NpmVersionManifest"
+            }
+          }
+        },
+        "required": ["dist-tags", "name", "versions"]
+      },
+      "NpmVersionManifest": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "description": { "type": "string" },
+          "dist": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "integrity": { "type": "string" },
+              "shasum": { "type": "string" },
+              "tarball": { "type": "string", "format": "uri" }
+            },
+            "required": ["tarball"]
+          },
+          "name": { "type": "string" },
+          "version": { "type": "string" }
+        },
+        "required": ["dist", "name", "version"]
+      },
+      "ObjectDescriptor": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/objectDescriptor"
+      },
+      "ObjectInventoryPage": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/objectInventory"
+      },
+      "ObjectLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 999
+      },
+      "PackageId": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/packageId"
+      },
+      "PackageState": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/packageState"
+      },
+      "PublishResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "channel": { "$ref": "#/components/schemas/NonEmptyString" },
+          "event": { "$ref": "#/components/schemas/RegistryEvent" },
+          "manifest": { "$ref": "#/components/schemas/ReleaseManifest" },
+          "manifestDescriptor": {
+            "$ref": "#/components/schemas/ObjectDescriptor"
+          }
+        },
+        "required": ["channel", "event", "manifest", "manifestDescriptor"]
+      },
+      "RegistryEvent": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/registryEvent"
+      },
+      "ReleaseEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "event": { "$ref": "#/components/schemas/RegistryEvent" },
+          "manifest": { "$ref": "#/components/schemas/ReleaseManifest" },
+          "manifestDescriptor": {
+            "$ref": "#/components/schemas/ObjectDescriptor"
+          }
+        },
+        "required": ["event", "manifest", "manifestDescriptor"]
+      },
+      "ReleaseManifest": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/releaseManifest"
+      },
+      "ReadinessStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "database": { "type": "boolean" },
+              "objects": { "type": "boolean" },
+              "queue": { "type": "boolean" },
+              "signer": { "type": "boolean" }
+            }
+          },
+          "kind": { "const": "regesta.readiness" },
+          "ok": { "type": "boolean" }
+        },
+        "required": ["kind", "ok"]
+      },
+      "Sha256Digest": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/sha256Digest"
+      },
+      "VerificationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "manifest": { "$ref": "#/components/schemas/ReleaseManifest" },
+          "ok": { "type": "boolean" },
+          "problems": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["ok", "problems"]
+      },
+      "WriteAuthorization": {
+        "$ref": "../schema/regesta-v0.schema.json#/$defs/writeAuthorization"
+      }
+    }
+  }
+}

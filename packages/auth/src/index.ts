@@ -37,7 +37,6 @@ export interface DomainBinding {
   domain: string
   keys: DomainBindingKey[]
   object: 'regesta.domain-binding'
-  specVersion: 0
 }
 
 export interface DomainBindingKey {
@@ -67,7 +66,6 @@ export interface WriteIntentBase {
   object: 'regesta.write-intent'
   operation: WriteOperation
   package: PackageId
-  specVersion: 0
   timestamp: string
 }
 
@@ -211,7 +209,6 @@ export function createReleasePublishIntent(
     operation: 'release.publish',
     package: packageId,
     sourceDigest: normalizeDigest(input.sourceDigest, 'sourceDigest'),
-    specVersion: 0,
     timestamp: normalizeTimestamp(input.timestamp, 'timestamp'),
     version: normalizeVersion(input.version, 'version'),
   }
@@ -237,7 +234,6 @@ export function createChannelUpdateIntent(
             'previousVersion',
           ),
         }),
-    specVersion: 0,
     timestamp: normalizeTimestamp(input.timestamp, 'timestamp'),
     version: normalizeVersion(input.version, 'version'),
   }
@@ -263,7 +259,6 @@ export function createChannelDeleteIntent(
             'previousVersion',
           ),
         }),
-    specVersion: 0,
     timestamp: normalizeTimestamp(input.timestamp, 'timestamp'),
   }
 }
@@ -468,8 +463,7 @@ export async function verifyWriteAuthorization(
     publicKeyJwk: key.publicKeyJwk,
     signature: authorization.signature,
     signedAt: authorization.payload.timestamp,
-    specVersion: 0,
-    wellKnownDigest: sha256(bindingResponse.text),
+    wellKnownDigest: bindingResponse.digest,
   }
 }
 
@@ -489,7 +483,7 @@ export function domainBindingUrl(domain: string): string {
 async function fetchDomainBinding(
   domain: string,
   fetchBinding: typeof fetch,
-): Promise<{ text: string }> {
+): Promise<{ digest: Sha256Digest; text: string }> {
   const controller = new AbortController()
   const timeout = setTimeout(() => {
     controller.abort()
@@ -504,6 +498,7 @@ async function fetchDomainBinding(
         accept: 'application/json',
       },
       method: 'GET',
+      redirect: 'error',
       signal: controller.signal,
     })
   } catch (error) {
@@ -518,10 +513,8 @@ async function fetchDomainBinding(
     throw new WriteAuthorizationError('Domain binding not found')
   }
 
-  let text: string
-
   try {
-    text = await readDomainBindingText(response)
+    return await readDomainBinding(response)
   } catch (error) {
     if (error instanceof WriteAuthorizationError) {
       throw error
@@ -531,23 +524,34 @@ async function fetchDomainBinding(
       error instanceof Error ? error.message : String(error),
     ])
   }
+}
+
+async function readDomainBinding(
+  response: Response,
+): Promise<{ digest: Sha256Digest; text: string }> {
+  assertDomainBindingContentType(response.headers.get('content-type'))
+  const declaredLength = domainBindingContentLength(
+    response.headers.get('content-length'),
+  )
+  const bytes = await readDomainBindingBytes(response)
+  assertDomainBindingContentLengthMatches(declaredLength, bytes)
 
   return {
-    text,
+    digest: sha256(bytes),
+    text: decodeDomainBindingText(bytes),
   }
 }
 
-async function readDomainBindingText(response: Response): Promise<string> {
-  assertDomainBindingContentType(response.headers.get('content-type'))
-  assertDomainBindingContentLength(response.headers.get('content-length'))
-
+async function readDomainBindingBytes(response: Response): Promise<Uint8Array> {
   if (!response.body) {
     const text = await response.text()
-    if (new TextEncoder().encode(text).byteLength > maxDomainBindingBytes) {
+    const bytes = new TextEncoder().encode(text)
+
+    if (bytes.byteLength > maxDomainBindingBytes) {
       throw new WriteAuthorizationError('Domain binding response is too large')
     }
 
-    return text
+    return bytes
   }
 
   const reader = response.body.getReader()
@@ -594,12 +598,20 @@ async function readDomainBindingText(response: Response): Promise<string> {
     offset += chunk.byteLength
   }
 
-  return new TextDecoder().decode(bytes)
+  return bytes
+}
+
+function decodeDomainBindingText(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new WriteAuthorizationError('Domain binding response must be UTF-8')
+  }
 }
 
 function assertDomainBindingContentType(value: string | null): void {
   if (value === null) {
-    return
+    throw new WriteAuthorizationError('Domain binding response must be JSON')
   }
 
   const mediaType = value.split(';', 1)[0]?.trim().toLowerCase()
@@ -609,15 +621,38 @@ function assertDomainBindingContentType(value: string | null): void {
   }
 }
 
-function assertDomainBindingContentLength(value: string | null): void {
+function domainBindingContentLength(value: string | null): number | undefined {
   if (value === null) {
-    return
+    return undefined
+  }
+
+  if (!/^(?:0|[1-9]\d*)$/u.test(value)) {
+    throw new WriteAuthorizationError(
+      'Domain binding Content-Length is invalid',
+    )
   }
 
   const size = Number(value)
 
-  if (!Number.isSafeInteger(size) || size < 0 || size > maxDomainBindingBytes) {
+  if (!Number.isSafeInteger(size) || size > maxDomainBindingBytes) {
     throw new WriteAuthorizationError('Domain binding response is too large')
+  }
+
+  return size
+}
+
+function assertDomainBindingContentLengthMatches(
+  declaredLength: number | undefined,
+  bytes: Uint8Array,
+): void {
+  if (declaredLength === undefined) {
+    return
+  }
+
+  if (declaredLength !== bytes.byteLength) {
+    throw new WriteAuthorizationError(
+      'Domain binding Content-Length does not match response body',
+    )
   }
 }
 
@@ -671,7 +706,6 @@ function normalizeWriteIntent(value: unknown): WriteIntent {
         'operation',
         'package',
         'sourceDigest',
-        'specVersion',
         'timestamp',
         'version',
       ],
@@ -707,7 +741,6 @@ function normalizeWriteIntent(value: unknown): WriteIntent {
         'operation',
         'package',
         'previousVersion',
-        'specVersion',
         'timestamp',
         'version',
       ],
@@ -741,7 +774,6 @@ function normalizeWriteIntent(value: unknown): WriteIntent {
         'operation',
         'package',
         'previousVersion',
-        'specVersion',
         'timestamp',
       ],
       'Write intent',
@@ -776,16 +808,11 @@ function normalizeWriteIntentBase(
     )
   }
 
-  if (value.specVersion !== 0) {
-    throw new WriteAuthorizationError('Write intent specVersion must be 0')
-  }
-
   return {
     domain: normalizeDomain(value.domain),
     nonce: normalizeTokenString(value.nonce, 'nonce'),
     object: 'regesta.write-intent',
     package: parsePackageId(normalizeString(value.package, 'package')).id,
-    specVersion: 0,
     timestamp: normalizeTimestamp(value.timestamp, 'timestamp'),
   }
 }
@@ -798,20 +825,12 @@ function normalizeDomainBinding(
     throw new WriteAuthorizationError('Domain binding must be an object')
   }
 
-  assertKnownFields(
-    value,
-    ['domain', 'keys', 'object', 'specVersion'],
-    'Domain binding',
-  )
+  assertKnownFields(value, ['domain', 'keys', 'object'], 'Domain binding')
 
   if (value.object !== 'regesta.domain-binding') {
     throw new WriteAuthorizationError(
       'Domain binding object must be regesta.domain-binding',
     )
-  }
-
-  if (value.specVersion !== 0) {
-    throw new WriteAuthorizationError('Domain binding specVersion must be 0')
   }
 
   const domain = normalizeDomain(value.domain)
@@ -823,6 +842,10 @@ function normalizeDomainBinding(
     throw new WriteAuthorizationError('Domain binding keys must be an array')
   }
 
+  if (value.keys.length === 0) {
+    throw new WriteAuthorizationError('Domain binding keys must not be empty')
+  }
+
   const keys = value.keys.map((key) => normalizeDomainBindingKey(key))
   assertUniqueDomainBindingKeyIds(keys)
 
@@ -830,7 +853,6 @@ function normalizeDomainBinding(
     domain,
     keys,
     object: 'regesta.domain-binding',
-    specVersion: 0,
   }
 }
 
@@ -1009,7 +1031,6 @@ function writeIntentJson(intent: WriteIntent): CanonicalJsonValue {
     object: intent.object,
     operation: intent.operation,
     package: intent.package,
-    specVersion: intent.specVersion,
     timestamp: intent.timestamp,
   }
 

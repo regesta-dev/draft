@@ -20,6 +20,7 @@ import {
   createMemoryRegistryAdapters,
 } from '@regesta/adapters'
 import {
+  createChannelDeleteIntent,
   createChannelUpdateIntent,
   createReleasePublishIntent,
   createWriteAuthorization,
@@ -37,7 +38,12 @@ import {
   RegistryEventAlreadyExistsError,
   updatePackageChannel,
 } from '@regesta/core'
-import { parsePackageId, sha256, type RegestaConfig } from '@regesta/protocol'
+import {
+  canonicalJson,
+  parsePackageId,
+  sha256,
+  type RegestaConfig,
+} from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { createRegestaApp } from './app.ts'
 import {
@@ -284,29 +290,32 @@ describe('createRegestaApp', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('access-control-allow-origin')).toBe('*')
 
-    const preflight = await app.request(
+    for (const url of [
       'http://random.registry.test/releases',
-      {
+      'http://npm.registry.test/@example.com/hello-regesta',
+      'http://pypi.registry.test/simple/hello-regesta/',
+    ]) {
+      const preflight = await app.request(url, {
         headers: {
           'access-control-request-headers': 'content-type,x-regesta-test',
           'access-control-request-method': 'POST',
           origin: 'https://another-client.example',
         },
         method: 'OPTIONS',
-      },
-    )
+      })
 
-    expect(preflight.status).toBe(204)
-    expect(preflight.headers.get('access-control-allow-origin')).toBe('*')
-    expect(preflight.headers.get('access-control-allow-methods')).toContain(
-      'POST',
-    )
-    expect(preflight.headers.get('access-control-allow-methods')).toContain(
-      'OPTIONS',
-    )
-    expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,x-regesta-test',
-    )
+      expect(preflight.status).toBe(204)
+      expect(preflight.headers.get('access-control-allow-origin')).toBe('*')
+      expect(preflight.headers.get('access-control-allow-methods')).toContain(
+        'POST',
+      )
+      expect(preflight.headers.get('access-control-allow-methods')).toContain(
+        'OPTIONS',
+      )
+      expect(preflight.headers.get('access-control-allow-headers')).toBe(
+        'content-type,x-regesta-test',
+      )
+    }
   })
 
   it('logs requests at the transport layer when configured', async () => {
@@ -343,6 +352,41 @@ describe('createRegestaApp', () => {
       status: 200,
     })
     expect(entries[0]!.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('logs unexpected server errors at the transport boundary', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    adapters.database.listEvents = () => {
+      throw new Error('database credentials leaked in exception')
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request('http://registry.test/events', {
+        headers: {
+          'x-request-id': 'unexpected-500-001',
+        },
+      })
+
+      expect(response.status).toBe(500)
+      expect(response.headers.get('x-request-id')).toBe('unexpected-500-001')
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.any(Error),
+          kind: 'regesta.unexpected-error',
+          requestId: 'unexpected-500-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('logs accepted publish events to the operator audit sink when configured', async () => {
@@ -451,6 +495,203 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('does not fail accepted writes when the operator audit sink fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters, {
+      auditLog: () => {
+        throw new Error('audit backend unavailable')
+      },
+    })
+    const auth = createTestDomainAuth()
+    const timestamp = new Date().toISOString()
+    const source = bytes('source archive')
+    const artifacts = [
+      {
+        bytes: bytes('install artifact'),
+        format: 'generic-archive',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ]
+    const config: RegestaConfig = {
+      id: 'demo:example.com/audit-sink-failure',
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const normalizedConfig = normalizeRegestaConfig(config)
+    const form = new FormData()
+
+    form.set('config', JSON.stringify(config))
+    form.set(
+      'authorization',
+      JSON.stringify(
+        auth.sign(
+          createReleasePublishIntent({
+            artifactDescriptorDigest:
+              publishArtifactDescriptorDigest(artifacts),
+            artifactDigests: artifacts.map((artifact) =>
+              sha256(artifact.bytes),
+            ),
+            configDigest: configDigest(normalizedConfig),
+            nonce: 'publish-audit-sink-failure-nonce',
+            packageId: normalizedConfig.id,
+            sourceDigest: sha256(source),
+            timestamp,
+            version: normalizedConfig.version,
+          }),
+        ),
+      ),
+    )
+    form.set('createdAt', timestamp)
+    form.set('source', new File([blobPart(source)], 'source.tgz'))
+    form.set(
+      'artifacts',
+      JSON.stringify([
+        {
+          format: 'generic-archive',
+          mediaType: 'application/gzip',
+          part: 'artifact.install',
+          role: 'install',
+        },
+      ]),
+    )
+    form.set(
+      'artifact.install',
+      new File([blobPart(artifacts[0]!.bytes)], 'install.tgz', {
+        type: 'application/gzip',
+      }),
+    )
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request('/releases', {
+        body: form,
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(201)
+      await expect(
+        adapters.database.getRelease(
+          normalizedConfig.id,
+          normalizedConfig.version,
+        ),
+      ).resolves.toBeDefined()
+      expect(consoleError).toHaveBeenCalledWith(
+        'Core registry audit log sink failed',
+        expect.objectContaining({
+          action: 'release.publish',
+          error: expect.any(Error),
+          package: normalizedConfig.id,
+        }),
+      )
+    } finally {
+      vi.unstubAllGlobals()
+      consoleError.mockRestore()
+    }
+  })
+
+  it('logs rejected signed publish attempts to the operator audit sink when configured', async () => {
+    const entries: CoreRegistryAuditEntry[] = []
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      auditLog: (entry) => {
+        entries.push(entry)
+      },
+    })
+    const auth = createTestDomainAuth()
+    const timestamp = new Date().toISOString()
+    const source = bytes('source archive')
+    const artifacts = [
+      {
+        bytes: bytes('install artifact'),
+        format: 'generic-archive',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ]
+    const config: RegestaConfig = {
+      id: 'demo:example.com/rejected-audit-regesta',
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const normalizedConfig = normalizeRegestaConfig(config)
+    const form = new FormData()
+
+    form.set('config', JSON.stringify(config))
+    form.set(
+      'authorization',
+      JSON.stringify(
+        auth.sign(
+          createReleasePublishIntent({
+            artifactDescriptorDigest:
+              publishArtifactDescriptorDigest(artifacts),
+            artifactDigests: artifacts.map((artifact) =>
+              sha256(artifact.bytes),
+            ),
+            configDigest: configDigest(normalizedConfig),
+            nonce: 'publish-reject-audit-nonce',
+            packageId: normalizedConfig.id,
+            sourceDigest: sha256(bytes('different source archive')),
+            timestamp,
+            version: normalizedConfig.version,
+          }),
+        ),
+      ),
+    )
+    form.set('createdAt', timestamp)
+    form.set('source', new File([blobPart(source)], 'source.tgz'))
+    form.set(
+      'artifacts',
+      JSON.stringify([
+        {
+          format: 'generic-archive',
+          mediaType: 'application/gzip',
+          part: 'artifact.install',
+          role: 'install',
+        },
+      ]),
+    )
+    form.set(
+      'artifact.install',
+      new File([blobPart(artifacts[0]!.bytes)], 'install.tgz', {
+        type: 'application/gzip',
+      }),
+    )
+
+    const response = await app.request('/releases', {
+      body: form,
+      headers: {
+        'x-request-id': 'publish-reject-audit-001',
+      },
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(401)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      action: 'release.publish',
+      channel: 'latest',
+      kind: 'regesta.core-audit',
+      outcome: 'rejected',
+      package: normalizedConfig.id,
+      reason: 'Write authorization payload mismatch',
+      requestId: 'publish-reject-audit-001',
+      version: normalizedConfig.version,
+    })
+    expect(entries[0]).toHaveProperty('observedAt')
+  })
+
   it('logs accepted channel update events to the operator audit sink when configured', async () => {
     const entries: CoreRegistryAuditEntry[] = []
     const adapters = createMemoryRegistryAdapters()
@@ -537,6 +778,89 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('logs accepted channel delete events to the operator audit sink when configured', async () => {
+    const entries: CoreRegistryAuditEntry[] = []
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters, {
+      auditLog: (entry) => {
+        entries.push(entry)
+      },
+    })
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/channel-delete-audit'
+    const timestamp = new Date().toISOString()
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        {
+          body: JSON.stringify({
+            authorization: auth.sign(
+              createChannelDeleteIntent({
+                channel: 'latest',
+                nonce: 'channel-delete-audit-nonce',
+                packageId,
+                previousVersion: '0.0.1',
+                timestamp,
+              }),
+            ),
+          }),
+          headers: {
+            'content-type': 'application/json',
+            'x-request-id': 'channel-delete-audit-001',
+          },
+          method: 'DELETE',
+        },
+      )
+
+      expect(response.status).toBe(200)
+      expect(entries).toHaveLength(1)
+      const entry = entries[0]!
+      expect(entry).toMatchObject({
+        action: 'channel.delete',
+        channel: 'latest',
+        eventType: 'channel.deleted',
+        kind: 'regesta.core-audit',
+        outcome: 'accepted',
+        package: packageId,
+        previousVersion: '0.0.1',
+        requestId: 'channel-delete-audit-001',
+        timestamp,
+      })
+      if (entry.outcome !== 'accepted') {
+        throw new Error('Expected accepted audit entry')
+      }
+      expect(entry.eventId).toMatch(/^sha256:[a-f0-9]{64}$/u)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('logs rejected signed channel write attempts to the operator audit sink when configured', async () => {
     const entries: CoreRegistryAuditEntry[] = []
     const adapters = createMemoryRegistryAdapters()
@@ -608,6 +932,77 @@ describe('createRegestaApp', () => {
       reason: 'Write authorization payload mismatch',
       requestId: 'channel-reject-audit-001',
       version: '0.0.1',
+    })
+    expect(entries[0]).toHaveProperty('observedAt')
+  })
+
+  it('logs rejected signed channel delete attempts to the operator audit sink when configured', async () => {
+    const entries: CoreRegistryAuditEntry[] = []
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters, {
+      auditLog: (entry) => {
+        entries.push(entry)
+      },
+    })
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/channel-delete-reject-audit'
+    const timestamp = new Date().toISOString()
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    const response = await app.request(
+      `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+      {
+        body: JSON.stringify({
+          authorization: auth.sign(
+            createChannelDeleteIntent({
+              channel: 'latest',
+              nonce: 'channel-delete-reject-audit-nonce',
+              packageId,
+              timestamp,
+            }),
+          ),
+        }),
+        headers: {
+          'content-type': 'application/json',
+          'x-request-id': 'channel-delete-reject-audit-001',
+        },
+        method: 'DELETE',
+      },
+    )
+
+    expect(response.status).toBe(401)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      action: 'channel.delete',
+      channel: 'latest',
+      kind: 'regesta.core-audit',
+      outcome: 'rejected',
+      package: packageId,
+      previousVersion: '0.0.1',
+      reason: 'Write authorization payload mismatch',
+      requestId: 'channel-delete-reject-audit-001',
     })
     expect(entries[0]).toHaveProperty('observedAt')
   })
@@ -704,6 +1099,67 @@ describe('createRegestaApp', () => {
     })
   })
 
+  it('exports paginated object inventory descriptors', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const descriptors = await Promise.all([
+      adapters.objects.put(bytes('object c'), 'text/plain'),
+      adapters.objects.put(bytes('object a'), 'application/octet-stream'),
+      adapters.objects.put(bytes('object b'), 'application/json'),
+    ])
+    const sorted = descriptors.toSorted((left, right) => {
+      return left.digest.localeCompare(right.digest)
+    })
+
+    const firstPage = await app.request('/objects?limit=2')
+    const firstEtag = firstPage.headers.get('etag')
+    const firstHead = await app.request('/objects?limit=2', {
+      method: 'HEAD',
+    })
+    const conditional = await app.request('/objects?limit=2', {
+      headers: {
+        'if-none-match': firstEtag ?? '',
+      },
+    })
+    const secondPage = await app.request(
+      `/objects?after=${encodeURIComponent(sorted[1]!.digest)}&limit=2`,
+    )
+    const missingCursor = await app.request(
+      `/objects?after=${encodeURIComponent(sha256(bytes('missing')))}`,
+    )
+    const invalidQuery = await app.request('/objects?limit=1000')
+
+    expect(firstPage.status).toBe(200)
+    expect(firstPage.headers.get('cache-control')).toBe('no-cache')
+    expect(firstEtag).toBe(
+      `W/"regesta.object-inventory:${sorted[1]!.digest}:2"`,
+    )
+    await expect(firstPage.json()).resolves.toEqual({
+      nextAfter: sorted[1]!.digest,
+      object: 'regesta.object-inventory',
+      objects: sorted.slice(0, 2),
+    })
+    expect(firstHead.status).toBe(200)
+    expect(firstHead.headers.get('etag')).toBe(firstEtag)
+    expect(await firstHead.text()).toBe('')
+    expect(conditional.status).toBe(304)
+    expect(await conditional.text()).toBe('')
+    expect(secondPage.status).toBe(200)
+    await expect(secondPage.json()).resolves.toEqual({
+      nextAfter: sorted[2]!.digest,
+      object: 'regesta.object-inventory',
+      objects: sorted.slice(2),
+    })
+    expect(missingCursor.status).toBe(404)
+    await expect(missingCursor.json()).resolves.toMatchObject({
+      code: 'object_cursor_not_found',
+    })
+    expect(invalidQuery.status).toBe(400)
+    await expect(invalidQuery.json()).resolves.toMatchObject({
+      error: 'Invalid object inventory query',
+    })
+  })
+
   it('supports object HEAD requests without downloading bytes', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
@@ -778,12 +1234,14 @@ describe('createRegestaApp', () => {
       'public, max-age=31536000, immutable',
     )
     expect(conditionalGet.headers.get('etag')).toBe(`"${descriptor.digest}"`)
+    expect(conditionalGet.headers.get('content-length')).toBeNull()
     expect(await conditionalGet.text()).toBe('')
     expect(conditionalHead.status).toBe(304)
     expect(conditionalHead.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
     expect(conditionalHead.headers.get('etag')).toBe(`"${descriptor.digest}"`)
+    expect(conditionalHead.headers.get('content-length')).toBeNull()
     expect(await conditionalHead.text()).toBe('')
     expect(rangeGet.status).toBe(206)
     expect(rangeGet.headers.get('accept-ranges')).toBe('bytes')
@@ -873,6 +1331,105 @@ describe('createRegestaApp', () => {
     expect(objectGetCalls).toBe(1)
   })
 
+  it('rejects object reads when descriptor and bytes disagree', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const descriptor = await adapters.objects.put(
+      bytes('object bytes'),
+      'application/octet-stream',
+    )
+    const getObject = adapters.objects.get.bind(adapters.objects)
+    adapters.objects.get = async (digest) => {
+      const object = await getObject(digest)
+
+      return object
+        ? {
+            ...object,
+            descriptor: {
+              ...object.descriptor,
+              mediaType: 'text/plain',
+            },
+          }
+        : undefined
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(`/objects/${descriptor.digest}`, {
+        headers: {
+          'x-request-id': 'object-descriptor-mismatch-001',
+        },
+      })
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: `Object descriptor changed while reading: ${descriptor.digest}`,
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'object-descriptor-mismatch-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects object reads when bytes do not match the descriptor digest', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const descriptor = await adapters.objects.put(
+      bytes('object bytes'),
+      'application/octet-stream',
+    )
+    const getObject = adapters.objects.get.bind(adapters.objects)
+    adapters.objects.get = async (digest) => {
+      const object = await getObject(digest)
+
+      return object
+        ? {
+            ...object,
+            bytes: bytes('tampered bytes'),
+          }
+        : undefined
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(`/objects/${descriptor.digest}`, {
+        headers: {
+          'x-request-id': 'object-bytes-mismatch-001',
+        },
+      })
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: `Object byte length changed while reading: ${descriptor.digest}`,
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'object-bytes-mismatch-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('reads events by digest', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
@@ -918,16 +1475,21 @@ describe('createRegestaApp', () => {
     })
     const missing = await app.request(`/events/sha256/${'0'.repeat(64)}`)
     const invalid = await app.request(`/events/sha512/${hex}`)
+    const eventText = await response.text()
 
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
+    expect(response.headers.get('content-length')).toBe(
+      String(bytes(`${canonicalJson(publish.event)}\n`).byteLength),
+    )
     expect(response.headers.get('content-type')).toBe(
       'application/json; charset=utf-8',
     )
     expect(response.headers.get('etag')).toBe(`W/"${publish.event.id}"`)
-    await expect(response.json()).resolves.toMatchObject({
+    expect(eventText).toBe(`${canonicalJson(publish.event)}\n`)
+    expect(JSON.parse(eventText)).toMatchObject({
       eventType: 'release.published',
       id: publish.event.id,
       release: {
@@ -949,12 +1511,14 @@ describe('createRegestaApp', () => {
       'public, max-age=31536000, immutable',
     )
     expect(conditional.headers.get('etag')).toBe(`W/"${publish.event.id}"`)
+    expect(conditional.headers.get('content-length')).toBeNull()
     expect(await conditional.text()).toBe('')
     expect(conditionalHead.status).toBe(304)
     expect(conditionalHead.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
     expect(conditionalHead.headers.get('etag')).toBe(`W/"${publish.event.id}"`)
+    expect(conditionalHead.headers.get('content-length')).toBeNull()
     expect(await conditionalHead.text()).toBe('')
     expect(missing.status).toBe(404)
     await expect(missing.json()).resolves.toMatchObject({
@@ -1028,12 +1592,12 @@ describe('createRegestaApp', () => {
     })
     const conditionalFirstPage = await app.request('/events?limit=1', {
       headers: {
-        'if-none-match': `"regesta.event-log.v0:${first.event.id}:1"`,
+        'if-none-match': `"regesta.event-log:${first.event.id}:1"`,
       },
     })
     const conditionalFirstPageHead = await app.request('/events?limit=1', {
       headers: {
-        'if-none-match': `W/"regesta.event-log.v0:${first.event.id}:1"`,
+        'if-none-match': `W/"regesta.event-log:${first.event.id}:1"`,
       },
       method: 'HEAD',
     })
@@ -1047,7 +1611,7 @@ describe('createRegestaApp', () => {
       `/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
       {
         headers: {
-          'if-none-match': `W/"regesta.event-log.v0:${second.event.id}:0"`,
+          'if-none-match': `W/"regesta.event-log:${second.event.id}:0"`,
         },
       },
     )
@@ -1055,7 +1619,7 @@ describe('createRegestaApp', () => {
       `/events?after=${encodeURIComponent(second.event.id)}&limit=1`,
       {
         headers: {
-          'if-none-match': `"regesta.event-log.v0:${second.event.id}:0"`,
+          'if-none-match': `"regesta.event-log:${second.event.id}:0"`,
         },
         method: 'HEAD',
       },
@@ -1068,84 +1632,95 @@ describe('createRegestaApp', () => {
     const invalid = await app.request('/events?limit=0')
 
     expect(fullPage.status).toBe(200)
-    await expect(fullPage.json()).resolves.toMatchObject({
+    await expect(fullPage.json()).resolves.toEqual({
       events: [
-        {
+        expect.objectContaining({
           id: first.event.id,
-        },
-        {
+        }),
+        expect.objectContaining({
           id: second.event.id,
-        },
+        }),
       ],
       nextAfter: second.event.id,
-      schema: 'regesta.event-log.v0',
     })
     expect(firstPage.status).toBe(200)
     expect(firstPage.headers.get('cache-control')).toBe('no-cache')
     expect(firstPage.headers.get('etag')).toBe(
-      `W/"regesta.event-log.v0:${first.event.id}:1"`,
+      `W/"regesta.event-log:${first.event.id}:1"`,
     )
-    await expect(firstPage.json()).resolves.toMatchObject({
+    const firstPageText = await firstPage.clone().text()
+    expect(firstPage.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(firstPageText)),
+    )
+    await expect(firstPage.json()).resolves.toEqual({
       events: [
-        {
+        expect.objectContaining({
           id: first.event.id,
-        },
+        }),
       ],
       nextAfter: first.event.id,
-      schema: 'regesta.event-log.v0',
     })
     expect(firstPageHead.status).toBe(200)
     expect(firstPageHead.headers.get('cache-control')).toBe('no-cache')
     expect(firstPageHead.headers.get('etag')).toBe(
-      `W/"regesta.event-log.v0:${first.event.id}:1"`,
+      `W/"regesta.event-log:${first.event.id}:1"`,
+    )
+    expect(firstPageHead.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(firstPageText)),
     )
     expect(await firstPageHead.text()).toBe('')
     expect(conditionalFirstPage.status).toBe(304)
     expect(conditionalFirstPage.headers.get('cache-control')).toBe('no-cache')
     expect(conditionalFirstPage.headers.get('etag')).toBe(
-      `W/"regesta.event-log.v0:${first.event.id}:1"`,
+      `W/"regesta.event-log:${first.event.id}:1"`,
     )
+    expect(conditionalFirstPage.headers.get('content-length')).toBeNull()
     expect(await conditionalFirstPage.text()).toBe('')
     expect(conditionalFirstPageHead.status).toBe(304)
     expect(conditionalFirstPageHead.headers.get('cache-control')).toBe(
       'no-cache',
     )
     expect(conditionalFirstPageHead.headers.get('etag')).toBe(
-      `W/"regesta.event-log.v0:${first.event.id}:1"`,
+      `W/"regesta.event-log:${first.event.id}:1"`,
     )
+    expect(conditionalFirstPageHead.headers.get('content-length')).toBeNull()
     expect(await conditionalFirstPageHead.text()).toBe('')
     expect(secondPage.status).toBe(200)
-    await expect(secondPage.json()).resolves.toMatchObject({
+    await expect(secondPage.json()).resolves.toEqual({
       events: [
-        {
+        expect.objectContaining({
           id: second.event.id,
-        },
+        }),
       ],
       nextAfter: second.event.id,
-      schema: 'regesta.event-log.v0',
     })
     expect(emptyPage.status).toBe(200)
+    const emptyPageText = await emptyPage.clone().text()
+    expect(emptyPage.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(emptyPageText)),
+    )
     await expect(emptyPage.json()).resolves.toEqual({
       events: [],
-      schema: 'regesta.event-log.v0',
     })
     expect(emptyPage.headers.get('cache-control')).toBe('no-cache')
     expect(emptyPage.headers.get('etag')).toBe(
-      `W/"regesta.event-log.v0:${second.event.id}:0"`,
+      `W/"regesta.event-log:${second.event.id}:0"`,
     )
     expect(conditionalEmptyPage.status).toBe(304)
     expect(conditionalEmptyPage.headers.get('cache-control')).toBe('no-cache')
     expect(conditionalEmptyPage.headers.get('etag')).toBe(
-      `W/"regesta.event-log.v0:${second.event.id}:0"`,
+      `W/"regesta.event-log:${second.event.id}:0"`,
     )
+    expect(conditionalEmptyPage.headers.get('content-length')).toBeNull()
     expect(await conditionalEmptyPage.text()).toBe('')
     expect(conditionalEmptyPageHead.status).toBe(304)
     expect(conditionalEmptyPageHead.headers.get('cache-control')).toBe(
       'no-cache',
     )
     expect(conditionalEmptyPageHead.headers.get('etag')).toBe(
-      `W/"regesta.event-log.v0:${second.event.id}:0"`,
+      `W/"regesta.event-log:${second.event.id}:0"`,
     )
+    expect(conditionalEmptyPageHead.headers.get('content-length')).toBeNull()
     expect(await conditionalEmptyPageHead.text()).toBe('')
     expect(missingCursor.status).toBe(404)
     await expect(missingCursor.json()).resolves.toMatchObject({
@@ -1176,7 +1751,6 @@ describe('createRegestaApp', () => {
     })
     await expect(response.json()).resolves.toEqual({
       events: [],
-      schema: 'regesta.event-log.v0',
     })
   })
 
@@ -1560,6 +2134,109 @@ describe('createRegestaApp', () => {
     })
   })
 
+  it('publishes non-npm install artifacts without applying npm tarball rules', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const auth = createTestDomainAuth()
+    const timestamp = new Date().toISOString()
+    const source = bytes('source archive')
+    const artifacts = [
+      {
+        bytes: new Uint8Array([0x1f, 0x8b, 0x08, 0x00]),
+        format: 'generic-archive',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ]
+    const config: RegestaConfig = {
+      id: 'demo:example.com/raw-gzip',
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const normalizedConfig = normalizeRegestaConfig(config)
+    const form = new FormData()
+
+    form.set('config', JSON.stringify(config))
+    form.set(
+      'authorization',
+      JSON.stringify(
+        auth.sign(
+          createReleasePublishIntent({
+            artifactDescriptorDigest:
+              publishArtifactDescriptorDigest(artifacts),
+            artifactDigests: artifacts.map((artifact) =>
+              sha256(artifact.bytes),
+            ),
+            configDigest: configDigest(normalizedConfig),
+            nonce: 'non-npm-raw-gzip',
+            packageId: normalizedConfig.id,
+            sourceDigest: sha256(source),
+            timestamp,
+            version: normalizedConfig.version,
+          }),
+        ),
+      ),
+    )
+    form.set('createdAt', timestamp)
+    form.set('source', new File([blobPart(source)], 'source.tgz'))
+    form.set(
+      'artifacts',
+      JSON.stringify([
+        {
+          format: 'generic-archive',
+          mediaType: 'application/gzip',
+          part: 'artifact.install',
+          role: 'install',
+        },
+      ]),
+    )
+    form.set(
+      'artifact.install',
+      new File([blobPart(artifacts[0]!.bytes)], 'artifact.tgz', {
+        type: 'application/gzip',
+      }),
+    )
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request('/releases', {
+        body: form,
+        method: 'POST',
+      })
+      const body = await response.json()
+
+      expect(response.status).toBe(201)
+      expect(body).toMatchObject({
+        manifest: {
+          artifacts: [
+            expect.objectContaining({
+              format: 'generic-archive',
+              mediaType: 'application/gzip',
+              role: 'install',
+            }),
+          ],
+          id: normalizedConfig.id,
+        },
+      })
+      expect(body).not.toMatchObject({
+        manifest: {
+          artifacts: [
+            expect.objectContaining({
+              ecosystemMetadata: expect.anything(),
+            }),
+          ],
+        },
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('returns 400 for invalid npm package manifests inside install artifacts', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const form = new FormData()
@@ -1822,11 +2499,18 @@ describe('createRegestaApp', () => {
     const verification = await app.request(
       `/packages/${encodedPackageId}/releases/0.0.1/verification`,
     )
+    const expectedReleaseEnvelope = {
+      event: published.event,
+      manifest: published.manifest,
+      manifestDescriptor: published.manifestDescriptor,
+    }
+    const releaseText = await release.text()
 
     expect(state.status).toBe(200)
     expect(state.headers.get('cache-control')).toBe('no-cache')
     expect(state.headers.get('etag')).toBe(`W/"${published.event.id}"`)
-    await expect(state.json()).resolves.toMatchObject({
+    const stateBody = await state.json()
+    expect(stateBody).toMatchObject({
       channels: {
         latest: '0.0.1',
       },
@@ -1851,11 +2535,15 @@ describe('createRegestaApp', () => {
     expect(release.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
+    expect(release.headers.get('content-length')).toBe(
+      String(bytes(`${canonicalJson(expectedReleaseEnvelope)}\n`).byteLength),
+    )
     expect(release.headers.get('content-type')).toBe(
-      'application/json; charset=UTF-8',
+      'application/json; charset=utf-8',
     )
     expect(release.headers.get('etag')).toBe(`W/"${published.event.id}"`)
-    await expect(release.json()).resolves.toMatchObject({
+    expect(releaseText).toBe(`${canonicalJson(expectedReleaseEnvelope)}\n`)
+    expect(JSON.parse(releaseText)).toMatchObject({
       event: {
         id: published.event.id,
       },
@@ -1871,8 +2559,11 @@ describe('createRegestaApp', () => {
     expect(releaseHead.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
+    expect(releaseHead.headers.get('content-length')).toBe(
+      String(bytes(`${canonicalJson(expectedReleaseEnvelope)}\n`).byteLength),
+    )
     expect(releaseHead.headers.get('content-type')).toBe(
-      'application/json; charset=UTF-8',
+      'application/json; charset=utf-8',
     )
     expect(releaseHead.headers.get('etag')).toBe(`W/"${published.event.id}"`)
     expect(await releaseHead.text()).toBe('')
@@ -1883,6 +2574,7 @@ describe('createRegestaApp', () => {
     expect(conditionalRelease.headers.get('etag')).toBe(
       `W/"${published.event.id}"`,
     )
+    expect(conditionalRelease.headers.get('content-length')).toBeNull()
     expect(await conditionalRelease.text()).toBe('')
     expect(channel.status).toBe(200)
     expect(channel.headers.get('cache-control')).toBe('no-cache')
@@ -2090,6 +2782,79 @@ describe('createRegestaApp', () => {
             'content-type': 'application/json',
           },
           method: 'PUT',
+        },
+      )
+
+      expect(first.status).toBe(200)
+      expect(replayed.status).toBe(409)
+      await expect(replayed.json()).resolves.toMatchObject({
+        error: expect.stringContaining('Write authorization already used'),
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects replayed write authorizations for channel deletes', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/hello-regesta'
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    const authorization = auth.sign(
+      createChannelDeleteIntent({
+        channel: 'beta',
+        nonce: 'channel-delete-replay-nonce',
+        packageId,
+        timestamp: new Date().toISOString(),
+      }),
+    )
+    const body = JSON.stringify({
+      authorization,
+    })
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const first = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/beta`,
+        {
+          body,
+          headers: {
+            'content-type': 'application/json',
+          },
+          method: 'DELETE',
+        },
+      )
+      const replayed = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/beta`,
+        {
+          body,
+          headers: {
+            'content-type': 'application/json',
+          },
+          method: 'DELETE',
         },
       )
 
@@ -2389,6 +3154,261 @@ describe('createRegestaApp', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('commits only one concurrent publish for duplicate release versions', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const auth = createTestDomainAuth()
+    const packageId = parsePackageId(
+      'demo:example.com/concurrent-duplicate-release',
+    ).id
+    const artifactBytes = bytes('concurrent install artifact')
+    const sourceBytes = bytes('concurrent source archive')
+    const config: RegestaConfig = {
+      id: packageId,
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const timestamp = new Date().toISOString()
+    const publishForm = (nonce: string): FormData => {
+      const form = new FormData()
+
+      form.set('config', JSON.stringify(config))
+      form.set(
+        'authorization',
+        JSON.stringify(
+          auth.sign(
+            createReleasePublishIntent({
+              artifactDescriptorDigest: publishArtifactDescriptorDigest([
+                {
+                  format: 'demo',
+                  bytes: artifactBytes,
+                  mediaType: 'application/octet-stream',
+                  role: 'install',
+                },
+              ]),
+              artifactDigests: [sha256(artifactBytes)],
+              configDigest: configDigest(config),
+              nonce,
+              packageId,
+              sourceDigest: sha256(sourceBytes),
+              timestamp,
+              version: config.version,
+            }),
+          ),
+        ),
+      )
+      form.set('createdAt', timestamp)
+      form.set('source', new File([blobPart(sourceBytes)], 'source.tgz'))
+      form.set(
+        'artifacts',
+        JSON.stringify([
+          {
+            format: 'demo',
+            mediaType: 'application/octet-stream',
+            part: 'artifact.install',
+            role: 'install',
+          },
+        ]),
+      )
+      form.set(
+        'artifact.install',
+        new File([blobPart(artifactBytes)], 'artifact.bin', {
+          type: 'application/octet-stream',
+        }),
+      )
+
+      return form
+    }
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const responses = await Promise.all([
+        app.request('/releases', {
+          body: publishForm('concurrent-duplicate-release-1'),
+          method: 'POST',
+        }),
+        app.request('/releases', {
+          body: publishForm('concurrent-duplicate-release-2'),
+          method: 'POST',
+        }),
+      ])
+      const statuses = responses.map((response) => response.status).toSorted()
+      const failed = responses.find((response) => {
+        return response.status === 409
+      })
+
+      expect(statuses).toEqual([201, 409])
+      await expect(failed?.json()).resolves.toMatchObject({
+        error: expect.stringContaining('Release already exists'),
+      })
+      await expect(
+        adapters.database.listPackageEvents(packageId),
+      ).resolves.toHaveLength(1)
+      await expect(
+        adapters.database.getPackageChannels(packageId),
+      ).resolves.toEqual({
+        latest: config.version,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('serves concurrent core and npm projection reads consistently', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const packageId = parsePackageId('npm:example.com/concurrent-reads').id
+    const artifactBytes = bytes('concurrent install artifact')
+    const sourceBytes = bytes('concurrent source archive')
+    const published = await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: artifactBytes,
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: sourceBytes,
+      },
+      adapters,
+    )
+    const packagePath = encodeURIComponent(packageId)
+    const eventPath = published.event.id.replace('sha256:', 'sha256/')
+    const npmBase = 'http://npm.registry.test/@example.com/concurrent-reads'
+    const npmTarball = `${npmBase}/-/concurrent-reads-${published.manifest.version}.tgz`
+    const readRequests = Array.from({ length: 4 }, () => [
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          await expect(response.json()).resolves.toMatchObject({
+            channels: {
+              latest: published.manifest.version,
+            },
+            id: packageId,
+          })
+        },
+        url: `/packages/${packagePath}`,
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          await expect(response.json()).resolves.toMatchObject({
+            event: {
+              id: published.event.id,
+            },
+            manifest: {
+              id: packageId,
+              version: published.manifest.version,
+            },
+          })
+        },
+        url: `/packages/${packagePath}/channels/latest`,
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          await expect(response.json()).resolves.toMatchObject({
+            event: {
+              id: published.event.id,
+            },
+            manifest: {
+              id: packageId,
+              version: published.manifest.version,
+            },
+          })
+        },
+        url: `/packages/${packagePath}/releases/${published.manifest.version}`,
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          await expect(response.json()).resolves.toMatchObject({
+            eventType: 'release.published',
+            id: published.event.id,
+          })
+        },
+        url: `/events/${eventPath}`,
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          await expect(response.json()).resolves.toMatchObject({
+            events: [
+              {
+                id: published.event.id,
+              },
+            ],
+            nextAfter: published.event.id,
+          })
+        },
+        url: '/events?limit=1',
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          expect(await response.text()).toBe(
+            `${canonicalJson(published.manifest)}\n`,
+          )
+        },
+        url: `/objects/${published.manifestDescriptor.digest}`,
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          await expect(response.json()).resolves.toMatchObject({
+            'dist-tags': {
+              latest: published.manifest.version,
+            },
+            name: '@example.com/concurrent-reads',
+          })
+        },
+        url: npmBase,
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          await expect(response.json()).resolves.toMatchObject({
+            name: '@example.com/concurrent-reads',
+            version: published.manifest.version,
+          })
+        },
+        url: `${npmBase}/latest`,
+      },
+      {
+        assert: async (response: Response) => {
+          expect(response.status).toBe(200)
+          expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+            artifactBytes,
+          )
+        },
+        url: npmTarball,
+      },
+    ]).flat()
+
+    await Promise.all(
+      readRequests.map(async (readRequest) => {
+        const response = await app.request(readRequest.url)
+        await readRequest.assert(response)
+      }),
+    )
   })
 
   it('accepts dev.localhost write signatures through domain binding lookup', async () => {
@@ -3003,6 +4023,10 @@ describe('createRegestaApp', () => {
     expect(subdomainPackument.status).toBe(200)
     expect(subdomainPackument.headers.get('cache-control')).toBe('no-cache')
     expect(subdomainPackument.headers.get('etag')).toBe(npmProjectionEtag)
+    const subdomainPackumentText = await subdomainPackument.clone().text()
+    expect(subdomainPackument.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(subdomainPackumentText)),
+    )
     await expect(subdomainPackument.json()).resolves.toMatchObject({
       'dist-tags': {
         latest: '0.0.1',
@@ -3040,6 +4064,7 @@ describe('createRegestaApp', () => {
     expect(conditionalPackument.status).toBe(304)
     expect(conditionalPackument.headers.get('cache-control')).toBe('no-cache')
     expect(conditionalPackument.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalPackument.headers.get('content-length')).toBeNull()
     expect(await conditionalPackument.text()).toBe('')
 
     const headPackument = await app.request(
@@ -3053,6 +4078,9 @@ describe('createRegestaApp', () => {
     expect(headPackument.headers.get('cache-control')).toBe('no-cache')
     expect(headPackument.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
+    )
+    expect(headPackument.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(subdomainPackumentText)),
     )
     expect(headPackument.headers.get('etag')).toBe(npmProjectionEtag)
     expect(await headPackument.text()).toBe('')
@@ -3072,6 +4100,7 @@ describe('createRegestaApp', () => {
       'no-cache',
     )
     expect(conditionalHeadPackument.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalHeadPackument.headers.get('content-length')).toBeNull()
     expect(await conditionalHeadPackument.text()).toBe('')
 
     const subdomainLatestManifest = await app.request(
@@ -3083,6 +4112,12 @@ describe('createRegestaApp', () => {
       'no-cache',
     )
     expect(subdomainLatestManifest.headers.get('etag')).toBe(npmProjectionEtag)
+    const subdomainLatestManifestText = await subdomainLatestManifest
+      .clone()
+      .text()
+    expect(subdomainLatestManifest.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(subdomainLatestManifestText)),
+    )
     await expect(subdomainLatestManifest.json()).resolves.toMatchObject({
       dependencies: {
         '@example.com/base': '^1.0.0',
@@ -3107,6 +4142,12 @@ describe('createRegestaApp', () => {
     expect(subdomainVersionManifest.headers.get('etag')).toBe(
       npmVersionManifestEtag,
     )
+    const subdomainVersionManifestText = await subdomainVersionManifest
+      .clone()
+      .text()
+    expect(subdomainVersionManifest.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(subdomainVersionManifestText)),
+    )
     await expect(subdomainVersionManifest.json()).resolves.toMatchObject({
       name: '@example.com/hello-regesta',
       version: '0.0.1',
@@ -3128,6 +4169,7 @@ describe('createRegestaApp', () => {
     expect(conditionalVersionManifest.headers.get('etag')).toBe(
       npmVersionManifestEtag,
     )
+    expect(conditionalVersionManifest.headers.get('content-length')).toBeNull()
     expect(await conditionalVersionManifest.text()).toBe('')
 
     const headVersionManifest = await app.request(
@@ -3142,6 +4184,9 @@ describe('createRegestaApp', () => {
       'public, max-age=31536000, immutable',
     )
     expect(headVersionManifest.headers.get('etag')).toBe(npmVersionManifestEtag)
+    expect(headVersionManifest.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(subdomainVersionManifestText)),
+    )
     expect(await headVersionManifest.text()).toBe('')
 
     const conditionalHeadVersionManifest = await app.request(
@@ -3161,6 +4206,9 @@ describe('createRegestaApp', () => {
     expect(conditionalHeadVersionManifest.headers.get('etag')).toBe(
       npmVersionManifestEtag,
     )
+    expect(
+      conditionalHeadVersionManifest.headers.get('content-length'),
+    ).toBeNull()
     expect(await conditionalHeadVersionManifest.text()).toBe('')
 
     const subdomainDistTags = await app.request(
@@ -3170,6 +4218,10 @@ describe('createRegestaApp', () => {
     expect(subdomainDistTags.status).toBe(200)
     expect(subdomainDistTags.headers.get('cache-control')).toBe('no-cache')
     expect(subdomainDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    const subdomainDistTagsText = await subdomainDistTags.clone().text()
+    expect(subdomainDistTags.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(subdomainDistTagsText)),
+    )
     await expect(subdomainDistTags.json()).resolves.toEqual({
       latest: '0.0.1',
     })
@@ -3186,6 +4238,7 @@ describe('createRegestaApp', () => {
     expect(conditionalDistTags.status).toBe(304)
     expect(conditionalDistTags.headers.get('cache-control')).toBe('no-cache')
     expect(conditionalDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalDistTags.headers.get('content-length')).toBeNull()
     expect(await conditionalDistTags.text()).toBe('')
 
     const headDistTags = await app.request(
@@ -3198,6 +4251,9 @@ describe('createRegestaApp', () => {
     expect(headDistTags.status).toBe(200)
     expect(headDistTags.headers.get('cache-control')).toBe('no-cache')
     expect(headDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(headDistTags.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(subdomainDistTagsText)),
+    )
     expect(await headDistTags.text()).toBe('')
 
     const conditionalHeadDistTags = await app.request(
@@ -3215,6 +4271,7 @@ describe('createRegestaApp', () => {
       'no-cache',
     )
     expect(conditionalHeadDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalHeadDistTags.headers.get('content-length')).toBeNull()
     expect(await conditionalHeadDistTags.text()).toBe('')
 
     const subdomainPing = await app.request('http://npm.registry.test/-/ping')
@@ -3299,6 +4356,7 @@ describe('createRegestaApp', () => {
     expect(conditionalTarball.headers.get('etag')).toBe(
       `"${sha256(installArtifact.bytes)}"`,
     )
+    expect(conditionalTarball.headers.get('content-length')).toBeNull()
     expect(await conditionalTarball.text()).toBe('')
 
     const headTarball = await app.request(
@@ -3334,6 +4392,7 @@ describe('createRegestaApp', () => {
     expect(conditionalHeadTarball.headers.get('etag')).toBe(
       `"${sha256(installArtifact.bytes)}"`,
     )
+    expect(conditionalHeadTarball.headers.get('content-length')).toBeNull()
     expect(await conditionalHeadTarball.text()).toBe('')
 
     const rootPathOnMainHost = await app.request(
@@ -3546,6 +4605,155 @@ describe('createRegestaApp', () => {
     expect(objectGetCalls).toBe(1)
   })
 
+  it('rejects npm tarball reads when artifact descriptors disagree', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const artifactBytes = bytes('install artifact bytes')
+    const artifactDigest = sha256(artifactBytes)
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: artifactBytes,
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: 'npm:example.com/mismatched-tarball-descriptor',
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    const getObject = adapters.objects.get.bind(adapters.objects)
+    adapters.objects.get = async (digest) => {
+      const object = await getObject(digest)
+
+      return object && digest === artifactDigest
+        ? {
+            ...object,
+            descriptor: {
+              ...object.descriptor,
+              mediaType: 'text/plain',
+            },
+          }
+        : object
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(
+        'http://npm.registry.test/@example.com/mismatched-tarball-descriptor/-/mismatched-tarball-descriptor-0.0.1.tgz',
+        {
+          headers: {
+            'x-request-id': 'npm-tarball-descriptor-mismatch-001',
+          },
+        },
+      )
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: `npm tarball object descriptor changed while reading: ${artifactDigest}`,
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'npm-tarball-descriptor-mismatch-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects npm tarball reads when artifact bytes do not match their digest', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const artifactBytes = bytes('install artifact bytes')
+    const artifactDigest = sha256(artifactBytes)
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: artifactBytes,
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: 'npm:example.com/mismatched-tarball-bytes',
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    const getObject = adapters.objects.get.bind(adapters.objects)
+    adapters.objects.get = async (digest) => {
+      const object = await getObject(digest)
+
+      return object && digest === artifactDigest
+        ? {
+            ...object,
+            bytes: bytes('install artifact bytez'),
+          }
+        : object
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(
+        'http://npm.registry.test/@example.com/mismatched-tarball-bytes/-/mismatched-tarball-bytes-0.0.1.tgz',
+        {
+          headers: {
+            'x-request-id': 'npm-tarball-bytes-mismatch-001',
+          },
+        },
+      )
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: `npm tarball object bytes digest mismatch while reading: ${artifactDigest}`,
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'npm-tarball-bytes-mismatch-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('supports real npm installs through the npm projection host', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
@@ -3646,6 +4854,7 @@ describe('createRegestaApp', () => {
             headers: {
               'cache-control': 'public, max-age=300',
               etag: '"upstream-etag"',
+              'last-modified': 'Wed, 10 Jun 2026 00:00:00 GMT',
             },
             status: 304,
           }),
@@ -3674,6 +4883,7 @@ describe('createRegestaApp', () => {
             headers: {
               'cache-control': 'public, max-age=300',
               etag: '"upstream-etag"',
+              'last-modified': 'Wed, 10 Jun 2026 00:00:00 GMT',
             },
           },
         ),
@@ -3685,15 +4895,26 @@ describe('createRegestaApp', () => {
 
     const packument = await app.request(
       'http://npm.registry.test/@upstream/pkg',
+      {
+        headers: {
+          authorization: 'Bearer regesta-local-token',
+          cookie: 'npm_token=secret',
+        },
+      },
     )
 
     expect(packument.status).toBe(200)
     expect(packument.headers.get('cache-control')).toBe('public, max-age=300')
     expect(packument.headers.get('etag')).toBe('"upstream-etag"')
+    expect(packument.headers.get('last-modified')).toBe(
+      'Wed, 10 Jun 2026 00:00:00 GMT',
+    )
     expect(fetchCalls.map((request) => request.url)).toEqual([
       'https://registry.npmjs.org/%40upstream%2Fpkg',
     ])
     expect(fetchCalls[0]!.headers.get('accept')).toBe('application/json')
+    expect(fetchCalls[0]!.headers.get('authorization')).toBeNull()
+    expect(fetchCalls[0]!.headers.get('cookie')).toBeNull()
     expect(fetchCalls[0]!.method).toBe('GET')
     await expect(packument.json()).resolves.toMatchObject({
       name: '@upstream/pkg',
@@ -3721,6 +4942,9 @@ describe('createRegestaApp', () => {
       'public, max-age=300',
     )
     expect(conditionalPackument.headers.get('etag')).toBe('"upstream-etag"')
+    expect(conditionalPackument.headers.get('last-modified')).toBe(
+      'Wed, 10 Jun 2026 00:00:00 GMT',
+    )
     expect(fetchCalls.at(-1)?.headers.get('if-modified-since')).toBe(
       'Tue, 09 Jun 2026 00:00:00 GMT',
     )
@@ -3737,6 +4961,9 @@ describe('createRegestaApp', () => {
 
     expect(headPackument.status).toBe(200)
     expect(headPackument.headers.get('etag')).toBe('"upstream-etag"')
+    expect(headPackument.headers.get('last-modified')).toBe(
+      'Wed, 10 Jun 2026 00:00:00 GMT',
+    )
     expect(await headPackument.text()).toBe('')
     expect(fetchCalls.at(-1)?.method).toBe('HEAD')
 
@@ -4128,7 +5355,6 @@ function createTestDomainAuth(): {
       },
     ],
     object: 'regesta.domain-binding',
-    specVersion: 0,
   }
 
   return {

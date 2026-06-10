@@ -6,6 +6,7 @@ import {
   tarballFileName,
 } from '@regesta/npm'
 import { Hono, type Context } from 'hono'
+import { assertObjectResponseIntegrity } from '../object-integrity.ts'
 import { decodeRequestComponent, requiredParam } from '../request.ts'
 import {
   errorResponse,
@@ -469,22 +470,27 @@ function serveNpmProjectionJson(
   etag: string,
   cacheControl = 'no-cache',
 ): Response {
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
   const headers = {
     'cache-control': cacheControl,
+    'content-length': String(bytes.byteLength),
     'content-type': 'application/json; charset=UTF-8',
     etag,
   }
 
   if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
+    const conditionalHeaders = new Headers(headers)
+    conditionalHeaders.delete('content-length')
+
     return new Response(null, {
-      headers,
+      headers: conditionalHeaders,
       status: 304,
     })
   }
 
   return context.req.method === 'HEAD'
     ? new Response(null, { headers })
-    : Response.json(body, { headers })
+    : new Response(bytes, { headers })
 }
 
 function versionManifestEtag(releaseEventId: string): string {
@@ -536,6 +542,8 @@ async function serveNpmTarball(
   const headers = tarballDescriptorHeaders(descriptor, etag)
 
   if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
+    headers.delete('content-length')
+
     return new Response(null, {
       headers,
       status: 304,
@@ -563,6 +571,13 @@ async function serveNpmTarball(
       404,
     )
   }
+
+  assertObjectResponseIntegrity({
+    actual: object,
+    digest: descriptor.digest,
+    expected: descriptor,
+    label: 'npm tarball object',
+  })
 
   return immutableBytesResponse({
     bytes: object.bytes,

@@ -1,5 +1,6 @@
 import process from 'node:process'
 import {
+  ObjectCursorNotFoundError,
   PackageChannelConflictError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
@@ -9,7 +10,8 @@ import {
   type RegistryAdapters,
 } from '@regesta/core'
 import { Hono } from 'hono'
-import { processPublishArtifacts } from './artifacts/process.ts'
+import { processNpmArtifacts } from './artifacts/npm.ts'
+import { createPublishArtifactProcessor } from './artifacts/process.ts'
 import {
   createCoreRegistryApp,
   type CoreRegistryAuditSink,
@@ -48,6 +50,9 @@ export function createRegestaApp(
   adapters: RegistryAdapters,
   options: RegestaAppOptions = {},
 ): Hono {
+  const processPublishArtifacts = createPublishArtifactProcessor([
+    processNpmArtifacts,
+  ])
   const app = new Hono({
     getPath: (request) => registryRoutePath(request),
   })
@@ -86,6 +91,11 @@ export function createRegestaApp(
       {
         code: 'event_cursor_not_found',
         match: (error) => error instanceof RegistryEventCursorNotFoundError,
+        status: 404,
+      },
+      {
+        code: 'object_cursor_not_found',
+        match: (error) => error instanceof ObjectCursorNotFoundError,
         status: 404,
       },
       {

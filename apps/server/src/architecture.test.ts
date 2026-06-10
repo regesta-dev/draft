@@ -67,6 +67,23 @@ describe('server layer boundaries', () => {
     ])
   })
 
+  it('keeps storage readiness independent from local adapter and business implementations', async () => {
+    await expectNoForbiddenImports('storage', [
+      '@regesta/adapters',
+      '@regesta/auth',
+      '@regesta/npm',
+      'hono',
+      'valibot',
+      '../adapters/',
+      '../artifacts/',
+      '../core/',
+      '../dev/',
+      '../npm/',
+      '../transport/',
+      '../trust/',
+    ])
+  })
+
   it('keeps npm projection routes independent from core routes and trust implementations', async () => {
     await expectNoForbiddenImports('npm', [
       '@regesta/auth',
@@ -96,6 +113,32 @@ describe('server layer boundaries', () => {
       '../transport/',
       '../trust/',
     ])
+  })
+
+  it('keeps the generic artifact processor independent from ecosystem packages', async () => {
+    await expectNoForbiddenImports('artifacts/process.ts', ['@regesta/npm'])
+  })
+
+  it('wires ecosystem artifact processors only at the server composition root', async () => {
+    const violations: string[] = []
+    const appSource = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+
+    expect(appSource).toContain('createPublishArtifactProcessor')
+    expect(appSource).toContain('processNpmArtifacts')
+
+    for (const file of await sourceFiles(serverSourceRoot)) {
+      const relativePath = relative(serverSourceRoot, file)
+      if (['app.ts', 'artifacts/npm.ts'].includes(relativePath)) {
+        continue
+      }
+
+      const source = await readFile(file, 'utf8')
+      if (source.includes('processNpmArtifacts')) {
+        violations.push(relativePath)
+      }
+    }
+
+    expect(violations).toEqual([])
   })
 
   it('keeps dev helpers independent from registry business implementations', async () => {
@@ -231,6 +274,23 @@ describe('workspace layer boundaries', () => {
     ])
   })
 
+  it('keeps the core package free of ecosystem projection vocabulary', async () => {
+    await expectNoForbiddenSourcePatterns(
+      join(workspaceRoot, 'packages/core/src'),
+      [
+        { label: 'npm', pattern: /\bnpm\b/u },
+        { label: 'pypi', pattern: /\bpypi\b/u },
+        { label: 'cargo', pattern: /\bcargo\b/u },
+        { label: 'oci', pattern: /\boci\b/u },
+        { label: 'npm registry fallback', pattern: /registry\.npmjs\.org/u },
+        { label: 'npm packument', pattern: /\bpackument\b/u },
+        { label: 'npm dist-tags', pattern: /dist-tags/u },
+        { label: 'package manager manifest', pattern: /package\.json/u },
+        { label: 'npm media type', pattern: /application\/vnd\.npm/u },
+      ],
+    )
+  })
+
   it('keeps core base64 primitives centralized for portable verifier paths', async () => {
     const coreSourceRoot = join(workspaceRoot, 'packages/core/src')
     const violations: string[] = []
@@ -332,6 +392,28 @@ async function expectNoForbiddenImports(
     for (const specifier of forbiddenSpecifiers) {
       if (importsSpecifier(source, specifier)) {
         violations.push(`${relative(sourceRoot, file)} imports ${specifier}`)
+      }
+    }
+  }
+
+  expect(violations).toEqual([])
+}
+
+async function expectNoForbiddenSourcePatterns(
+  directory: string,
+  forbiddenPatterns: Array<{ label: string; pattern: RegExp }>,
+): Promise<void> {
+  const violations: string[] = []
+  const sourceRoot = isAbsolute(directory)
+    ? directory
+    : join(serverSourceRoot, directory)
+
+  for (const file of await sourceFiles(sourceRoot)) {
+    const source = await readFile(file, 'utf8')
+
+    for (const { label, pattern } of forbiddenPatterns) {
+      if (pattern.test(source)) {
+        violations.push(`${relative(sourceRoot, file)} contains ${label}`)
       }
     }
   }

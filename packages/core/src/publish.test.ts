@@ -53,7 +53,6 @@ describe('publishRelease', () => {
     expect(result.manifest.ecosystem).toBe('npm')
     expect(result.manifest.name).toBe('example.com/hello-regesta')
     expect(result.manifest.object).toBe('regesta.release-manifest')
-    expect(result.manifest.specVersion).toBe(0)
     expect(result.manifest.artifacts).toEqual([
       expect.objectContaining({
         compatibility: {
@@ -1892,7 +1891,6 @@ function createAuthorizationProof(value: string): WriteAuthorizationProof {
     },
     signature: TEST_ED25519_SIGNATURE,
     signedAt: '2026-06-01T00:00:00.000Z',
-    specVersion: 0,
     wellKnownDigest: sha256(bytes('well-known')),
   }
 }
@@ -1993,6 +1991,14 @@ function createTestRegistryAdapters(): RegistryAdapters {
       get: (digest) => Promise.resolve(objects.get(digest)),
       getDescriptor: (digest) =>
         Promise.resolve(objects.get(digest)?.descriptor),
+      listDescriptors: () =>
+        Promise.resolve(
+          [...objects.values()]
+            .map((object) => object.descriptor)
+            .toSorted((left, right) => {
+              return left.digest.localeCompare(right.digest)
+            }),
+        ),
       put: (objectBytes, mediaType) => {
         const descriptor = {
           digest: sha256(objectBytes),

@@ -151,7 +151,6 @@ function verifyManifestProtocol(
       'object',
       'provenance',
       'source',
-      'specVersion',
       'version',
     ],
     'Release manifest',
@@ -532,10 +531,6 @@ function verifyManifestIdentity(
 
   if (manifest.object !== 'regesta.release-manifest') {
     problems.push('Release manifest object must be regesta.release-manifest')
-  }
-
-  if (manifest.specVersion !== 0) {
-    problems.push('Release manifest specVersion must be 0')
   }
 
   collectPackageVersion(manifest.version, 'Release manifest version', problems)
@@ -950,7 +945,6 @@ function expectedPublishEventPayload(
       version: manifest.version,
     },
     sourceDigest,
-    specVersion: 0,
     timestamp: manifest.createdAt,
   }
 }
@@ -971,7 +965,6 @@ function collectPublishEventProtocol(
       'object',
       'release',
       'sourceDigest',
-      'specVersion',
       'timestamp',
     ],
     'Publish event',
@@ -980,10 +973,6 @@ function collectPublishEventProtocol(
 
   if (event.object !== 'regesta.event') {
     problems.push('Publish event object must be regesta.event')
-  }
-
-  if (event.specVersion !== 0) {
-    problems.push('Publish event specVersion must be 0')
   }
 
   collectSha256Digest(event.id, 'Publish event id', problems)
@@ -1064,7 +1053,6 @@ function collectAuthorizationProof(
         'publicKeyJwk',
         'signature',
         'signedAt',
-        'specVersion',
         'wellKnownDigest',
       ],
       'Publish event authorization',
@@ -1078,10 +1066,6 @@ function collectAuthorizationProof(
     problems.push(
       'Publish event authorization object must be regesta.authorization-proof',
     )
-  }
-
-  if (authorization.specVersion !== 0) {
-    problems.push('Publish event authorization specVersion must be 0')
   }
 
   if (authorization.alg !== 'EdDSA') {

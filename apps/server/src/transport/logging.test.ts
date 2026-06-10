@@ -120,6 +120,16 @@ describe('createRequestLogger', () => {
 
     expect(response.status).toBe(200)
     await expect(response.text()).resolves.toBe('ok')
-    expect(consoleError).toHaveBeenCalledOnce()
+    expect(consoleError).toHaveBeenCalledWith(
+      'Transport request log sink failed',
+      expect.objectContaining({
+        error: expect.any(Error),
+        kind: 'regesta.request-log-error',
+        method: 'GET',
+        path: '/ok',
+        requestId: response.headers.get('x-request-id'),
+        status: 200,
+      }),
+    )
   })
 })

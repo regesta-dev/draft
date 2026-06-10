@@ -15,6 +15,5 @@ export interface WriteAuthorizationProof {
   publicKeyJwk: Ed25519PublicKeyJwk
   signature: string
   signedAt: string
-  specVersion: 0
   wellKnownDigest: Sha256Digest
 }

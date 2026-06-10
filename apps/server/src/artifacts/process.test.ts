@@ -11,9 +11,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
+import { processNpmArtifacts } from './npm.ts'
 import {
   createPublishArtifactProcessor,
-  processPublishArtifacts,
   type ProcessPublishArtifactsInput,
 } from './process.ts'
 import type { RegestaConfig } from '@regesta/protocol'
@@ -21,6 +21,10 @@ import type { RegestaConfig } from '@regesta/protocol'
 const execFileAsync = promisify(execFile)
 
 describe('processPublishArtifacts', () => {
+  const processPublishArtifacts = createPublishArtifactProcessor([
+    processNpmArtifacts,
+  ])
+
   it('returns unchanged input when no ecosystem processors are configured', async () => {
     const input: ProcessPublishArtifactsInput = {
       artifacts: [

@@ -55,6 +55,14 @@ try {
     '--registry',
     baseUrl,
   ])
+  await runInteractive('node', [
+    '--conditions=regesta-source',
+    'packages/cli/src/index.ts',
+    'verify-package',
+    'npm:dev.localhost/hello-regesta',
+    '--registry',
+    baseUrl,
+  ])
 
   const packageState = await getJson(
     `${baseUrl}/packages/${encodeURIComponent(

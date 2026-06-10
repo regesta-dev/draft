@@ -3,6 +3,11 @@
 This page documents the current HTTP API surface. It covers implemented routes
 and the intended boundary between core APIs and ecosystem projections.
 
+A machine-readable OpenAPI reference is available at
+[`/openapi/regesta-v0.openapi.json`](/openapi/regesta-v0.openapi.json). It
+describes implemented HTTP routes and references the V0 JSON Schema definitions
+for Regesta-native objects.
+
 ## API Principles
 
 - Core APIs expose Regesta-native packages, releases, objects, channels, and
@@ -26,6 +31,28 @@ npm:some.dev/sdk -> npm%3Asome.dev%2Fsdk
 This avoids ambiguous route parsing when native ecosystem names contain slashes
 or reserved words such as `channels` and `releases`.
 
+## Transport
+
+```http
+GET  /
+HEAD /
+GET  /health
+HEAD /health
+GET  /ready
+HEAD /ready
+```
+
+The root route returns deployment information: service name, package version,
+API version, runtime, build time, git sha, and dirty state. It is meant for
+operators and debugging.
+
+`/health` is a lightweight liveness check and returns `{ "ok": true }` when
+the process can answer requests.
+
+`/ready` checks storage dependencies and returns `200` when database, object
+storage, queue, and signer are ready. It returns `503` when any dependency is
+not ready. Readiness responses use `Cache-Control: no-store`.
+
 ## Publish Release
 
 ```http
@@ -35,11 +62,12 @@ Content-Type: multipart/form-data
 
 Multipart fields:
 
-| Field       | Type   | Required | Purpose                                      |
-| ----------- | ------ | -------- | -------------------------------------------- |
-| `config`    | JSON   | yes      | Normalized Regesta publish config.           |
-| `source`    | binary | yes      | Source archive bytes.                        |
-| `artifacts` | JSON   | yes      | Metadata for uploaded artifact binary parts. |
+| Field           | Type   | Required | Purpose                                       |
+| --------------- | ------ | -------- | --------------------------------------------- |
+| `config`        | JSON   | yes      | Normalized Regesta publish config.            |
+| `source`        | binary | yes      | Source archive bytes.                         |
+| `artifacts`     | JSON   | yes      | Metadata for uploaded artifact binary parts.  |
+| `authorization` | JSON   | yes      | Signed `release.publish` write authorization. |
 
 Each artifact metadata entry names a multipart part:
 
@@ -102,7 +130,6 @@ Returns package state replayed from ordered package events:
 ```json
 {
   "object": "regesta.package-state",
-  "specVersion": 0,
   "id": "npm:some.dev/sdk",
   "ecosystem": "npm",
   "name": "some.dev/sdk",
@@ -122,6 +149,10 @@ Returns package state replayed from ordered package events:
 Package state is mutable. Later channel events can change channel pointers, and
 later publish events can add releases.
 
+Package state responses include `Cache-Control: no-cache`. Non-empty states
+include a weak `ETag` derived from the last package event id, so clients can
+revalidate without treating the state snapshot as immutable.
+
 ## Release Reads
 
 ```http
@@ -129,8 +160,28 @@ GET  /packages/{packageId}/releases/{version}
 HEAD /packages/{packageId}/releases/{version}
 ```
 
-Returns the stored release envelope: manifest, manifest descriptor, event,
-source descriptor, and artifact descriptors.
+Returns the stored release envelope: event, manifest, and manifest descriptor.
+The manifest contains the source descriptor and artifact descriptors. Versioned
+release reads are immutable and return canonical JSON bytes with a trailing
+newline and `Content-Length` for the exact response body.
+
+## Release Verification
+
+```http
+GET /packages/{packageId}/releases/{version}/verification
+```
+
+Returns release verification results. Successful verification returns `200`.
+Verification problems return `422` with the same response shape:
+
+```json
+{
+  "ok": false,
+  "problems": ["Release manifest digest does not match stored descriptor"]
+}
+```
+
+## Channel Reads
 
 ```http
 GET  /packages/{packageId}/channels/{channel}
@@ -138,11 +189,83 @@ HEAD /packages/{packageId}/channels/{channel}
 ```
 
 Resolves a mutable channel to the current release and returns the same release
-envelope as the versioned release endpoint.
+envelope shape as the versioned release endpoint.
+
+Channel reads are mutable projections. They include `Cache-Control: no-cache`
+and a weak `ETag` for the package event id that produced the current channel
+target.
+
+## Channel Writes
+
+```http
+PUT    /packages/{packageId}/channels/{channel}
+DELETE /packages/{packageId}/channels/{channel}
+Content-Type: application/json
+```
+
+Channel writes require a signed write authorization. Updating a channel points
+it at an existing release version:
+
+```json
+{
+  "authorization": {
+    "alg": "EdDSA",
+    "kid": "ed25519:example",
+    "payload": {
+      "object": "regesta.write-intent",
+      "operation": "channel.update",
+      "package": "npm:some.dev/sdk",
+      "channel": "latest",
+      "version": "1.2.3",
+      "previousVersion": "1.2.2",
+      "domain": "some.dev",
+      "timestamp": "2026-06-03T00:00:00.000Z",
+      "nonce": "..."
+    },
+    "signature": "..."
+  },
+  "version": "1.2.3"
+}
+```
+
+Deleting a channel removes the mutable pointer:
+
+```json
+{
+  "authorization": {
+    "alg": "EdDSA",
+    "kid": "ed25519:example",
+    "payload": {
+      "object": "regesta.write-intent",
+      "operation": "channel.delete",
+      "package": "npm:some.dev/sdk",
+      "channel": "latest",
+      "previousVersion": "1.2.3",
+      "domain": "some.dev",
+      "timestamp": "2026-06-03T00:00:00.000Z",
+      "nonce": "..."
+    },
+    "signature": "..."
+  }
+}
+```
+
+The signed intent binds the package id, channel, target version for updates,
+current `previousVersion` when one exists, timestamp, nonce, and owner domain.
+The server verifies the signed intent against the owner domain binding, rejects
+replayed authorization digests, and stores an `authorization` proof on the
+accepted event. The accepted event records the proof material and
+`payloadDigest`; it does not currently publish the full signed intent payload.
+Accepted writes append `channel.updated` or `channel.deleted` events. They do
+not modify release manifests.
 
 ## Objects
 
 ```http
+GET  /objects?after={digest}&limit={count}
+HEAD /objects?after={digest}&limit={count}
+GET  /objects/{digest}
+HEAD /objects/{digest}
 GET  /objects/{algorithm}/{hex}
 HEAD /objects/{algorithm}/{hex}
 ```
@@ -150,12 +273,38 @@ HEAD /objects/{algorithm}/{hex}
 Objects are immutable content-addressed bytes. Current V0 object reads are used
 for source archives, install artifacts, and release manifest bytes.
 
+The collection route exports object descriptors for mirrors and auditors. It
+does not return object bytes. `after` is the last object digest already seen,
+and `limit` is the maximum number of following descriptors. V0 accepts page
+sizes from `1` to `999`. If `limit` is omitted, the HTTP API uses the maximum
+V0 page size.
+
+Object inventory page shape:
+
+```json
+{
+  "object": "regesta.object-inventory",
+  "objects": [
+    {
+      "digest": "sha256:...",
+      "mediaType": "application/gzip",
+      "size": 1234
+    }
+  ],
+  "nextAfter": "sha256:..."
+}
+```
+
+The `{digest}` form uses the canonical digest string, such as
+`sha256:0123...`. The `{algorithm}/{hex}` form exposes the same object with the
+digest split into path-safe segments.
+
 Object responses include:
 
 - `Content-Type`;
 - `Content-Length`;
 - digest-based `ETag`;
-- cache headers suitable for immutable content.
+- `Cache-Control` including `immutable`.
 
 `HEAD` returns descriptors without downloading bytes. Verifiers still need to
 download bytes when proving object integrity.
@@ -175,11 +324,13 @@ and `limit` is the maximum number of following events.
 V0 accepts page sizes from `1` to `999`. If `limit` is omitted, the HTTP API
 uses the maximum V0 page size.
 
+Individual event reads return canonical JSON bytes with a trailing newline and
+`Content-Length` for the exact response body.
+
 Event page shape:
 
 ```json
 {
-  "schema": "regesta.event-log.v0",
   "events": [
     {
       "object": "regesta.event",
@@ -196,6 +347,8 @@ Rules:
 - non-empty pages include `nextAfter`;
 - `nextAfter` is the last returned event id;
 - `nextAfter` does not prove that more events are available;
+- pages include `Content-Length` for the exact JSON response body;
+- page `ETag` values identify the page cursor and event count;
 - unknown cursors return an explicit not-found error;
 - individual event reads are immutable public facts.
 
@@ -287,7 +440,10 @@ The release verifier should use public API data only:
 2. Fetch the publish event again by id.
 3. Fetch manifest, source, and artifact objects by digest.
 4. Recompute canonical JSON and byte digests.
-5. Replay relevant events when checking package state.
+5. Reproduce ecosystem metadata extraction when a supported artifact processor
+   can do so, such as npm metadata from the install tarball.
+6. Replay public events when checking package state.
+7. Compare mutable package-state responses with the replayed event state.
 
 Future checkpoint, inclusion proof, consistency proof, and witness endpoints
 are intentionally not part of V0 until their object formats are designed.

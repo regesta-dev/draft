@@ -14,6 +14,7 @@ describe('createTransportErrorBoundary', () => {
   })
 
   it('maps known errors to structured JSON responses', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const app = new Hono()
     app.onError(
       createTransportErrorBoundary([
@@ -37,6 +38,7 @@ describe('createTransportErrorBoundary', () => {
       issues: ['field: Must be valid'],
       message: 'Known request error',
     })
+    expect(consoleError).not.toHaveBeenCalled()
   })
 
   it('logs unknown errors and hides their details', async () => {

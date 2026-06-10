@@ -1,4 +1,5 @@
 export type {
+  ObjectDescriptorListOptions,
   ObjectStore,
   QueueAdapter,
   RegistryAdapters,

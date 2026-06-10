@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { sha256 } from './digest.ts'
 import {
+  parseRegistryEvent,
   registryEventDigest,
   registryEventPayload,
+  type PublishReleaseEvent,
   type PublishReleaseEventPayload,
 } from './event.ts'
 
@@ -51,6 +53,66 @@ describe('registryEventPayload', () => {
   })
 })
 
+describe('parseRegistryEvent', () => {
+  it('parses valid registry events without unsafe narrowing', () => {
+    const payload = publishReleasePayload()
+    const event: PublishReleaseEvent = {
+      ...payload,
+      id: registryEventDigest(payload),
+    }
+
+    expect(parseRegistryEvent(event)).toEqual(event)
+  })
+
+  it('rejects registry events whose ids do not match canonical payloads', () => {
+    const payload = publishReleasePayload()
+    const event: PublishReleaseEvent = {
+      ...payload,
+      id: registryEventDigest(payload),
+    }
+
+    expect(() =>
+      parseRegistryEvent({
+        ...event,
+        id: sha256(bytes('different event')),
+      }),
+    ).toThrow('Registry event id does not match canonical event payload')
+  })
+
+  it('can parse event references before immutable endpoint verification', () => {
+    const payload = publishReleasePayload()
+    const event: PublishReleaseEvent = {
+      ...payload,
+      id: sha256(bytes('different event')),
+    }
+
+    expect(
+      parseRegistryEvent(event, 'Registry event reference', {
+        verifyId: false,
+      }),
+    ).toEqual(event)
+  })
+
+  it('rejects unknown registry event fields', () => {
+    const payload = publishReleasePayload()
+    const event: PublishReleaseEvent = {
+      ...payload,
+      id: registryEventDigest(payload),
+    }
+
+    expect(() =>
+      parseRegistryEvent(
+        {
+          ...event,
+          extra: true,
+        },
+        'Registry event',
+        { verifyId: false },
+      ),
+    ).toThrow('Registry event must not include unknown field: extra')
+  })
+})
+
 function publishReleasePayload(): PublishReleaseEventPayload {
   return {
     artifactDigests: [sha256(bytes('artifact'))],
@@ -63,7 +125,6 @@ function publishReleasePayload(): PublishReleaseEventPayload {
       version: '0.0.1',
     },
     sourceDigest: sha256(bytes('source')),
-    specVersion: 0,
     timestamp: '2026-06-01T00:00:00.000Z',
   }
 }

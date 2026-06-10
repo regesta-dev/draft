@@ -11,7 +11,6 @@ describe('assertRegistryEventSemantics', () => {
             "id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
             "object": "regesta.event",
             "package": "npm:example.com/hello-regesta",
-            "specVersion": 0,
             "timestamp": "2026-06-01T00:00:00.000Z"
           }`,
         ),

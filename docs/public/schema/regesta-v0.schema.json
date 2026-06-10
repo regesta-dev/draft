@@ -1,0 +1,531 @@
+{
+  "$id": "https://regesta.dev/schema/regesta-v0.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Regesta V0 Protocol Objects",
+  "description": "Machine-readable reference for current Regesta V0 object shapes. Semantic checks such as canonical event ids, owner-domain validation, and object digest verification remain enforced by the TypeScript protocol and verifier implementations.",
+  "oneOf": [
+    { "$ref": "#/$defs/regestaConfig" },
+    { "$ref": "#/$defs/packageState" },
+    { "$ref": "#/$defs/releaseManifest" },
+    { "$ref": "#/$defs/registryEvent" },
+    { "$ref": "#/$defs/domainBinding" },
+    { "$ref": "#/$defs/writeAuthorization" },
+    { "$ref": "#/$defs/objectInventory" }
+  ],
+  "$defs": {
+    "artifactDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "compatibility": { "$ref": "#/$defs/compatibility" },
+        "digest": { "$ref": "#/$defs/sha256Digest" },
+        "ecosystemMetadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "filename": { "$ref": "#/$defs/nonEmptyString" },
+        "format": { "$ref": "#/$defs/nonEmptyString" },
+        "mediaType": { "$ref": "#/$defs/nonEmptyString" },
+        "role": { "$ref": "#/$defs/nonEmptyString" },
+        "size": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": ["digest", "mediaType", "role", "size"],
+      "type": "object"
+    },
+    "authorizationProof": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "EdDSA" },
+        "domain": { "$ref": "#/$defs/ownerDomain" },
+        "kid": { "$ref": "#/$defs/nonEmptyString" },
+        "object": { "const": "regesta.authorization-proof" },
+        "payloadDigest": { "$ref": "#/$defs/sha256Digest" },
+        "publicKeyJwk": { "$ref": "#/$defs/ed25519PublicKeyJwk" },
+        "signature": { "$ref": "#/$defs/ed25519Signature" },
+        "signedAt": { "$ref": "#/$defs/canonicalTimestamp" },
+        "wellKnownDigest": { "$ref": "#/$defs/sha256Digest" }
+      },
+      "required": [
+        "alg",
+        "domain",
+        "kid",
+        "object",
+        "payloadDigest",
+        "publicKeyJwk",
+        "signature",
+        "signedAt",
+        "wellKnownDigest"
+      ],
+      "type": "object"
+    },
+    "base64Url": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "type": "string"
+    },
+    "canonicalTimestamp": {
+      "description": "Canonical UTC ISO timestamp with millisecond precision.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "type": "string"
+    },
+    "channelDeletedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization": { "$ref": "#/$defs/authorizationProof" },
+        "channel": { "$ref": "#/$defs/nonEmptyString" },
+        "eventType": { "const": "channel.deleted" },
+        "id": { "$ref": "#/$defs/sha256Digest" },
+        "object": { "const": "regesta.event" },
+        "package": { "$ref": "#/$defs/packageId" },
+        "previousVersion": { "$ref": "#/$defs/nonEmptyString" },
+        "timestamp": { "$ref": "#/$defs/canonicalTimestamp" }
+      },
+      "required": [
+        "channel",
+        "eventType",
+        "id",
+        "object",
+        "package",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "channelUpdatedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization": { "$ref": "#/$defs/authorizationProof" },
+        "channel": { "$ref": "#/$defs/nonEmptyString" },
+        "eventType": { "const": "channel.updated" },
+        "id": { "$ref": "#/$defs/sha256Digest" },
+        "object": { "const": "regesta.event" },
+        "package": { "$ref": "#/$defs/packageId" },
+        "previousVersion": { "$ref": "#/$defs/nonEmptyString" },
+        "timestamp": { "$ref": "#/$defs/canonicalTimestamp" },
+        "version": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "required": [
+        "channel",
+        "eventType",
+        "id",
+        "object",
+        "package",
+        "timestamp",
+        "version"
+      ],
+      "type": "object"
+    },
+    "compatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "abi": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/nonEmptyString" },
+              "versions": { "$ref": "#/$defs/stringArray" }
+            },
+            "required": ["name"],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "modules": { "$ref": "#/$defs/stringArray" },
+        "platforms": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "arch": { "$ref": "#/$defs/stringArray" },
+              "libc": { "$ref": "#/$defs/stringArray" },
+              "os": { "$ref": "#/$defs/stringArray" }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "runtimes": {
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/nonEmptyString" },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "conditions": { "$ref": "#/$defs/stringArray" },
+                  "name": { "$ref": "#/$defs/nonEmptyString" },
+                  "versions": { "$ref": "#/$defs/nonEmptyString" }
+                },
+                "required": ["name"],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "domainBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "domain": { "$ref": "#/$defs/ownerDomain" },
+        "keys": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "alg": { "const": "EdDSA" },
+              "createdAt": { "$ref": "#/$defs/canonicalTimestamp" },
+              "expiresAt": { "$ref": "#/$defs/canonicalTimestamp" },
+              "kid": { "$ref": "#/$defs/nonEmptyString" },
+              "publicKeyJwk": { "$ref": "#/$defs/ed25519PublicKeyJwk" },
+              "use": { "const": "regesta-write" }
+            },
+            "required": ["alg", "kid", "publicKeyJwk", "use"],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "object": { "const": "regesta.domain-binding" }
+      },
+      "required": ["domain", "keys", "object"],
+      "type": "object"
+    },
+    "ed25519PublicKeyJwk": {
+      "additionalProperties": false,
+      "properties": {
+        "crv": { "const": "Ed25519" },
+        "kty": { "const": "OKP" },
+        "x": { "$ref": "#/$defs/ed25519PublicKey" }
+      },
+      "required": ["crv", "kty", "x"],
+      "type": "object"
+    },
+    "ed25519PublicKey": {
+      "description": "Base64url-encoded 32-byte Ed25519 public key without padding.",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    },
+    "ed25519Signature": {
+      "description": "Base64url-encoded 64-byte Ed25519 signature without padding.",
+      "pattern": "^[A-Za-z0-9_-]{86}$",
+      "type": "string"
+    },
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "items": { "$ref": "#/$defs/jsonValue" },
+          "type": "array"
+        },
+        {
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" },
+          "type": "object"
+        }
+      ]
+    },
+    "nonEmptyString": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "objectDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": { "$ref": "#/$defs/sha256Digest" },
+        "mediaType": { "$ref": "#/$defs/nonEmptyString" },
+        "size": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": ["digest", "mediaType", "size"],
+      "type": "object"
+    },
+    "objectInventory": {
+      "additionalProperties": false,
+      "properties": {
+        "nextAfter": { "$ref": "#/$defs/sha256Digest" },
+        "object": { "const": "regesta.object-inventory" },
+        "objects": {
+          "items": { "$ref": "#/$defs/objectDescriptor" },
+          "type": "array"
+        }
+      },
+      "required": ["object", "objects"],
+      "type": "object"
+    },
+    "ownerDomain": {
+      "description": "Canonical lowercase DNS-style owner domain.",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$",
+      "type": "string"
+    },
+    "packageId": {
+      "description": "Canonical package id in ecosystem:owner-domain/name form. The TypeScript parser enforces canonical owner-domain details.",
+      "pattern": "^[a-z0-9-]+:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/[^@/\\u0000-\\u001f\\u007f]+(?:/[^@/\\u0000-\\u001f\\u007f]+)*$",
+      "type": "string"
+    },
+    "packageState": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "additionalProperties": { "$ref": "#/$defs/nonEmptyString" },
+          "type": "object"
+        },
+        "ecosystem": { "$ref": "#/$defs/nonEmptyString" },
+        "id": { "$ref": "#/$defs/packageId" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "object": { "const": "regesta.package-state" },
+        "releases": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": { "$ref": "#/$defs/canonicalTimestamp" },
+              "manifestDigest": { "$ref": "#/$defs/sha256Digest" },
+              "version": { "$ref": "#/$defs/nonEmptyString" }
+            },
+            "required": ["createdAt", "manifestDigest", "version"],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["ecosystem", "id", "name", "object", "releases"],
+      "type": "object"
+    },
+    "publishReleaseEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactDigests": {
+          "items": { "$ref": "#/$defs/sha256Digest" },
+          "minItems": 1,
+          "type": "array"
+        },
+        "authorization": { "$ref": "#/$defs/authorizationProof" },
+        "channel": { "$ref": "#/$defs/nonEmptyString" },
+        "eventType": { "const": "release.published" },
+        "id": { "$ref": "#/$defs/sha256Digest" },
+        "object": { "const": "regesta.event" },
+        "release": {
+          "additionalProperties": false,
+          "properties": {
+            "id": { "$ref": "#/$defs/packageId" },
+            "manifestDigest": { "$ref": "#/$defs/sha256Digest" },
+            "version": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "required": ["id", "manifestDigest", "version"],
+          "type": "object"
+        },
+        "sourceDigest": { "$ref": "#/$defs/sha256Digest" },
+        "timestamp": { "$ref": "#/$defs/canonicalTimestamp" }
+      },
+      "required": [
+        "artifactDigests",
+        "channel",
+        "eventType",
+        "id",
+        "object",
+        "release",
+        "sourceDigest",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "regestaConfig": {
+      "additionalProperties": false,
+      "description": "Client-side regesta.json release intent. Clients may fill inferred defaults before sending normalized publish config to the server.",
+      "properties": {
+        "description": { "type": "string" },
+        "exports": { "$ref": "#/$defs/jsonValue" },
+        "family": { "$ref": "#/$defs/nonEmptyString" },
+        "id": { "$ref": "#/$defs/packageId" },
+        "languages": { "$ref": "#/$defs/stringArray" },
+        "provenance": {
+          "additionalProperties": false,
+          "properties": {
+            "level": { "const": "source-attached" }
+          },
+          "required": ["level"],
+          "type": "object"
+        },
+        "repository": { "type": "string" },
+        "source": {
+          "additionalProperties": false,
+          "properties": {
+            "exclude": { "$ref": "#/$defs/stringArray" },
+            "include": { "$ref": "#/$defs/stringArray" }
+          },
+          "type": "object"
+        },
+        "version": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "required": ["id", "source"],
+      "type": "object"
+    },
+    "registryEvent": {
+      "oneOf": [
+        { "$ref": "#/$defs/publishReleaseEvent" },
+        { "$ref": "#/$defs/channelUpdatedEvent" },
+        { "$ref": "#/$defs/channelDeletedEvent" }
+      ]
+    },
+    "releaseManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": { "$ref": "#/$defs/artifactDescriptor" },
+          "type": "array"
+        },
+        "configDigest": { "$ref": "#/$defs/sha256Digest" },
+        "createdAt": { "$ref": "#/$defs/canonicalTimestamp" },
+        "ecosystem": { "$ref": "#/$defs/nonEmptyString" },
+        "family": { "$ref": "#/$defs/nonEmptyString" },
+        "id": { "$ref": "#/$defs/packageId" },
+        "languages": { "$ref": "#/$defs/stringArray" },
+        "metadata": {
+          "additionalProperties": false,
+          "properties": {
+            "description": { "type": "string" },
+            "exports": { "$ref": "#/$defs/jsonValue" },
+            "repository": { "type": "string" }
+          },
+          "type": "object"
+        },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "object": { "const": "regesta.release-manifest" },
+        "provenance": {
+          "additionalProperties": false,
+          "properties": {
+            "level": { "const": "source-attached" },
+            "verified": { "const": false }
+          },
+          "required": ["level", "verified"],
+          "type": "object"
+        },
+        "source": { "$ref": "#/$defs/objectDescriptor" },
+        "version": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "required": [
+        "artifacts",
+        "configDigest",
+        "createdAt",
+        "ecosystem",
+        "id",
+        "name",
+        "object",
+        "provenance",
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "sha256Digest": {
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "stringArray": {
+      "items": { "$ref": "#/$defs/nonEmptyString" },
+      "type": "array"
+    },
+    "tokenString": {
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+      "type": "string"
+    },
+    "writeAuthorization": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "EdDSA" },
+        "kid": { "$ref": "#/$defs/tokenString" },
+        "payload": { "$ref": "#/$defs/writeIntent" },
+        "signature": { "$ref": "#/$defs/ed25519Signature" }
+      },
+      "required": ["alg", "kid", "payload", "signature"],
+      "type": "object"
+    },
+    "writeIntent": {
+      "oneOf": [
+        { "$ref": "#/$defs/releasePublishWriteIntent" },
+        { "$ref": "#/$defs/channelUpdateWriteIntent" },
+        { "$ref": "#/$defs/channelDeleteWriteIntent" }
+      ]
+    },
+    "writeIntentBase": {
+      "properties": {
+        "domain": { "$ref": "#/$defs/ownerDomain" },
+        "nonce": { "$ref": "#/$defs/tokenString" },
+        "object": { "const": "regesta.write-intent" },
+        "package": { "$ref": "#/$defs/packageId" },
+        "timestamp": { "$ref": "#/$defs/canonicalTimestamp" }
+      },
+      "required": ["domain", "nonce", "object", "package", "timestamp"],
+      "type": "object"
+    },
+    "releasePublishWriteIntent": {
+      "allOf": [
+        { "$ref": "#/$defs/writeIntentBase" },
+        {
+          "properties": {
+            "artifactDescriptorDigest": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "artifactDigests": {
+              "items": { "$ref": "#/$defs/sha256Digest" },
+              "minItems": 1,
+              "type": "array"
+            },
+            "channel": { "$ref": "#/$defs/nonEmptyString" },
+            "configDigest": { "$ref": "#/$defs/sha256Digest" },
+            "operation": { "const": "release.publish" },
+            "sourceDigest": { "$ref": "#/$defs/sha256Digest" },
+            "version": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "required": [
+            "artifactDescriptorDigest",
+            "artifactDigests",
+            "channel",
+            "configDigest",
+            "operation",
+            "sourceDigest",
+            "version"
+          ],
+          "type": "object"
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "channelUpdateWriteIntent": {
+      "allOf": [
+        { "$ref": "#/$defs/writeIntentBase" },
+        {
+          "properties": {
+            "channel": { "$ref": "#/$defs/nonEmptyString" },
+            "operation": { "const": "channel.update" },
+            "previousVersion": { "$ref": "#/$defs/nonEmptyString" },
+            "version": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "required": ["channel", "operation", "version"],
+          "type": "object"
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "channelDeleteWriteIntent": {
+      "allOf": [
+        { "$ref": "#/$defs/writeIntentBase" },
+        {
+          "properties": {
+            "channel": { "$ref": "#/$defs/nonEmptyString" },
+            "operation": { "const": "channel.delete" },
+            "previousVersion": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "required": ["channel", "operation"],
+          "type": "object"
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

@@ -89,10 +89,6 @@ function normalizeDomainBinding(value: unknown): DomainBinding {
     throw new Error('dev domain binding object must be regesta.domain-binding')
   }
 
-  if (record.specVersion !== 0) {
-    throw new Error('dev domain binding specVersion must be 0')
-  }
-
   if (!Array.isArray(record.keys)) {
     throw new TypeError('dev domain binding keys must be an array')
   }
@@ -101,7 +97,6 @@ function normalizeDomainBinding(value: unknown): DomainBinding {
     domain: stringValue(record.domain, 'dev domain binding domain'),
     keys: record.keys.map((key) => normalizeDomainBindingKey(key)),
     object: 'regesta.domain-binding',
-    specVersion: 0,
   }
 }
 

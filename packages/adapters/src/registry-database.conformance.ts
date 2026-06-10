@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import {
+  PackageChannelConflictError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
   ReleaseAlreadyExistsError,
@@ -78,6 +79,58 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('commits only one concurrent publish for duplicate release versions', async () => {
+      await withDatabase(target, async (database) => {
+        const firstRelease = storedRelease(
+          'npm:example.com/concurrent-duplicate-release',
+          '0.0.1',
+        )
+        const duplicateRelease = authorizedStoredRelease(
+          'npm:example.com/concurrent-duplicate-release',
+          '0.0.1',
+          'concurrent duplicate release authorization',
+        )
+
+        const results = await Promise.allSettled([
+          Promise.resolve().then(() =>
+            database.commitPublishedRelease(firstRelease, 'latest'),
+          ),
+          Promise.resolve().then(() =>
+            database.commitPublishedRelease(duplicateRelease, 'latest'),
+          ),
+        ])
+        const fulfilled = results.filter((result) => {
+          return result.status === 'fulfilled'
+        })
+        const rejected = results.filter((result) => {
+          return result.status === 'rejected'
+        })
+
+        expect(fulfilled).toHaveLength(1)
+        expect(rejected).toHaveLength(1)
+        expect(rejected[0]).toMatchObject({
+          reason: expect.any(ReleaseAlreadyExistsError),
+        })
+        await expect(
+          database.listPackageEvents(firstRelease.manifest.id),
+        ).resolves.toHaveLength(1)
+        await expect(
+          database.getPackageChannels(firstRelease.manifest.id),
+        ).resolves.toEqual({ latest: firstRelease.manifest.version })
+        await expect(
+          database.getRelease(
+            firstRelease.manifest.id,
+            firstRelease.manifest.version,
+          ),
+        ).resolves.toMatchObject({
+          manifest: {
+            id: firstRelease.manifest.id,
+            version: firstRelease.manifest.version,
+          },
+        })
+      })
+    })
+
     it('lists package-scoped events in sequence order', async () => {
       await withDatabase(target, async (database) => {
         const packageId: PackageId = 'npm:example.com/events'
@@ -143,6 +196,81 @@ export function describeRegistryDatabaseConformance<
         await expect(
           database.listEvents({ after: missingCursor }),
         ).rejects.toThrow(RegistryEventCursorNotFoundError)
+      })
+    })
+
+    it('returns isolated event copies from public event reads', async () => {
+      await withDatabase(target, async (database) => {
+        const event = publishEventForPackage(
+          'npm:example.com/isolated-event-reads',
+          '0.0.1',
+          '2026-06-01T00:00:00.000Z',
+        )
+
+        await database.appendEvent(event)
+
+        const byId = await database.getEvent(event.id)
+        const fullLog = await database.getEventLog()
+        const page = await database.listEvents()
+        const packageEvents = await database.listPackageEvents(event.release.id)
+        const byLog = fullLog[0]
+        const byPage = page[0]
+        const byPackage = packageEvents[0]
+
+        if (
+          byId?.eventType !== 'release.published' ||
+          byLog?.eventType !== 'release.published' ||
+          byPage?.eventType !== 'release.published' ||
+          byPackage?.eventType !== 'release.published'
+        ) {
+          throw new Error('Expected release.published event reads')
+        }
+        byId.release.version = '9.9.9'
+        byLog.release.version = '6.6.6'
+        byPage.release.version = '8.8.8'
+        byPackage.release.version = '7.7.7'
+
+        await expect(database.getEvent(event.id)).resolves.toEqual(event)
+        await expect(database.getEventLog()).resolves.toEqual([event])
+        await expect(database.listEvents()).resolves.toEqual([event])
+        await expect(
+          database.listPackageEvents(event.release.id),
+        ).resolves.toEqual([event])
+      })
+    })
+
+    it('returns isolated release copies from public release reads', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/isolated-release-reads'
+        const release = storedRelease(packageId, '0.0.1')
+        const expected = structuredClone(release)
+
+        await database.commitPublishedRelease(release, 'latest')
+
+        release.manifest.version = '9.9.9'
+        publishEvent(release.event).release.version = '9.9.9'
+        release.manifest.artifacts[0]!.role = 'mutated-input'
+
+        const byKey = await database.getRelease(packageId, '0.0.1')
+        const byList = (await database.listPackageReleases(packageId))[0]
+
+        if (!byKey || !byList) {
+          throw new Error('Expected release reads')
+        }
+
+        byKey.manifest.version = '8.8.8'
+        publishEvent(byKey.event).release.version = '8.8.8'
+        byKey.manifest.artifacts[0]!.role = 'mutated-by-key'
+        byList.manifest.version = '7.7.7'
+        publishEvent(byList.event).release.version = '7.7.7'
+        byList.manifest.artifacts[0]!.role = 'mutated-by-list'
+
+        await expect(database.getRelease(packageId, '0.0.1')).resolves.toEqual(
+          expected,
+        )
+        await expect(database.listPackageReleases(packageId)).resolves.toEqual([
+          expected,
+        ])
       })
     })
 
@@ -225,6 +353,65 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('commits only one concurrent update from the same channel version', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/concurrent-channel-update'
+        const firstRelease = storedRelease(packageId, '0.0.1')
+        const secondRelease = storedRelease(packageId, '0.0.2')
+        const thirdRelease = storedRelease(packageId, '0.0.3')
+        const firstUpdate = authorizedChannelUpdatedEvent(
+          packageId,
+          {
+            previousVersion: '0.0.3',
+            version: '0.0.1',
+          },
+          'concurrent channel update authorization 1',
+        )
+        const secondUpdate = authorizedChannelUpdatedEvent(
+          packageId,
+          {
+            previousVersion: '0.0.3',
+            version: '0.0.2',
+          },
+          'concurrent channel update authorization 2',
+        )
+
+        await database.commitPublishedRelease(firstRelease, 'latest')
+        await database.commitPublishedRelease(secondRelease, 'latest')
+        await database.commitPublishedRelease(thirdRelease, 'latest')
+
+        const results = await Promise.allSettled([
+          Promise.resolve().then(() =>
+            database.commitPackageChannelUpdate(firstUpdate),
+          ),
+          Promise.resolve().then(() =>
+            database.commitPackageChannelUpdate(secondUpdate),
+          ),
+        ])
+        const fulfilled = results.filter((result) => {
+          return result.status === 'fulfilled'
+        })
+        const rejected = results.filter((result) => {
+          return result.status === 'rejected'
+        })
+        const channels = await database.getPackageChannels(packageId)
+        const events = await database.listPackageEvents(packageId)
+
+        expect(fulfilled).toHaveLength(1)
+        expect(rejected).toHaveLength(1)
+        expect(rejected[0]).toMatchObject({
+          reason: expect.any(PackageChannelConflictError),
+        })
+        expect(channels.latest).toMatch(/^0\.0\.[12]$/u)
+        expect(events).toHaveLength(4)
+        expect(
+          events.filter((event) => {
+            return event.eventType === 'channel.updated'
+          }),
+        ).toHaveLength(1)
+      })
+    })
+
     it('does not delete channels when channel delete authorization is replayed', async () => {
       await withDatabase(target, async (database) => {
         const release = storedRelease(
@@ -255,6 +442,62 @@ export function describeRegistryDatabaseConformance<
         await expect(
           database.getPackageChannels(release.manifest.id),
         ).resolves.toEqual({})
+      })
+    })
+
+    it('commits only one concurrent delete from the same channel version', async () => {
+      await withDatabase(target, async (database) => {
+        const release = storedRelease(
+          'npm:example.com/concurrent-channel-delete',
+          '0.0.1',
+        )
+        const firstDelete = authorizedChannelDeletedEvent(
+          release.manifest.id,
+          {
+            previousVersion: '0.0.1',
+          },
+          'concurrent channel delete authorization 1',
+        )
+        const secondDelete = authorizedChannelDeletedEvent(
+          release.manifest.id,
+          {
+            previousVersion: '0.0.1',
+          },
+          'concurrent channel delete authorization 2',
+        )
+
+        await database.commitPublishedRelease(release, 'latest')
+
+        const results = await Promise.allSettled([
+          Promise.resolve().then(() =>
+            database.commitPackageChannelDelete(firstDelete),
+          ),
+          Promise.resolve().then(() =>
+            database.commitPackageChannelDelete(secondDelete),
+          ),
+        ])
+        const fulfilled = results.filter((result) => {
+          return result.status === 'fulfilled'
+        })
+        const rejected = results.filter((result) => {
+          return result.status === 'rejected'
+        })
+        const events = await database.listPackageEvents(release.manifest.id)
+
+        expect(fulfilled).toHaveLength(1)
+        expect(rejected).toHaveLength(1)
+        expect(rejected[0]).toMatchObject({
+          reason: expect.any(PackageChannelConflictError),
+        })
+        await expect(
+          database.getPackageChannels(release.manifest.id),
+        ).resolves.toEqual({})
+        expect(events).toHaveLength(2)
+        expect(
+          events.filter((event) => {
+            return event.eventType === 'channel.deleted'
+          }),
+        ).toHaveLength(1)
       })
     })
   })
@@ -374,7 +617,6 @@ function storedRelease(packageId: PackageId, version: string): StoredRelease {
       verified: false,
     },
     source,
-    specVersion: 0,
     version,
   } satisfies StoredRelease['manifest']
   const manifestBytes = bytes(`${canonicalJson(manifest)}\n`)
@@ -394,7 +636,6 @@ function storedRelease(packageId: PackageId, version: string): StoredRelease {
       version,
     },
     sourceDigest: source.digest,
-    specVersion: 0,
     timestamp: '2026-06-01T00:00:00.000Z',
   })
 
@@ -425,7 +666,6 @@ function authorizedStoredRelease(
     object: 'regesta.event',
     release: event.release,
     sourceDigest: event.sourceDigest,
-    specVersion: 0,
     timestamp: event.timestamp,
   })
 
@@ -452,7 +692,6 @@ function authorizedChannelUpdatedEvent(
     object: base.object,
     package: base.package,
     ...(base.previousVersion ? { previousVersion: base.previousVersion } : {}),
-    specVersion: base.specVersion,
     timestamp: base.timestamp,
     version: base.version,
   } satisfies Omit<ChannelUpdatedEvent, 'id'>
@@ -482,7 +721,6 @@ function authorizedChannelDeletedEvent(
     object: base.object,
     package: base.package,
     ...(base.previousVersion ? { previousVersion: base.previousVersion } : {}),
-    specVersion: base.specVersion,
     timestamp: base.timestamp,
   } satisfies Omit<ChannelDeletedEvent, 'id'>
 
@@ -504,7 +742,6 @@ function unsignedPublishEvent(content: string): PublishReleaseEvent {
       version: '0.0.1',
     },
     sourceDigest: sha256(bytes(`source ${content}`)),
-    specVersion: 0,
     timestamp: '2026-06-01T00:00:00.000Z',
   })
 }
@@ -525,7 +762,6 @@ function publishEventForPackage(
       version,
     },
     sourceDigest: sha256(bytes(`source ${packageId} ${version}`)),
-    specVersion: 0,
     timestamp,
   })
 }
@@ -545,7 +781,6 @@ function channelUpdatedEvent(
     ...(options.previousVersion
       ? { previousVersion: options.previousVersion }
       : {}),
-    specVersion: 0,
     timestamp: '2026-06-01T00:01:00.000Z',
     version: options.version ?? '0.0.1',
   } satisfies Omit<ChannelUpdatedEvent, 'id'>
@@ -570,7 +805,6 @@ function channelDeletedEvent(
     object: 'regesta.event',
     package: packageId,
     ...(previousVersion ? { previousVersion } : {}),
-    specVersion: 0,
     timestamp: '2026-06-01T00:02:00.000Z',
   } satisfies Omit<ChannelDeletedEvent, 'id'>
 
@@ -598,7 +832,6 @@ function authorizationProof(
     },
     signature: TEST_ED25519_SIGNATURE,
     signedAt,
-    specVersion: 0,
     wellKnownDigest: sha256(bytes('well-known')),
   }
 }

@@ -178,7 +178,6 @@ function createPublishEvent(
       version: manifest.version,
     },
     sourceDigest: manifest.source.digest,
-    specVersion: 0,
     timestamp: manifest.createdAt,
   } satisfies Omit<PublishReleaseEvent, 'id'>
 
@@ -197,7 +196,6 @@ function createReleaseManifest(input: {
   const packageId = parsePackageId(input.config.id)
   const manifest: ReleaseManifest = {
     object: 'regesta.release-manifest',
-    specVersion: 0,
     id: input.config.id,
     ecosystem: packageId.ecosystem,
     name: packageId.name,

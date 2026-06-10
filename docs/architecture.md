@@ -145,9 +145,18 @@ Single-node deployments can use embedded storage and filesystem-backed object
 storage. Production deployments can use services such as Postgres, DynamoDB,
 S3, R2, GCS, platform queues, or KMS.
 
+Checkpoint storage is a future transparency adapter boundary. It should store
+opaque checkpoint material, publication markers, and future witness statements
+without teaching the core registry database how checkpoints, proofs, or witness
+policies work. The storage shape is described in
+[Operations](/operations#future-checkpoint-store-adapters).
+
 The protocol must not force one storage vendor. Storage adapters are
 responsible for preserving registry facts, atomicity, and durability within the
 capabilities of their backend.
+
+Operational backup, restore, retention, and disaster-recovery expectations are
+documented in [Operations](/operations).
 
 ## Artifact Processing
 
@@ -175,6 +184,7 @@ preserves the neutral release facts.
 ## Ecosystem Projections
 
 Projection layers expose package-manager-native APIs from Regesta-native data.
+The boundary is detailed in [Ecosystem Projections](/projections).
 
 Examples:
 
@@ -285,3 +295,5 @@ Actions that affect public package state should become auditable public facts.
 Operator-private metrics can stay private. Package freezes, compromise
 responses, takedowns, transfers, and key rotations need explicit recording
 rules before they become protocol guarantees.
+
+The current governance boundary is documented in [Governance](/governance).

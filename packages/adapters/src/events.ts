@@ -177,7 +177,6 @@ function assertStoredReleaseManifestSemantics(release: StoredRelease): void {
       'object',
       'provenance',
       'source',
-      'specVersion',
       'version',
     ],
     { label: 'Stored release manifest' },
@@ -186,12 +185,6 @@ function assertStoredReleaseManifestSemantics(release: StoredRelease): void {
   if (manifest.object !== 'regesta.release-manifest') {
     throw new RegistryEventIntegrityError(
       'Stored release manifest object must be regesta.release-manifest',
-    )
-  }
-
-  if (manifest.specVersion !== 0) {
-    throw new RegistryEventIntegrityError(
-      'Stored release manifest specVersion must be 0',
     )
   }
 

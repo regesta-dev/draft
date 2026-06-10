@@ -23,6 +23,7 @@ export {
 } from './events.ts'
 export { publishRelease } from './publish.ts'
 export {
+  ObjectCursorNotFoundError,
   PackageChannelConflictError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
@@ -42,6 +43,7 @@ export type {
   PublishResult,
 } from './publish.ts'
 export type {
+  ObjectDescriptorListOptions,
   ObjectStore,
   QueueAdapter,
   RegistryAdapters,

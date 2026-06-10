@@ -12,6 +12,5 @@
       "use": "regesta-write"
     }
   ],
-  "object": "regesta.domain-binding",
-  "specVersion": 0
+  "object": "regesta.domain-binding"
 }

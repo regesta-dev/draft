@@ -14,6 +14,7 @@
     "lint:fix": "pnpm run lint --fix",
     "format": "prettier --cache --write .",
     "smoke:docker": "node scripts/docker-smoke.mjs",
+    "smoke:load": "node --conditions=regesta-source scripts/load-smoke.mjs",
     "test": "vitest",
     "typecheck": "tsgo --noEmit && pnpm --filter @regesta/server typecheck"
   },

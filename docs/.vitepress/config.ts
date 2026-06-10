@@ -20,12 +20,26 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { link: '/getting-started', text: 'Getting Started' },
-      { link: '/why-regesta', text: 'Why Regesta' },
-      { link: '/architecture', text: 'Architecture' },
-      { link: '/protocol', text: 'Protocol' },
-      { link: '/schema', text: 'Schema' },
-      { link: '/api', text: 'API' },
-      { link: '/roadmap', text: 'Roadmap' },
+      {
+        items: [
+          { link: '/why-regesta', text: 'Why Regesta' },
+          { link: '/architecture', text: 'Architecture' },
+          { link: '/governance', text: 'Governance' },
+          { link: '/roadmap', text: 'Roadmap' },
+        ],
+        text: 'Vision',
+      },
+      {
+        items: [
+          { link: '/protocol', text: 'Protocol' },
+          { link: '/schema', text: 'Schema' },
+          { link: '/projections', text: 'Projections' },
+          { link: '/api', text: 'API' },
+          { link: '/operations', text: 'Operations' },
+          { link: '/mirroring', text: 'Mirroring' },
+        ],
+        text: 'Implementation',
+      },
     ],
     outline: {
       label: 'On this page',
@@ -39,6 +53,7 @@ export default defineConfig({
         items: [
           { link: '/why-regesta', text: 'Why Regesta' },
           { link: '/architecture', text: 'Architecture' },
+          { link: '/governance', text: 'Governance' },
           { link: '/roadmap', text: 'Roadmap' },
         ],
         text: 'Vision',
@@ -48,7 +63,10 @@ export default defineConfig({
           { link: '/getting-started', text: 'Getting Started' },
           { link: '/protocol', text: 'Protocol' },
           { link: '/schema', text: 'Schema' },
+          { link: '/projections', text: 'Projections' },
           { link: '/api', text: 'API' },
+          { link: '/operations', text: 'Operations' },
+          { link: '/mirroring', text: 'Mirroring' },
         ],
         text: 'Implementation',
       },

@@ -32,6 +32,16 @@ export class RegistryEventCursorNotFoundError extends Error {
   }
 }
 
+export class ObjectCursorNotFoundError extends Error {
+  readonly cursor: Sha256Digest
+
+  constructor(cursor: Sha256Digest) {
+    super(`Object cursor not found: ${cursor}`)
+    this.name = 'ObjectCursorNotFoundError'
+    this.cursor = cursor
+  }
+}
+
 export class ReleaseAlreadyExistsError extends Error {
   constructor(packageId: PackageId, version: string) {
     super(`Release already exists: ${packageId}@${version}`)
@@ -83,10 +93,18 @@ export interface RegistryEventListOptions {
   limit?: number
 }
 
+export interface ObjectDescriptorListOptions {
+  after?: Sha256Digest
+  limit?: number
+}
+
 export interface ObjectStore {
   checkReadiness?: () => Promise<void>
   get: (digest: Sha256Digest) => Promise<StoredObject | undefined>
   getDescriptor: (digest: Sha256Digest) => Promise<ObjectDescriptor | undefined>
+  listDescriptors: (
+    options?: ObjectDescriptorListOptions,
+  ) => Promise<ObjectDescriptor[]>
   put: (bytes: Uint8Array, mediaType: string) => Promise<ObjectDescriptor>
 }
 

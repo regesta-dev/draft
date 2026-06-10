@@ -4,6 +4,7 @@ export { assertSourceArchivePath } from './config.ts'
 export { assertObjectMediaType, assertSha256Digest, sha256 } from './digest.ts'
 export {
   assertRegistryEventId,
+  parseRegistryEvent,
   registryEventDigest,
   registryEventPayload,
 } from './event.ts'
@@ -16,8 +17,14 @@ export {
   assertPackageChannel,
   assertPackageVersion,
   defaultPackageChannel,
+  parsePackageState,
 } from './package.ts'
-export { assertArtifactDescriptorString } from './release.ts'
+export {
+  assertArtifactDescriptorString,
+  parseObjectDescriptor,
+  parseObjectInventoryPage,
+  parseReleaseManifest,
+} from './release.ts'
 export { assertCanonicalTimestamp } from './timestamp.ts'
 export type { Ed25519PublicKeyJwk, WriteAuthorizationProof } from './auth.ts'
 export type {
@@ -59,6 +66,7 @@ export type {
 export type {
   ArtifactEcosystemMetadata,
   ArtifactRole,
+  ObjectInventoryPage,
   ReleaseArtifact,
   ReleaseManifest,
   ReleaseMetadata,

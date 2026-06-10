@@ -1,4 +1,5 @@
 import {
+  ObjectCursorNotFoundError,
   PackageChannelConflictError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
@@ -23,6 +24,7 @@ import {
 } from './events.ts'
 import { assertEventListOptions } from './pagination.ts'
 import type {
+  ObjectDescriptorListOptions,
   ObjectStore,
   QueueAdapter,
   RegistryAdapters,
@@ -88,6 +90,38 @@ export class MemoryObjectStore implements ObjectStore {
     return Promise.resolve({ ...object.descriptor })
   }
 
+  listDescriptors(
+    options: ObjectDescriptorListOptions = {},
+  ): Promise<StoredObject['descriptor'][]> {
+    const descriptors = [...this.objects.values()]
+      .map((object) => {
+        if (object.descriptor.size !== object.bytes.byteLength) {
+          throw new TypeError(
+            `Memory object size mismatch: ${object.descriptor.digest}`,
+          )
+        }
+
+        assertObjectDescriptorFields(object.descriptor)
+        assertObjectMediaType(object.descriptor.mediaType)
+
+        if (sha256(object.bytes) !== object.descriptor.digest) {
+          throw new TypeError(
+            `Memory object bytes digest mismatch: ${object.descriptor.digest}`,
+          )
+        }
+
+        return { ...object.descriptor }
+      })
+      .toSorted((left, right) => {
+        return left.digest.localeCompare(right.digest)
+      })
+
+    const start = objectPageStartIndex(descriptors, options.after)
+    const limit = options.limit ?? descriptors.length
+
+    return Promise.resolve(descriptors.slice(start, start + limit))
+  }
+
   put(
     bytes: Uint8Array,
     mediaType: string,
@@ -119,6 +153,25 @@ export class MemoryObjectStore implements ObjectStore {
 
     return Promise.resolve({ ...descriptor })
   }
+}
+
+function objectPageStartIndex(
+  descriptors: StoredObject['descriptor'][],
+  after: Sha256Digest | undefined,
+): number {
+  if (!after) {
+    return 0
+  }
+
+  const index = descriptors.findIndex((descriptor) => {
+    return descriptor.digest === after
+  })
+
+  if (index === -1) {
+    throw new ObjectCursorNotFoundError(after)
+  }
+
+  return index + 1
 }
 
 function assertObjectDescriptorFields(descriptor: object): void {
@@ -184,6 +237,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
       packageChannels.get(event.channel),
     )
     this.assertReleaseExists(event.package, event.version)
+    assertAppendableRegistryEvent(this.packageEvents(event), event)
 
     this.commitEventAfterChecks(event, payloadDigest)
     packageChannels.set(event.channel, event.version)
@@ -202,6 +256,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
       event.previousVersion,
       packageChannels.get(event.channel),
     )
+    assertAppendableRegistryEvent(this.packageEvents(event), event)
 
     this.commitEventAfterChecks(event, payloadDigest)
     packageChannels.delete(event.channel)
@@ -224,6 +279,10 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     if (versions.has(release.manifest.version)) {
       throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
     }
+    assertAppendableRegistryEvent(
+      this.packageEvents(release.event),
+      release.event,
+    )
 
     this.commitEventAfterChecks(release.event, payloadDigest)
     versions.set(release.manifest.version, copyStoredRelease(release))
@@ -363,6 +422,14 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     }
 
     return payloadDigest
+  }
+
+  private packageEvents(event: RegistryEvent): RegistryEvent[] {
+    return this.events
+      .filter((item) => {
+        return eventPackageId(item) === eventPackageId(event)
+      })
+      .map((item) => copyRegistryEvent(item))
   }
 
   private commitEventAfterChecks(

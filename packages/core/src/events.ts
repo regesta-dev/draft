@@ -36,10 +36,6 @@ export function assertRegistryEventSemantics(event: RegistryEvent): void {
     throw new TypeError('Registry event object must be regesta.event')
   }
 
-  if (event.specVersion !== 0) {
-    throw new TypeError('Registry event specVersion must be 0')
-  }
-
   assertCanonicalTimestamp(event.timestamp, 'Registry event timestamp')
   assertAuthorizationProof(event)
 
@@ -108,7 +104,6 @@ function assertAuthorizationProof(event: RegistryEvent): void {
       'publicKeyJwk',
       'signature',
       'signedAt',
-      'specVersion',
       'wellKnownDigest',
     ],
     { label: 'Registry event authorization' },
@@ -118,10 +113,6 @@ function assertAuthorizationProof(event: RegistryEvent): void {
     throw new TypeError(
       'Registry event authorization object must be regesta.authorization-proof',
     )
-  }
-
-  if (authorization.specVersion !== 0) {
-    throw new TypeError('Registry event authorization specVersion must be 0')
   }
 
   if (authorization.alg !== 'EdDSA') {
@@ -195,7 +186,6 @@ function assertRegistryEventKnownFields(event: RegistryEvent): void {
           'object',
           'package',
           'previousVersion',
-          'specVersion',
           'timestamp',
         ],
         { label: 'Registry event' },
@@ -213,7 +203,6 @@ function assertRegistryEventKnownFields(event: RegistryEvent): void {
           'object',
           'package',
           'previousVersion',
-          'specVersion',
           'timestamp',
           'version',
         ],
@@ -233,7 +222,6 @@ function assertRegistryEventKnownFields(event: RegistryEvent): void {
           'object',
           'release',
           'sourceDigest',
-          'specVersion',
           'timestamp',
         ],
         { label: 'Registry event' },

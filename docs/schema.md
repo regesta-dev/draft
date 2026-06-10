@@ -1,8 +1,13 @@
 # Schema
 
-This page summarizes the current V0 object shapes. It is not a generated JSON
-Schema file. The authoritative implementation is still the TypeScript protocol
-and core validation code.
+This page summarizes the current V0 object shapes. A machine-readable JSON
+Schema reference is available at
+[`/schema/regesta-v0.schema.json`](/schema/regesta-v0.schema.json).
+
+The JSON Schema reference is not the protocol authority. The authoritative
+implementation is still the TypeScript protocol and core validation code,
+especially for semantic checks such as canonical event ids, owner-domain
+validation, and object digest verification.
 
 ## `regesta.json`
 
@@ -57,7 +62,6 @@ Package state is a mutable projection derived from append-only package events.
 ```json
 {
   "object": "regesta.package-state",
-  "specVersion": 0,
   "id": "npm:some.dev/sdk",
   "ecosystem": "npm",
   "name": "some.dev/sdk",
@@ -84,7 +88,6 @@ A release manifest records immutable release facts.
 ```json
 {
   "object": "regesta.release-manifest",
-  "specVersion": 0,
   "id": "npm:some.dev/sdk",
   "ecosystem": "npm",
   "name": "some.dev/sdk",
@@ -123,6 +126,31 @@ The manifest does not contain:
 - npm packuments;
 - package-manager-native resolver state as top-level fields.
 
+## Metadata For Tools
+
+Regesta stores source, artifact, release, event, and authorization metadata as
+structured data so package managers, security tools, mirrors, auditors, IDEs,
+and AI agents can inspect package state without scraping an ecosystem-native
+response.
+
+V0 preserves:
+
+- canonical package id, ecosystem, owner domain, package name, and version;
+- release creation time;
+- source archive descriptor;
+- install artifact descriptors;
+- artifact role, format, filename, media type, digest, and byte size;
+- neutral release metadata such as description;
+- language hints from `regesta.json`;
+- declared artifact compatibility;
+- artifact-level ecosystem metadata extracted by processors;
+- event ids, event timestamps, channel changes, and authorization proof
+  descriptors.
+
+Those fields are inspection metadata, not safety claims. V0 does not prove that
+source built an artifact, that an artifact is non-malicious, or that declared
+compatibility was tested.
+
 ## Object Descriptor
 
 Source archives, install artifacts, and manifest bytes are addressed by object
@@ -139,6 +167,27 @@ descriptors.
 `digest` is the hash of the exact stored bytes. `size` is the byte length.
 `mediaType` is stored as part of the descriptor and must not be inferred from a
 multipart header after the fact.
+
+## Object Inventory
+
+Object inventory pages expose public object descriptors for mirrors and
+auditors. They do not include object bytes.
+
+```json
+{
+  "object": "regesta.object-inventory",
+  "objects": [
+    {
+      "digest": "sha256:...",
+      "mediaType": "application/gzip",
+      "size": 4567
+    }
+  ],
+  "nextAfter": "sha256:..."
+}
+```
+
+`nextAfter` is the digest cursor for the next page when the page is non-empty.
 
 ## Artifact Descriptor
 
@@ -168,7 +217,8 @@ Artifacts are release-level objects with role and ecosystem metadata.
 
 `compatibility` is declared intent, not V0 proof. `ecosystemMetadata` is
 projection metadata extracted by artifact processors. For npm, it comes from
-`package/package.json` inside the install tarball.
+`package/package.json` inside the install tarball, and verifiers can reproduce
+that extraction from the artifact bytes.
 
 ## Compatibility
 
@@ -204,22 +254,63 @@ target different platforms or runtimes.
 Strings are accepted as declarations. V0 does not prove that a compatibility
 claim is true.
 
+## Write Authorization
+
+Authenticated writes carry a `writeAuthorization` object. The object wraps a
+canonical write intent payload plus an Ed25519 signature:
+
+```json
+{
+  "alg": "EdDSA",
+  "kid": "ed25519:example",
+  "payload": {
+    "object": "regesta.write-intent",
+    "operation": "release.publish",
+    "package": "npm:some.dev/sdk",
+    "domain": "some.dev",
+    "version": "1.2.3",
+    "channel": "latest",
+    "configDigest": "sha256:...",
+    "sourceDigest": "sha256:...",
+    "artifactDigests": ["sha256:..."],
+    "artifactDescriptorDigest": "sha256:...",
+    "timestamp": "2026-06-03T00:00:00.000Z",
+    "nonce": "..."
+  },
+  "signature": "..."
+}
+```
+
+`operation` selects the payload shape:
+
+| Operation         | Additional payload fields                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `release.publish` | `version`, `channel`, `configDigest`, `sourceDigest`, `artifactDigests`, `artifactDescriptorDigest` |
+| `channel.update`  | `channel`, `version`, optional `previousVersion`                                                    |
+| `channel.delete`  | `channel`, optional `previousVersion`                                                               |
+
+The server verifies the authorization against the owner domain binding and
+stores only the accepted `authorizationProof` on events. The original signed
+payload is not stored as event state in V0.
+
 ## Events
 
 Events are append-only registry facts. Every event has:
 
 - `object: "regesta.event"`;
-- `specVersion: 0`;
 - `eventType`;
 - `timestamp`;
 - deterministic `id`.
+
+Authenticated writes also include an `authorization` proof. The proof stores the
+public verification material and digests needed for later audit; it does not
+store the original signed write intent payload.
 
 ### Release Published
 
 ```json
 {
   "object": "regesta.event",
-  "specVersion": 0,
   "eventType": "release.published",
   "id": "sha256:...",
   "timestamp": "2026-06-03T00:00:00.000Z",
@@ -233,10 +324,15 @@ Events are append-only registry facts. Every event has:
   "artifactDigests": ["sha256:..."],
   "authorization": {
     "object": "regesta.authorization-proof",
-    "specVersion": 0,
     "alg": "EdDSA",
     "kid": "ed25519:example",
     "domain": "some.dev",
+    "publicKeyJwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "..."
+    },
+    "signature": "...",
     "signedAt": "2026-06-03T00:00:00.000Z",
     "payloadDigest": "sha256:...",
     "wellKnownDigest": "sha256:..."
@@ -244,12 +340,14 @@ Events are append-only registry facts. Every event has:
 }
 ```
 
+`wellKnownDigest` is the SHA-256 digest of the exact well-known response bytes
+that were used for authorization.
+
 ### Channel Updated
 
 ```json
 {
   "object": "regesta.event",
-  "specVersion": 0,
   "eventType": "channel.updated",
   "id": "sha256:...",
   "timestamp": "2026-06-03T00:00:00.000Z",
@@ -265,7 +363,6 @@ Events are append-only registry facts. Every event has:
 ```json
 {
   "object": "regesta.event",
-  "specVersion": 0,
   "eventType": "channel.deleted",
   "id": "sha256:...",
   "timestamp": "2026-06-03T00:00:00.000Z",
@@ -280,19 +377,20 @@ adapters must reject events whose id does not match their canonical payload.
 
 ## Domain Binding
 
-V0 domain binding is fetched from a well-known endpoint controlled by the owner
-domain.
+V0 domain binding is fetched directly as JSON from a well-known endpoint
+controlled by the owner domain.
 
 ```json
 {
   "object": "regesta.domain-binding",
-  "specVersion": 0,
   "domain": "some.dev",
   "keys": [
     {
       "kid": "ed25519:example",
       "use": "regesta-write",
       "alg": "EdDSA",
+      "createdAt": "2026-06-01T00:00:00.000Z",
+      "expiresAt": "2026-09-01T00:00:00.000Z",
       "publicKeyJwk": {
         "kty": "OKP",
         "crv": "Ed25519",
@@ -305,3 +403,6 @@ domain.
 
 The server snapshots proof material into accepted events so historical
 authorization evidence remains auditable after the domain binding changes.
+The `keys` array must contain at least one write key. Key validity windows are
+optional, but if both `createdAt` and `expiresAt` are present, `expiresAt` must
+be after `createdAt`.

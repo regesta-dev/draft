@@ -7,6 +7,7 @@ import {
   replayPackageState,
   updatePackageChannel,
   verifyRelease,
+  type ObjectDescriptorListOptions,
   type PublishInput,
   type RegistryAdapters,
   type StoredRelease,
@@ -17,6 +18,7 @@ import {
   assertPackageChannel,
   assertPackageVersion,
   assertSha256Digest,
+  canonicalJson,
   defaultPackageChannel,
   parsePackageId,
   type ObjectDescriptor,
@@ -29,6 +31,7 @@ import {
 } from '@regesta/protocol'
 import { Hono, type Context } from 'hono'
 import * as v from 'valibot'
+import { assertObjectResponseIntegrity } from '../object-integrity.ts'
 import {
   nonEmptyStringSchema,
   readBinaryField,
@@ -207,12 +210,13 @@ const artifactPartSchema = v.strictObject({
   role: nonEmptyStringSchema,
 })
 const artifactsSchema = v.array(artifactPartSchema)
+const authorizationSchema = v.looseObject({})
 const channelBodySchema = v.strictObject({
-  authorization: v.looseObject({}),
+  authorization: authorizationSchema,
   version: nonEmptyStringSchema,
 })
 const deleteChannelBodySchema = v.strictObject({
-  authorization: v.looseObject({}),
+  authorization: authorizationSchema,
 })
 const configSchema = v.looseObject({})
 const digestSchema = v.pipe(
@@ -236,6 +240,7 @@ const eventListQuerySchema = v.object({
   ),
 })
 const defaultEventLogPageLimit = 999
+const defaultObjectInventoryPageLimit = 999
 
 export function createCoreRegistryApp(
   adapters: RegistryAdapters,
@@ -255,7 +260,7 @@ export function createCoreRegistryApp(
     const authorization = await readJsonField(
       body.authorization,
       'authorization',
-      configSchema,
+      authorizationSchema,
     )
     const normalizedConfig = normalizeRegestaConfig(config)
     const createdAt = await readOptionalTextField(body.createdAt)
@@ -318,6 +323,14 @@ export function createCoreRegistryApp(
 
   app.on('HEAD', '/events/:algorithm/:hex', (context) => {
     return serveEventRequest(context, adapters)
+  })
+
+  app.get('/objects', (context) => {
+    return serveObjectInventoryRequest(context, adapters)
+  })
+
+  app.on('HEAD', '/objects', (context) => {
+    return serveObjectInventoryRequest(context, adapters)
   })
 
   app.get('/objects/:digest', (context) => {
@@ -612,6 +625,43 @@ async function serveEventRequest(
   return serveEvent(context, event)
 }
 
+async function serveObjectInventoryRequest(
+  context: Context,
+  adapters: RegistryAdapters,
+): Promise<Response> {
+  const query = validateRequest(
+    eventListQuerySchema,
+    {
+      after: context.req.query('after'),
+      limit: context.req.query('limit'),
+    },
+    'Invalid object inventory query',
+  )
+  const options: ObjectDescriptorListOptions = {
+    ...(query.after === undefined
+      ? {}
+      : { after: assertSha256Digest(query.after) }),
+    limit:
+      query.limit === undefined
+        ? defaultObjectInventoryPageLimit
+        : Number(query.limit),
+  }
+
+  if (
+    options.after !== undefined &&
+    !(await adapters.objects.getDescriptor(options.after))
+  ) {
+    return context.json(
+      errorResponse('object_cursor_not_found', 'Object cursor not found'),
+      404,
+    )
+  }
+
+  const descriptors = await adapters.objects.listDescriptors(options)
+
+  return serveObjectInventoryPage(context, descriptors, options.after)
+}
+
 async function servePackageStateRequest(
   context: Context,
   adapters: RegistryAdapters,
@@ -688,7 +738,6 @@ function eventLogResponse(events: RegistryEvent[]) {
   return {
     events,
     ...(lastEvent ? { nextAfter: lastEvent.id } : {}),
-    schema: 'regesta.event-log.v0',
   }
 }
 
@@ -699,7 +748,7 @@ function serveEventLogPage(
 ): Response {
   const response = eventLogResponse(events)
   const validator = response.nextAfter ?? after ?? 'head'
-  const etag = `W/"regesta.event-log.v0:${validator}:${events.length}"`
+  const etag = `W/"regesta.event-log:${validator}:${events.length}"`
   const headers = {
     'cache-control': 'no-cache',
     'content-type': 'application/json; charset=UTF-8',
@@ -716,31 +765,18 @@ function serveEventLogPage(
   return serveJson(context, response, headers)
 }
 
-function serveEvent(context: Context, event: RegistryEvent): Response {
-  const etag = `W/"${event.id}"`
-  const headers = {
-    'cache-control': 'public, max-age=31536000, immutable',
-    'content-type': 'application/json; charset=utf-8',
-    etag,
-  }
-
-  if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
-    return new Response(null, {
-      headers,
-      status: 304,
-    })
-  }
-
-  return serveJson(context, event, headers)
-}
-
-function serveReleaseEnvelope(
+function serveObjectInventoryPage(
   context: Context,
-  release: StoredRelease,
+  descriptors: ObjectDescriptor[],
+  after: Sha256Digest | undefined,
 ): Response {
-  const etag = `W/"${release.event.id}"`
+  const lastDescriptor = descriptors.at(-1)
+  const nextAfter =
+    lastDescriptor === undefined ? {} : { nextAfter: lastDescriptor.digest }
+  const validator = lastDescriptor?.digest ?? after ?? 'head'
+  const etag = `W/"regesta.object-inventory:${validator}:${descriptors.length}"`
   const headers = {
-    'cache-control': 'public, max-age=31536000, immutable',
+    'cache-control': 'no-cache',
     'content-type': 'application/json; charset=UTF-8',
     etag,
   }
@@ -752,7 +788,62 @@ function serveReleaseEnvelope(
     })
   }
 
-  return serveJson(context, release, headers)
+  return serveJson(
+    context,
+    {
+      object: 'regesta.object-inventory',
+      objects: descriptors,
+      ...nextAfter,
+    },
+    headers,
+  )
+}
+
+function serveEvent(context: Context, event: RegistryEvent): Response {
+  return serveImmutableCanonicalJson(context, {
+    etag: `W/"${event.id}"`,
+    value: event,
+  })
+}
+
+function serveReleaseEnvelope(
+  context: Context,
+  release: StoredRelease,
+): Response {
+  return serveImmutableCanonicalJson(context, {
+    etag: `W/"${release.event.id}"`,
+    value: release,
+  })
+}
+
+function serveImmutableCanonicalJson(
+  context: Context,
+  input: {
+    etag: string
+    value: unknown
+  },
+): Response {
+  const bytes = new TextEncoder().encode(`${canonicalJson(input.value)}\n`)
+  const headers = {
+    'cache-control': 'public, max-age=31536000, immutable',
+    'content-length': String(bytes.byteLength),
+    'content-type': 'application/json; charset=utf-8',
+    etag: input.etag,
+  }
+
+  if (matchesIfNoneMatch(context.req.header('if-none-match'), input.etag)) {
+    const conditionalHeaders = new Headers(headers)
+    conditionalHeaders.delete('content-length')
+
+    return new Response(null, {
+      headers: conditionalHeaders,
+      status: 304,
+    })
+  }
+
+  return new Response(context.req.method === 'HEAD' ? null : bytes, {
+    headers,
+  })
 }
 
 function servePackageState(
@@ -814,9 +905,15 @@ function serveJson(
   body: unknown,
   headers: Record<string, string>,
 ): Response {
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  const responseHeaders = {
+    ...headers,
+    'content-length': String(bytes.byteLength),
+  }
+
   return context.req.method === 'HEAD'
-    ? new Response(null, { headers })
-    : Response.json(body, { headers })
+    ? new Response(null, { headers: responseHeaders })
+    : new Response(bytes, { headers: responseHeaders })
 }
 
 async function serveObject(
@@ -838,6 +935,8 @@ async function serveObject(
   const headers = objectDescriptorHeaders(descriptor, etag)
 
   if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
+    headers.delete('content-length')
+
     return new Response(null, {
       headers,
       status: 304,
@@ -867,6 +966,13 @@ async function serveObject(
       404,
     )
   }
+
+  assertObjectResponseIntegrity({
+    actual: object,
+    digest,
+    expected: descriptor,
+    label: 'Object',
+  })
 
   return immutableBytesResponse({
     bytes: object.bytes,
