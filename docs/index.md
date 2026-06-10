@@ -40,6 +40,18 @@ The core model is broader than any single ecosystem. npm, PyPI, Cargo, Go, OCI,
 and future package managers should be able to consume projections over the same
 Regesta-native objects.
 
+## Public Demo
+
+The current experimental demo is available at:
+
+- [https://registry.regesta.dev/](https://registry.regesta.dev/) for the
+  Regesta-native registry API.
+- [https://npm.regesta.dev/](https://npm.regesta.dev/) for the npm-compatible
+  projection.
+
+The demo is not a production registry. Data may be reset while the design and
+implementation are still changing.
+
 ## Core Ideas
 
 - **Transparent:** release manifests, objects, channels, and events are

@@ -5,6 +5,7 @@ coverage
 .output
 .regesta-data
 docs/.vitepress/cache
+temp
 
 .eslintcache
 .DS_Store

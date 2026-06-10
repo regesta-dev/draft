@@ -8,6 +8,11 @@ A machine-readable OpenAPI reference is available at
 describes implemented HTTP routes and references the V0 JSON Schema definitions
 for Regesta-native objects.
 
+Public demo hosts:
+
+- Core registry API: [https://registry.regesta.dev/](https://registry.regesta.dev/)
+- npm projection: [https://npm.regesta.dev/](https://npm.regesta.dev/)
+
 ## API Principles
 
 - Core APIs expose Regesta-native packages, releases, objects, channels, and
@@ -358,7 +363,8 @@ event digest, compare the bodies, and verify the event `ETag`.
 ## npm Projection
 
 npm projection routes are exposed through npm hosts such as
-`npm.localhost:4321`. The projection uses npm-native package names:
+`https://npm.regesta.dev` or `npm.localhost:4321`. The projection uses
+npm-native package names:
 
 ```text
 @some.dev/sdk

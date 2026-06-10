@@ -8,12 +8,12 @@
   },
   "servers": [
     {
-      "url": "https://registry.example",
-      "description": "Core registry API host"
+      "url": "https://registry.regesta.dev",
+      "description": "Experimental core registry API demo host"
     },
     {
-      "url": "https://npm.registry.example",
-      "description": "npm projection host"
+      "url": "https://npm.regesta.dev",
+      "description": "Experimental npm projection demo host"
     }
   ],
   "tags": [

@@ -3,6 +3,17 @@
 This guide runs the current V0 demo. It proves the local npm-first path without
 claiming production readiness.
 
+## Public Demo
+
+The hosted experimental demo is available at:
+
+- [https://registry.regesta.dev/](https://registry.regesta.dev/) for core
+  Regesta API reads and signed publish requests.
+- [https://npm.regesta.dev/](https://npm.regesta.dev/) for npm-compatible
+  package manager reads.
+
+The hosted demo is not a production registry and may be reset.
+
 ## Requirements
 
 - Node.js 24 or newer.

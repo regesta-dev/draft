@@ -12,6 +12,7 @@ import { configDigest } from '@regesta/core'
 import { parsePackageId, parsePackageVersion, sha256 } from '@regesta/protocol'
 import { cac } from 'cac'
 import pkg from '../package.json' with { type: 'json' }
+import { writeGeneratedKeyFiles } from './keygen.ts'
 import { compareMirrorDirectories, mirrorRegistry } from './mirror.ts'
 import { prepareNpmPublish } from './npm-publish.ts'
 import { releasePublishArtifactDescriptors } from './publish-intent.ts'
@@ -22,9 +23,30 @@ import {
   verifyReleaseFromRegistry,
 } from './verify.ts'
 
-const defaultRegistry = 'http://localhost:4321'
+const defaultRegistry = 'https://registry.regesta.dev'
 
 const cli = cac('regesta')
+
+cli
+  .command('keygen [output-dir]', 'Generate Ed25519 publish key files')
+  .option('--domain <domain>', 'Owner domain for domain-binding.json')
+  .option('--force', 'Overwrite existing key files')
+  .option('--kid <kid>', 'Domain binding key id')
+  .action(
+    async (
+      outputDir: string | undefined,
+      options: { domain?: string; force?: boolean; kid?: string },
+    ) => {
+      const files = await writeGeneratedKeyFiles({
+        ...(options.domain === undefined ? {} : { domain: options.domain }),
+        force: options.force,
+        ...(options.kid === undefined ? {} : { kid: options.kid }),
+        outputDir: outputDir ?? process.cwd(),
+      })
+
+      console.info(JSON.stringify(files, null, 2))
+    },
+  )
 
 cli
   .command('publish [cwd]', 'Publish a tarball-backed package')
