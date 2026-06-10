@@ -14,7 +14,8 @@ ENV REGESTA_BUILD_TIME=$REGESTA_BUILD_TIME
 ENV REGESTA_GIT_DIRTY=$REGESTA_GIT_DIRTY
 ENV REGESTA_GIT_SHA=$REGESTA_GIT_SHA
 COPY . .
-RUN pnpm build
+RUN pnpm --filter @regesta/server... build \
+  && test -f apps/server/.output/server/index.mjs
 
 FROM node:24-alpine AS runtime
 WORKDIR /app
