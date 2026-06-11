@@ -624,6 +624,11 @@ async function serveNpmTarball(
     return redirectToTarball(upstreamNpmTarballUrl(packageName, file))
   }
 
+  const releases = await adapters.database.listPackageReleases(packageId)
+  if (releases.length === 0) {
+    return redirectToTarball(upstreamNpmTarballUrl(packageName, file))
+  }
+
   const version = versionFromTarballFile(file, packageId)
 
   if (!version) {
@@ -634,12 +639,15 @@ async function serveNpmTarball(
   }
 
   const release = await adapters.database.getRelease(packageId, version)
-  const digest = release
-    ? npmInstallArtifact(release.manifest).digest
-    : undefined
-  const descriptor = digest
-    ? await adapters.objects.getDescriptor(digest)
-    : undefined
+  if (!release) {
+    return context.json(
+      errorResponse('tarball_not_found', 'Tarball not found'),
+      404,
+    )
+  }
+
+  const digest = npmInstallArtifact(release.manifest).digest
+  const descriptor = await adapters.objects.getDescriptor(digest)
 
   if (!descriptor) {
     return context.json(

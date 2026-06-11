@@ -4892,6 +4892,27 @@ describe('createRegestaApp', () => {
         )
       }
 
+      if (
+        request.url ===
+        'https://registry.npmjs.org/%40example.com%2Ffallback/latest'
+      ) {
+        return Promise.resolve(
+          Response.json(
+            {
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@example.com/fallback/-/fallback-2.0.0.tgz',
+              },
+              name: '@example.com/fallback',
+              version: '2.0.0',
+            },
+            {
+              headers: upstreamHeaders,
+            },
+          ),
+        )
+      }
+
       return Promise.resolve(
         Response.json(
           {
@@ -5035,6 +5056,21 @@ describe('createRegestaApp', () => {
       },
     })
 
+    const domainScopedFallbackManifest = await app.request(
+      'http://npm.registry.test/@example.com/fallback/latest',
+    )
+
+    expect(domainScopedFallbackManifest.status).toBe(200)
+    expect(fetchCalls.at(-1)?.url).toBe(
+      'https://registry.npmjs.org/%40example.com%2Ffallback/latest',
+    )
+    await expect(domainScopedFallbackManifest.json()).resolves.toMatchObject({
+      dist: {
+        tarball:
+          'http://npm.registry.test/@example.com/fallback/-/fallback-2.0.0.tgz',
+      },
+    })
+
     const distTags = await app.request(
       'http://npm.registry.test/-/package/@upstream/pkg/dist-tags',
     )
@@ -5054,6 +5090,16 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/%40upstream%2Fpkg/-/pkg-1.0.0.tgz',
     )
     expect(await tarball.text()).toBe('')
+    expect(fetchCalls).toHaveLength(fetchCallsBeforeTarballs)
+    const domainScopedFallbackTarball = await app.request(
+      'http://npm.registry.test/@example.com/fallback/-/fallback-2.0.0.tgz',
+    )
+
+    expect(domainScopedFallbackTarball.status).toBe(302)
+    expect(domainScopedFallbackTarball.headers.get('location')).toBe(
+      'https://registry.npmjs.org/%40example.com%2Ffallback/-/fallback-2.0.0.tgz',
+    )
+    expect(await domainScopedFallbackTarball.text()).toBe('')
     expect(fetchCalls).toHaveLength(fetchCallsBeforeTarballs)
     const unscopedTarball = await app.request(
       'http://npm.registry.test/tinyexec/-/tinyexec-0.0.1.tgz',
