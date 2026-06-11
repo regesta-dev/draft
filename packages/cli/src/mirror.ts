@@ -781,6 +781,12 @@ function parseLocalMirrorInventory(
   )
 
   const events = readDigestArray(value.events, `${label} inventory events`)
+  const lastEventId =
+    value.lastEventId === undefined
+      ? undefined
+      : assertSha256Digest(
+          readString(value.lastEventId, `${label} inventory lastEventId`),
+        )
   const objects = readDigestArray(value.objects, `${label} inventory objects`)
   const packages = readPackageIdArray(
     value.packages,
@@ -797,17 +803,12 @@ function parseLocalMirrorInventory(
     releases.map((release) => releaseKey(release)),
     `${label} inventory releases`,
   )
+  assertLastEventId(events, lastEventId, `${label} inventory lastEventId`)
 
   return {
     events,
     kind: 'regesta.local-mirror.inventory',
-    ...(value.lastEventId === undefined
-      ? {}
-      : {
-          lastEventId: assertSha256Digest(
-            readString(value.lastEventId, `${label} inventory lastEventId`),
-          ),
-        }),
+    ...(lastEventId ? { lastEventId } : {}),
     mirroredAt: assertCanonicalTimestamp(
       readString(value.mirroredAt, `${label} inventory mirroredAt`),
       `${label} inventory mirroredAt`,
@@ -818,6 +819,16 @@ function parseLocalMirrorInventory(
     problems: readStringArray(value.problems, `${label} inventory problems`),
     registry: readString(value.registry, `${label} inventory registry`),
     releases,
+  }
+}
+
+function assertLastEventId(
+  events: readonly Sha256Digest[],
+  lastEventId: Sha256Digest | undefined,
+  label: string,
+): void {
+  if (lastEventId !== events.at(-1)) {
+    throw new TypeError(`${label} must match final event id`)
   }
 }
 
