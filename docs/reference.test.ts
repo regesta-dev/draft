@@ -267,6 +267,26 @@ describe('documentation references', () => {
     )
   })
 
+  it('documents npm metadata tarball URLs as projection redirects', async () => {
+    const tarballSchema = await openapiValueAtPointer(
+      '#/components/schemas/NpmVersionManifest/properties/dist/properties/tarball',
+    )
+    const redirectDescription = await openapiValueAtPointer(
+      '#/components/responses/NpmTarballRedirect/description',
+    )
+
+    expect(tarballSchema).toEqual(
+      expect.objectContaining({
+        description: expect.stringContaining('npm projection host'),
+        format: 'uri',
+        type: 'string',
+      }),
+    )
+    expect(redirectDescription).toEqual(
+      expect.stringContaining('never proxies tarball bytes'),
+    )
+  })
+
   it('covers implemented OpenAPI methods for documented routes', async () => {
     await expect(openapiRouteMethods()).resolves.toEqual(
       expectedOpenapiRouteMethods,
@@ -408,6 +428,10 @@ async function schemaPropertiesAtPointer(
 
 async function schemaValueAtPointer(pointer: string): Promise<unknown> {
   return resolveJsonPointer(await readJson(schemaPath), pointer, pointer)
+}
+
+async function openapiValueAtPointer(pointer: string): Promise<unknown> {
+  return resolveJsonPointer(await readJson(openapiPath), pointer, pointer)
 }
 
 async function openapiRouteMethods(): Promise<Record<string, string[]>> {

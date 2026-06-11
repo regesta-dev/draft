@@ -1091,7 +1091,11 @@
             "properties": {
               "integrity": { "type": "string" },
               "shasum": { "type": "string" },
-              "tarball": { "type": "string", "format": "uri" }
+              "tarball": {
+                "type": "string",
+                "format": "uri",
+                "description": "Tarball URL on the npm projection host. Requests to this URL redirect to a core object URL for Regesta-hosted packages or to the upstream npm registry tarball URL for fallback packages; the npm projection never proxies tarball bytes."
+              }
             },
             "required": ["tarball"]
           },
