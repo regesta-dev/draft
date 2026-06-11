@@ -117,6 +117,7 @@ export interface RegistryDatabase {
     release: StoredRelease,
     channel: string,
   ) => Promise<void>
+  countPackages: () => Promise<number>
   getEvent: (id: Sha256Digest) => Promise<RegistryEvent | undefined>
   getEventLog: () => Promise<RegistryEvent[]>
   getPackageChannels: (packageId: PackageId) => Promise<Record<string, string>>

@@ -48,8 +48,8 @@ HEAD /ready
 ```
 
 The root route returns deployment information: service name, package version,
-API version, runtime, build time, git sha, and dirty state. It is meant for
-operators and debugging.
+API version, runtime, build time, git sha, dirty state, and registry statistics
+such as the current package count. It is meant for operators and debugging.
 
 `/health` is a lightweight liveness check and returns `{ "ok": true }` when
 the process can answer requests.
@@ -398,6 +398,9 @@ HEAD /-/package/{name}/dist-tags
 GET  /-/ping
 HEAD /-/ping
 ```
+
+On npm projection hosts, the root path returns an empty JSON object for npm
+client compatibility.
 
 The `GET /@scope/name` and `HEAD /@scope/name` entries above use the same
 physical path shape as npm-compatible unscoped version or tag reads, such as

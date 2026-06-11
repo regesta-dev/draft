@@ -296,6 +296,10 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     return Promise.resolve()
   }
 
+  countPackages(): Promise<number> {
+    return Promise.resolve(this.releases.size)
+  }
+
   getEventLog(): Promise<RegistryEvent[]> {
     return Promise.resolve(this.events.map((event) => copyRegistryEvent(event)))
   }

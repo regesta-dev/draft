@@ -131,6 +131,31 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('counts packages with at least one stored release', async () => {
+      await withDatabase(target, async (database) => {
+        const firstRelease = storedRelease(
+          'npm:example.com/package-count',
+          '0.0.1',
+        )
+        const secondRelease = storedRelease(
+          'npm:example.com/package-count',
+          '0.0.2',
+        )
+        const otherPackageRelease = storedRelease(
+          'npm:example.com/other-package-count',
+          '0.0.1',
+        )
+
+        await expect(database.countPackages()).resolves.toBe(0)
+        await database.commitPublishedRelease(firstRelease, 'latest')
+        await expect(database.countPackages()).resolves.toBe(1)
+        await database.commitPublishedRelease(secondRelease, 'latest')
+        await expect(database.countPackages()).resolves.toBe(1)
+        await database.commitPublishedRelease(otherPackageRelease, 'latest')
+        await expect(database.countPackages()).resolves.toBe(2)
+      })
+    })
+
     it('lists package-scoped events in sequence order', async () => {
       await withDatabase(target, async (database) => {
         const packageId: PackageId = 'npm:example.com/events'

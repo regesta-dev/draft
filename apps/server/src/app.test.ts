@@ -96,6 +96,9 @@ describe('createRegestaApp', () => {
         version: process.versions.node,
       },
       service: '@regesta/server',
+      statistics: {
+        packages: 0,
+      },
       version: '0.0.0',
     })
     expect(head.status).toBe(200)
@@ -145,6 +148,30 @@ describe('createRegestaApp', () => {
       String(Buffer.byteLength(readyText)),
     )
     expect(await readyHead.text()).toBe('')
+  })
+
+  it('caches deployment statistics between root path reads', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() => Promise.resolve(7))
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters)
+
+    const first = await app.request('/')
+    const second = await app.request('/')
+
+    expect(first.status).toBe(200)
+    await expect(first.json()).resolves.toMatchObject({
+      statistics: {
+        packages: 7,
+      },
+    })
+    expect(second.status).toBe(200)
+    await expect(second.json()).resolves.toMatchObject({
+      statistics: {
+        packages: 7,
+      },
+    })
+    expect(countPackages).toHaveBeenCalledTimes(1)
   })
 
   it('returns 503 when persistent storage is not ready', async () => {
@@ -4473,6 +4500,19 @@ describe('createRegestaApp', () => {
     expect(conditionalHeadDistTags.headers.get('etag')).toBe(npmProjectionEtag)
     expect(conditionalHeadDistTags.headers.get('content-length')).toBeNull()
     expect(await conditionalHeadDistTags.text()).toBe('')
+
+    const subdomainRoot = await app.request('http://npm.registry.test/')
+
+    expect(subdomainRoot.status).toBe(200)
+    await expect(subdomainRoot.json()).resolves.toEqual({})
+
+    const headRoot = await app.request('http://npm.registry.test/', {
+      method: 'HEAD',
+    })
+
+    expect(headRoot.status).toBe(200)
+    expect(headRoot.headers.get('content-type')).toBe('application/json')
+    expect(await headRoot.text()).toBe('')
 
     const subdomainPing = await app.request('http://npm.registry.test/-/ping')
 

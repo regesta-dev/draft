@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
-import { createDeploymentInfo } from './build-info.ts'
+import {
+  createDeploymentInfo,
+  type DeploymentStatistics,
+} from './build-info.ts'
 
 export interface ReadinessStatus {
   checks?: {
@@ -13,9 +16,13 @@ export interface ReadinessStatus {
 }
 
 export type ReadinessCheck = () => Promise<ReadinessStatus> | ReadinessStatus
+export type StatisticsRead = () =>
+  | DeploymentStatistics
+  | Promise<DeploymentStatistics>
 
 export interface TransportRoutesOptions {
   readiness?: ReadinessCheck
+  statistics?: StatisticsRead
 }
 
 export function createTransportRoutes(
@@ -24,11 +31,11 @@ export function createTransportRoutes(
   const app = new Hono()
 
   app.get('/', (context) => {
-    return transportJson(context.req.method, createDeploymentInfo())
+    return deploymentInfoResponse(context.req.method, options.statistics)
   })
 
   app.on('HEAD', '/', (context) => {
-    return transportJson(context.req.method, createDeploymentInfo())
+    return deploymentInfoResponse(context.req.method, options.statistics)
   })
 
   app.get('/health', (context) => {
@@ -57,6 +64,18 @@ export function createTransportRoutes(
   })
 
   return app
+}
+
+async function deploymentInfoResponse(
+  method: string,
+  statistics: StatisticsRead | undefined,
+): Promise<Response> {
+  return transportJson(
+    method,
+    createDeploymentInfo({
+      ...(statistics ? { statistics: await statistics() } : {}),
+    }),
+  )
 }
 
 async function readinessResponse(

@@ -5,7 +5,15 @@ declare const __REGESTA_BUILD_TIME__: string | undefined
 declare const __REGESTA_GIT_DIRTY__: boolean | null | undefined
 declare const __REGESTA_GIT_SHA__: string | undefined
 
-export function createDeploymentInfo() {
+export interface DeploymentStatistics {
+  packages: number
+}
+
+export interface DeploymentInfoOptions {
+  statistics?: DeploymentStatistics
+}
+
+export function createDeploymentInfo(options: DeploymentInfoOptions = {}) {
   return {
     api: {
       version: 'v0',
@@ -23,6 +31,7 @@ export function createDeploymentInfo() {
       version: process.versions.node,
     },
     service: serverPackageJson.name,
+    ...(options.statistics ? { statistics: options.statistics } : {}),
     version: serverPackageJson.version,
   }
 }

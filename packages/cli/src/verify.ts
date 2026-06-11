@@ -873,6 +873,7 @@ function publicRegistryDatabase(input: {
     commitPackageChannelDelete: unsupportedWrite('delete package channel'),
     commitPackageChannelUpdate: unsupportedWrite('update package channel'),
     commitPublishedRelease: unsupportedWrite('commit release'),
+    countPackages: unsupportedRead('count packages'),
     getEvent: (id) =>
       Promise.resolve(id === input.release.event.id ? input.event : undefined),
     getEventLog: unsupportedRead('read full event log'),

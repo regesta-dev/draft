@@ -1021,6 +1021,17 @@
             "required": ["name", "version"]
           },
           "service": { "type": "string" },
+          "statistics": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "packages": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["packages"]
+          },
           "version": { "type": "string" }
         },
         "required": [
@@ -1030,6 +1041,7 @@
           "object",
           "runtime",
           "service",
+          "statistics",
           "version"
         ]
       },

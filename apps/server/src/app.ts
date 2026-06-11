@@ -21,7 +21,7 @@ import { domainBindingFetchForRequest } from './dev/domain-binding.ts'
 import { createNpmRegistryRoutes, type NpmRegistryReader } from './npm/app.ts'
 import { RequestValidationError } from './request.ts'
 import { createStorageReadinessCheck } from './storage/readiness.ts'
-import { createTransportRoutes } from './transport/app.ts'
+import { createTransportRoutes, type StatisticsRead } from './transport/app.ts'
 import { createCorsMiddleware } from './transport/cors.ts'
 import { createTransportErrorBoundary } from './transport/errors.ts'
 import {
@@ -37,6 +37,8 @@ import {
 import { registryRoutePath } from './transport/routing.ts'
 import { isWriteAuthorizationError } from './trust/errors.ts'
 import { createTrustServices } from './trust/services.ts'
+
+const deploymentStatisticsCacheTtlMs = 10_000
 
 export interface RegestaAppOptions {
   auditLog?: CoreRegistryAuditSink
@@ -120,6 +122,7 @@ export function createRegestaApp(
     '/root',
     createTransportRoutes({
       readiness: createStorageReadinessCheck(adapters),
+      statistics: createDeploymentStatisticsRead(adapters),
     }),
   )
   app.route(
@@ -152,6 +155,42 @@ export function createRegestaApp(
   }
 
   return app
+}
+
+function createDeploymentStatisticsRead(
+  adapters: RegistryAdapters,
+): StatisticsRead {
+  let cached:
+    | {
+        expiresAt: number
+        value: Awaited<ReturnType<StatisticsRead>>
+      }
+    | undefined
+  let pending: Promise<Awaited<ReturnType<StatisticsRead>>> | undefined
+
+  return () => {
+    const now = Date.now()
+
+    if (cached && cached.expiresAt > now) {
+      return cached.value
+    }
+
+    pending ??= adapters.database
+      .countPackages()
+      .then((packages) => {
+        const value = { packages }
+        cached = {
+          expiresAt: Date.now() + deploymentStatisticsCacheTtlMs,
+          value,
+        }
+        return value
+      })
+      .finally(() => {
+        pending = undefined
+      })
+
+    return pending
+  }
 }
 
 function createNpmRegistryReader(

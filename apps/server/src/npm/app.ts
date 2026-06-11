@@ -210,6 +210,18 @@ export function createNpmRegistryRoutes(
     )
   })
 
+  app.get('/', (context) => {
+    return context.json({})
+  })
+
+  app.on('HEAD', '/', () => {
+    return new Response(null, {
+      headers: {
+        'content-type': 'application/json; charset=UTF-8',
+      },
+    })
+  })
+
   return app
 }
 

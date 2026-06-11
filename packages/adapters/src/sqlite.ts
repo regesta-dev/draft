@@ -91,6 +91,17 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     return Promise.resolve()
   }
 
+  countPackages(): Promise<number> {
+    const row = this.db
+      .prepare('SELECT COUNT(DISTINCT package_id) AS count FROM releases')
+      .get()
+    if (!row) {
+      throw new TypeError('Package count query did not return a row')
+    }
+
+    return Promise.resolve(requiredNumber(row, 'count'))
+  }
+
   appendEvent(event: RegistryEvent): Promise<void> {
     assertPersistableRegistryEvent(event)
 

@@ -2011,6 +2011,7 @@ function createTestRegistryAdapters(): RegistryAdapters {
 
         return Promise.resolve()
       },
+      countPackages: () => Promise.resolve(releases.size),
       getEvent: (id) =>
         Promise.resolve(
           events.find((event) => {
