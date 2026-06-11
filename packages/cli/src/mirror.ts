@@ -302,7 +302,7 @@ async function mirrorEvent(input: {
   registry: string
   releases: Array<{ id: PackageId; version: string }>
 }): Promise<{ ok: boolean; problems: string[] }> {
-  const eventFetch = await fetchJson(
+  const eventFetch = await fetchCanonicalJson(
     input.fetch,
     eventUrl(input.registry, input.event.id),
     parseRegistryEvent,
@@ -326,7 +326,7 @@ async function mirrorEvent(input: {
     return { ok: true, problems: [] }
   }
 
-  const releaseFetch = await fetchJson(
+  const releaseFetch = await fetchCanonicalJson(
     input.fetch,
     releaseUrl(
       input.registry,
@@ -781,6 +781,43 @@ async function fetchJson<T>(
   }
 }
 
+async function fetchCanonicalJson<T>(
+  fetchImpl: typeof fetch,
+  url: string,
+  parse: (value: unknown) => T,
+): Promise<{ ok: true; value: T } | { ok: false; problems: string[] }> {
+  try {
+    const response = await fetchImpl(
+      url,
+      isolatedRequestInit('application/json'),
+    )
+    if (!response.ok) {
+      throw new Error(`Registry request failed: ${response.status} ${url}`)
+    }
+
+    const text = await response.text()
+    validateJsonContentType(response.headers.get('content-type'), url)
+    const value: unknown = JSON.parse(text)
+
+    if (text !== `${canonicalJson(value)}\n`) {
+      throw new TypeError(`Response body is not canonical JSON: ${url}`)
+    }
+
+    validateCanonicalJsonContentLength(url, response, text)
+    validateImmutableCacheControl(url, response)
+
+    return {
+      ok: true,
+      value: parse(value),
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      problems: [`Mirror JSON request failed: ${errorMessage(error)}`],
+    }
+  }
+}
+
 async function fetchJsonPage(
   fetchImpl: typeof fetch,
   url: string,
@@ -1199,6 +1236,41 @@ function validateJsonContentLength(
     new TextEncoder().encode(text).byteLength
   ) {
     throw new TypeError(`JSON Content-Length does not match body: ${url}`)
+  }
+}
+
+function validateCanonicalJsonContentLength(
+  url: string,
+  response: Response,
+  text: string,
+): void {
+  const sizeHeader = response.headers.get('content-length')
+
+  if (!sizeHeader) {
+    throw new TypeError(`Missing canonical JSON Content-Length header: ${url}`)
+  }
+
+  if (
+    parseContentLength(sizeHeader, url, 'canonical JSON') !==
+    new TextEncoder().encode(text).byteLength
+  ) {
+    throw new TypeError(
+      `Canonical JSON Content-Length does not match body: ${url}`,
+    )
+  }
+}
+
+function validateImmutableCacheControl(url: string, response: Response): void {
+  const cacheControl = response.headers.get('cache-control')
+
+  if (!cacheControl) {
+    throw new TypeError(`Missing immutable JSON Cache-Control header: ${url}`)
+  }
+
+  if (!cacheControlHas(cacheControl, 'immutable')) {
+    throw new TypeError(
+      `Immutable JSON Cache-Control must include immutable: ${url}`,
+    )
   }
 }
 

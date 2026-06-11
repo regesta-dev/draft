@@ -221,6 +221,52 @@ describe('mirrorRegistry', () => {
       await rm(outputDir, { force: true, recursive: true })
     }
   })
+
+  it('rejects non-canonical immutable event endpoint responses', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventEndpointText: JSON.stringify(fixture.event),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Response body is not canonical JSON: https://registry.example${eventRoute(fixture.event.id)}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects non-canonical immutable release envelope responses', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          releaseEnvelopeText: JSON.stringify(fixture.releaseEnvelope),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Response body is not canonical JSON: https://registry.example/packages/${encodeURIComponent(
+          fixture.manifest.id,
+        )}/releases/${fixture.manifest.version}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
 })
 
 describe('compareMirrorDirectories', () => {
@@ -383,11 +429,13 @@ async function mirroredDirectory(
 function mirrorFetch(
   fixture: ReturnType<typeof releaseFixture>,
   options: {
+    eventEndpointText?: string
     omitEventPageContentLength?: boolean
     objectCacheControls?: ReadonlyMap<string, string>
     objectMediaTypes?: ReadonlyMap<string, string>
     objectOverrides?: ReadonlyMap<string, Uint8Array>
     releaseEnvelope?: unknown
+    releaseEnvelopeText?: string
   } = {},
 ): typeof fetch {
   const objects = new Map<
@@ -457,7 +505,11 @@ function mirrorFetch(
     }
 
     if (url.pathname === eventRoute(fixture.event.id)) {
-      return Promise.resolve(jsonResponse(fixture.event))
+      return Promise.resolve(
+        options.eventEndpointText
+          ? rawCanonicalJsonResponse(options.eventEndpointText)
+          : canonicalJsonResponse(fixture.event),
+      )
     }
 
     if (
@@ -467,7 +519,11 @@ function mirrorFetch(
       )}/releases/${fixture.manifest.version}`
     ) {
       return Promise.resolve(
-        jsonResponse(options.releaseEnvelope ?? fixture.releaseEnvelope),
+        options.releaseEnvelopeText
+          ? rawCanonicalJsonResponse(options.releaseEnvelopeText)
+          : canonicalJsonResponse(
+              options.releaseEnvelope ?? fixture.releaseEnvelope,
+            ),
       )
     }
 
@@ -514,6 +570,20 @@ function jsonResponse(
 
   return new Response(body, {
     headers,
+  })
+}
+
+function canonicalJsonResponse(value: unknown): Response {
+  return rawCanonicalJsonResponse(`${canonicalJson(value)}\n`)
+}
+
+function rawCanonicalJsonResponse(body: string): Response {
+  return new Response(body, {
+    headers: {
+      'cache-control': 'public, max-age=31536000, immutable',
+      'content-length': String(bytes(body).byteLength),
+      'content-type': 'application/json',
+    },
   })
 }
 
