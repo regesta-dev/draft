@@ -387,9 +387,20 @@ GET  /@scope/name/-/{tarball}
 HEAD /@scope/name/-/{tarball}
 GET  /-/package/@scope/name/dist-tags
 HEAD /-/package/@scope/name/dist-tags
+GET  /{name}
+HEAD /{name}
+GET  /{name}/-/{tarball}
+HEAD /{name}/-/{tarball}
+GET  /-/package/{name}/dist-tags
+HEAD /-/package/{name}/dist-tags
 GET  /-/ping
 HEAD /-/ping
 ```
+
+The `/{scope}/{name}` route shape is also used by npm-compatible unscoped
+version or tag reads, such as `GET /tinyexec/latest`. Regesta-hosted packages
+remain domain-scoped through names like `@some.dev/sdk`; unscoped npm names are
+served only through fallback or by a client/package-manager fallback policy.
 
 The npm projection derives:
 

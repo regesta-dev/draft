@@ -293,6 +293,12 @@ describe('documentation references', () => {
     )
   })
 
+  it('keeps API prose route lists aligned with the OpenAPI reference', async () => {
+    await expect(apiProseRouteMethods()).resolves.toEqual(
+      expectedOpenapiRouteMethods,
+    )
+  })
+
   it('keeps public HTTP routes free of API and path-version prefixes', async () => {
     for (const path of await openapiPaths()) {
       expect(path, `${path} must not use an /api prefix`).not.toMatch(
@@ -453,6 +459,21 @@ async function openapiRouteMethods(): Promise<Record<string, string[]>> {
   )
 }
 
+async function apiProseRouteMethods(): Promise<Record<string, string[]>> {
+  const routeMethods: Record<string, string[]> = {}
+
+  for (const operation of await apiProseOperations()) {
+    routeMethods[operation.path] ??= []
+    routeMethods[operation.path].push(operation.method)
+  }
+
+  return Object.fromEntries(
+    Object.entries(routeMethods)
+      .map(([path, methods]) => [path, methods.toSorted()])
+      .toSorted(([left], [right]) => left.localeCompare(right)),
+  )
+}
+
 async function apiProseOperations(): Promise<
   Array<{
     method: string
@@ -501,6 +522,14 @@ async function apiProseOperations(): Promise<
 
 function normalizeApiProsePath(path: string): string {
   const pathOnly = path.split('?', 1)[0]!
+
+  if (pathOnly === '/{name}') {
+    return '/{encoded}'
+  }
+
+  if (pathOnly === '/-/package/{name}/dist-tags') {
+    return '/-/package/{encoded}/dist-tags'
+  }
 
   return pathOnly
     .replaceAll('@scope', '{scope}')
