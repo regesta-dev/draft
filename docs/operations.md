@@ -66,8 +66,9 @@ the local SQLite/filesystem adapters under repeated reads.
 ## Load Smoke Profiles
 
 `pnpm smoke:load` is a repeatable local gate for the SQLite/filesystem V0
-adapter path. It publishes packages, reads core package state, reads events,
-reads objects, and reads the npm projection.
+adapter path. It publishes packages, checks readiness, reads core package
+state, reads events, lists object inventory, reads objects, and reads the npm
+projection.
 
 The script supports two profiles:
 
@@ -120,9 +121,8 @@ The production adapter gate should publish its parameters with the result:
 
 As a minimum, a production adapter profile should cover the same behavioral
 surface as `pnpm smoke:load`: publish, package reads, release reads, event
-reads, object reads, npm packuments, npm version manifests, npm tarball
-redirects, and redirected object downloads. It should also include `/ready` and
-object inventory reads when those endpoints are used by mirrors.
+reads, readiness reads, object inventory reads, object reads, npm packuments,
+npm version manifests, npm tarball redirects, and redirected object downloads.
 
 A production gate fails if:
 

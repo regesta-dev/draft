@@ -316,6 +316,7 @@ describe('documentation references', () => {
 
   it('keeps operational smoke checks documented and script-backed', async () => {
     const operations = await readText('operations.md')
+    const normalizedOperations = operations.replaceAll(/\s+/gu, ' ')
     const packageJson = await readWorkspaceJson('package.json')
     const scripts = member(packageJson, 'scripts')
 
@@ -333,15 +334,19 @@ describe('documentation references', () => {
       'pnpm smoke:load',
       'REGESTA_LOAD_PROFILE=local pnpm smoke:load',
       'SQLite/filesystem',
+      'checks readiness',
       'reads core package state',
       'reads events',
+      'lists object inventory',
       'reads objects',
       'reads the npm projection',
+      'readiness reads',
+      'object inventory reads',
       'redirected object downloads',
     ]) {
-      expect(operations).toContain(text)
+      expect(normalizedOperations).toContain(text)
     }
-    expect(operations).toMatch(/npm tarball\s+redirects/u)
+    expect(normalizedOperations).toContain('npm tarball redirects')
   })
 
   it('documents npm metadata tarball URLs as projection redirects', async () => {

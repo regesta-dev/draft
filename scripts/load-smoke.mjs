@@ -232,142 +232,178 @@ function createSignedPublishForm(prepared, key) {
 }
 
 function readLoadRequests(app, published) {
-  return published.flatMap(({ body, prepared }) => {
-    const packageId = prepared.config.id
-    const packagePath = encodeURIComponent(packageId)
-    const version = prepared.config.version
-    const name = packageId.split('/').at(-1)
-    const eventId = body.event.id
-    const eventPath = eventId.replace('sha256:', 'sha256/')
-    const manifestDigest = body.manifestDescriptor.digest
-    const installArtifact = prepared.artifacts.find((artifact) => {
-      return artifact.role === 'install'
-    })
-    if (!installArtifact) {
-      throw new Error(`Published package has no install artifact: ${packageId}`)
-    }
-    const installArtifactDigest = sha256(installArtifact.bytes)
-    const npmBase = `http://npm.registry.test/@dev.localhost/${name}`
-
-    return [
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          assertObjectMatch(await response.json(), {
-            channels: {
-              latest: version,
-            },
-            id: packageId,
-          })
-        },
-        url: `/packages/${packagePath}`,
+  const commonRequests = [
+    {
+      assert: async (response) => {
+        assertStatus(response, 200)
+        assertObjectMatch(await response.json(), {
+          kind: 'regesta.readiness',
+          ok: true,
+        })
       },
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          assertObjectMatch(await response.json(), {
-            event: {
-              id: eventId,
-            },
-            manifest: {
+      url: '/ready',
+    },
+    {
+      assert: async (response) => {
+        assertStatus(response, 200)
+        const page = await response.json()
+        if (page.object !== 'regesta.object-inventory') {
+          throw new Error('Object inventory page did not include object marker')
+        }
+        if (!Array.isArray(page.objects) || page.objects.length === 0) {
+          throw new Error('Object inventory page did not include objects')
+        }
+        if (typeof page.objects[0]?.digest !== 'string') {
+          throw new TypeError(
+            'Object inventory page object did not include a digest',
+          )
+        }
+      },
+      url: '/objects?limit=1',
+    },
+  ]
+
+  return [
+    ...commonRequests,
+    ...published.flatMap(({ body, prepared }) => {
+      const packageId = prepared.config.id
+      const packagePath = encodeURIComponent(packageId)
+      const version = prepared.config.version
+      const name = packageId.split('/').at(-1)
+      const eventId = body.event.id
+      const eventPath = eventId.replace('sha256:', 'sha256/')
+      const manifestDigest = body.manifestDescriptor.digest
+      const installArtifact = prepared.artifacts.find((artifact) => {
+        return artifact.role === 'install'
+      })
+      if (!installArtifact) {
+        throw new Error(
+          `Published package has no install artifact: ${packageId}`,
+        )
+      }
+      const installArtifactDigest = sha256(installArtifact.bytes)
+      const npmBase = `http://npm.registry.test/@dev.localhost/${name}`
+
+      return [
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            assertObjectMatch(await response.json(), {
+              channels: {
+                latest: version,
+              },
               id: packageId,
-              version,
-            },
-          })
+            })
+          },
+          url: `/packages/${packagePath}`,
         },
-        url: `/packages/${packagePath}/channels/latest`,
-      },
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          assertObjectMatch(await response.json(), {
-            event: {
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            assertObjectMatch(await response.json(), {
+              event: {
+                id: eventId,
+              },
+              manifest: {
+                id: packageId,
+                version,
+              },
+            })
+          },
+          url: `/packages/${packagePath}/channels/latest`,
+        },
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            assertObjectMatch(await response.json(), {
+              event: {
+                id: eventId,
+              },
+              manifest: {
+                id: packageId,
+                version,
+              },
+            })
+          },
+          url: `/packages/${packagePath}/releases/${version}`,
+        },
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            assertObjectMatch(await response.json(), {
+              eventType: 'release.published',
               id: eventId,
-            },
-            manifest: {
-              id: packageId,
+            })
+          },
+          url: `/events/${eventPath}`,
+        },
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            const page = await response.json()
+            if (!Array.isArray(page.events) || page.events.length === 0) {
+              throw new Error('Event log page did not include events')
+            }
+            if (typeof page.events[0]?.id !== 'string') {
+              throw new TypeError('Event log page event did not include an id')
+            }
+          },
+          url: '/events?limit=1',
+        },
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            if ((await response.arrayBuffer()).byteLength === 0) {
+              throw new Error(`Object response was empty: ${manifestDigest}`)
+            }
+          },
+          url: `/objects/${manifestDigest}`,
+        },
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            assertObjectMatch(await response.json(), {
+              'dist-tags': {
+                latest: version,
+              },
+              name: `@dev.localhost/${name}`,
+            })
+          },
+          url: npmBase,
+        },
+        {
+          assert: async (response) => {
+            assertStatus(response, 200)
+            assertObjectMatch(await response.json(), {
+              name: `@dev.localhost/${name}`,
               version,
-            },
-          })
+            })
+          },
+          url: `${npmBase}/latest`,
         },
-        url: `/packages/${packagePath}/releases/${version}`,
-      },
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          assertObjectMatch(await response.json(), {
-            eventType: 'release.published',
-            id: eventId,
-          })
-        },
-        url: `/events/${eventPath}`,
-      },
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          const page = await response.json()
-          if (!Array.isArray(page.events) || page.events.length === 0) {
-            throw new Error('Event log page did not include events')
-          }
-          if (typeof page.events[0]?.id !== 'string') {
-            throw new TypeError('Event log page event did not include an id')
-          }
-        },
-        url: '/events?limit=1',
-      },
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          if ((await response.arrayBuffer()).byteLength === 0) {
-            throw new Error(`Object response was empty: ${manifestDigest}`)
-          }
-        },
-        url: `/objects/${manifestDigest}`,
-      },
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          assertObjectMatch(await response.json(), {
-            'dist-tags': {
-              latest: version,
-            },
-            name: `@dev.localhost/${name}`,
-          })
-        },
-        url: npmBase,
-      },
-      {
-        assert: async (response) => {
-          assertStatus(response, 200)
-          assertObjectMatch(await response.json(), {
-            name: `@dev.localhost/${name}`,
-            version,
-          })
-        },
-        url: `${npmBase}/latest`,
-      },
-      {
-        assert: async (response) => {
-          assertStatus(response, 302)
-          const location = response.headers.get('location')
-          const expectedLocation = `http://registry.test/objects/${installArtifactDigest}`
+        {
+          assert: async (response) => {
+            assertStatus(response, 302)
+            const location = response.headers.get('location')
+            const expectedLocation = `http://registry.test/objects/${installArtifactDigest}`
 
-          if (location !== expectedLocation) {
-            throw new Error(
-              `Expected npm tarball redirect to ${expectedLocation}, got ${location}`,
-            )
-          }
+            if (location !== expectedLocation) {
+              throw new Error(
+                `Expected npm tarball redirect to ${expectedLocation}, got ${location}`,
+              )
+            }
 
-          const objectResponse = await app.request(location)
-          assertStatus(objectResponse, 200)
-          if ((await objectResponse.arrayBuffer()).byteLength === 0) {
-            throw new Error(`npm tarball object was empty: ${packageId}`)
-          }
+            const objectResponse = await app.request(location)
+            assertStatus(objectResponse, 200)
+            if ((await objectResponse.arrayBuffer()).byteLength === 0) {
+              throw new Error(`npm tarball object was empty: ${packageId}`)
+            }
+          },
+          url: `${npmBase}/-/${name}-${version}.tgz`,
         },
-        url: `${npmBase}/-/${name}-${version}.tgz`,
-      },
-    ]
-  })
+      ]
+    }),
+  ]
 }
 
 function assertStatus(response, expectedStatus) {
