@@ -26,6 +26,7 @@ describe('mirrorRegistry', () => {
       expect(result).toEqual({
         events: 1,
         lastEventId: fixture.event.id,
+        mirroredAt: expect.any(String),
         objects: 4,
         ok: true,
         outputDir,
@@ -82,7 +83,7 @@ describe('mirrorRegistry', () => {
           { id: fixture.manifest.id, version: fixture.manifest.version },
         ],
       })
-      expect(typeof inventory.mirroredAt).toBe('string')
+      expect(inventory.mirroredAt).toBe(result.mirroredAt)
     } finally {
       await rm(outputDir, { force: true, recursive: true })
     }

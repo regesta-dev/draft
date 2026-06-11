@@ -30,6 +30,7 @@ export interface MirrorRegistryInput {
 export interface MirrorRegistryResult {
   events: number
   lastEventId?: Sha256Digest
+  mirroredAt: string
   objects: number
   ok: boolean
   outputDir: string
@@ -109,6 +110,7 @@ export async function mirrorRegistry(
   const packageIds = new Set<PackageId>()
   const problems: string[] = []
   const releases: Array<{ id: PackageId; version: string }> = []
+  const mirroredAt = new Date().toISOString()
   let after: Sha256Digest | undefined
   let reachedTail = false
 
@@ -121,6 +123,7 @@ export async function mirrorRegistry(
       objectDigests: new Set(objectDescriptors.keys()),
       outputDir: input.outputDir,
       packageIds,
+      mirroredAt,
       problems: [errorMessage(error)],
       registry,
       releases,
@@ -202,6 +205,7 @@ export async function mirrorRegistry(
     objectDigests: new Set(objectDescriptors.keys()),
     outputDir: input.outputDir,
     packageIds,
+    mirroredAt,
     problems,
     registry,
     releases,
@@ -211,7 +215,7 @@ export async function mirrorRegistry(
     events: eventIds,
     kind: 'regesta.local-mirror.inventory',
     ...(result.lastEventId ? { lastEventId: result.lastEventId } : {}),
-    mirroredAt: new Date().toISOString(),
+    mirroredAt,
     objects: [...objectDescriptors.keys()].toSorted(),
     packages: [...packageIds].toSorted(),
     registry,
@@ -1036,6 +1040,7 @@ function mirrorResult(input: {
   objectDigests: ReadonlySet<Sha256Digest>
   outputDir: string
   packageIds: ReadonlySet<PackageId>
+  mirroredAt: string
   problems: string[]
   registry: string
   releases: ReadonlyArray<{ id: PackageId; version: string }>
@@ -1043,6 +1048,7 @@ function mirrorResult(input: {
   return {
     events: input.eventIds.length,
     ...(input.lastEventId ? { lastEventId: input.lastEventId } : {}),
+    mirroredAt: input.mirroredAt,
     objects: input.objectDigests.size,
     ok: input.problems.length === 0,
     outputDir: input.outputDir,
