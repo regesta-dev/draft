@@ -218,10 +218,14 @@ Run the complete container demo:
 pnpm smoke:docker
 ```
 
+This requires an accessible Docker daemon. If Docker is not running, the smoke
+script exits before building the image and reports the missing daemon
+prerequisite.
+
 The smoke test builds the OCI image, starts a development-mode container with a
 persistent Docker volume, publishes the example package, restarts the
-container, verifies release, event-log, and package-state data, checks the npm
-projection, and runs a real `npm install`.
+container, verifies deployment statistics, release, event-log, and
+package-state data, checks the npm projection, and runs a real `npm install`.
 
 For a local load smoke against the same server code and local SQLite/filesystem
 adapters:
@@ -230,9 +234,9 @@ adapters:
 pnpm smoke:load
 ```
 
-This publishes a few temporary npm packages and repeatedly reads core package
-state, releases, events, objects, npm packuments, npm version manifests, and npm
-tarball redirects plus redirected object downloads. It is an operational smoke
-check, not a benchmark.
+This publishes a few temporary npm packages and repeatedly reads root deployment
+statistics, core package state, releases, events, objects, npm packuments, npm
+version manifests, and npm tarball redirects plus redirected object downloads.
+It is an operational smoke check, not a benchmark.
 
 For storage and recovery boundaries, see [Operations](/operations).

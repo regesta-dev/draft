@@ -16,10 +16,12 @@ const image = `regesta-draft-smoke:${suffix}`
 const container = `regesta-draft-smoke-${suffix}`
 const volume = `regesta-draft-smoke-${suffix}`
 const installDir = await mkdtemp(join(tmpdir(), 'regesta-docker-smoke-'))
+let dockerAvailable = false
 let runningContainer = false
 
 try {
-  await run('docker', ['version', '--format', '{{.Server.Version}}'])
+  await assertDockerAvailable()
+  dockerAvailable = true
   await runInteractive('docker', ['build', '-t', image, '.'])
   await run('docker', ['volume', 'create', volume])
 
@@ -64,6 +66,14 @@ try {
     baseUrl,
   ])
 
+  const deploymentInfo = await getJson(baseUrl)
+  assertMatch(deploymentInfo, {
+    object: 'regesta.deployment-info',
+    statistics: {
+      packages: 1,
+    },
+  })
+
   const packageState = await getJson(
     `${baseUrl}/packages/${encodeURIComponent(
       'npm:dev.localhost/hello-regesta',
@@ -93,8 +103,28 @@ try {
   await npmInstallSmoke(baseUrl)
 
   console.info('Docker smoke passed')
+} catch (error) {
+  console.error(smokeErrorMessage(error))
+  process.exitCode = 1
 } finally {
   await cleanup()
+}
+
+async function assertDockerAvailable() {
+  try {
+    await run('docker', ['version', '--format', '{{.Server.Version}}'])
+  } catch (error) {
+    throw new Error(
+      [
+        'Docker smoke requires a running Docker daemon.',
+        'Start Docker and retry `pnpm smoke:docker`.',
+        commandErrorMessage(error),
+      ]
+        .filter(Boolean)
+        .join(' '),
+      { cause: error },
+    )
+  }
 }
 
 async function startContainer() {
@@ -380,6 +410,11 @@ function parsePublishedPort(output) {
 async function cleanup() {
   await stopContainer()
   await rm(installDir, { force: true, recursive: true })
+
+  if (!dockerAvailable) {
+    return
+  }
+
   await run('docker', ['volume', 'rm', '-f', volume], { allowFailure: true })
   await run('docker', ['image', 'rm', '-f', image], { allowFailure: true })
 }
@@ -419,4 +454,29 @@ function runInteractive(file, args, env = process.env, cwd = workspaceRoot) {
       reject(new Error(`${file} ${args.join(' ')} exited with ${code}`))
     })
   })
+}
+
+function smokeErrorMessage(error) {
+  return `Docker smoke failed: ${errorMessage(error)}`
+}
+
+function commandErrorMessage(error) {
+  if (!error || typeof error !== 'object') {
+    return ''
+  }
+
+  const stderr =
+    'stderr' in error && typeof error.stderr === 'string'
+      ? error.stderr.trim()
+      : ''
+  const stdout =
+    'stdout' in error && typeof error.stdout === 'string'
+      ? error.stdout.trim()
+      : ''
+
+  return stderr || stdout
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error)
 }

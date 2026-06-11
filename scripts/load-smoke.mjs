@@ -237,6 +237,18 @@ function readLoadRequests(app, published) {
       assert: async (response) => {
         assertStatus(response, 200)
         assertObjectMatch(await response.json(), {
+          object: 'regesta.deployment-info',
+          statistics: {
+            packages: published.length,
+          },
+        })
+      },
+      url: '/',
+    },
+    {
+      assert: async (response) => {
+        assertStatus(response, 200)
+        assertObjectMatch(await response.json(), {
           kind: 'regesta.readiness',
           ok: true,
         })

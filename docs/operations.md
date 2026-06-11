@@ -83,12 +83,15 @@ The local smoke scripts cover a small version of this loop. `pnpm smoke:docker`
 checks persistence across a container restart, and `pnpm smoke:load` exercises
 the local SQLite/filesystem adapters under repeated reads.
 
+The Docker smoke requires an accessible Docker daemon because it builds and
+runs a real OCI image before checking persistence across a Docker volume.
+
 ## Load Smoke Profiles
 
 `pnpm smoke:load` is a repeatable local gate for the SQLite/filesystem V0
-adapter path. It publishes packages, checks readiness, reads core package
-state, reads events, lists object inventory, reads objects, and reads the npm
-projection.
+adapter path. It publishes packages, reads root deployment statistics, checks
+readiness, reads core package state, reads events, lists object inventory,
+reads objects, and reads the npm projection.
 
 The script supports two profiles:
 
@@ -140,9 +143,10 @@ The production adapter gate should publish its parameters with the result:
 - whether the run used a cold or warm cache.
 
 As a minimum, a production adapter profile should cover the same behavioral
-surface as `pnpm smoke:load`: publish, package reads, release reads, event
-reads, readiness reads, object inventory reads, object reads, npm packuments,
-npm version manifests, npm tarball redirects, and redirected object downloads.
+surface as `pnpm smoke:load`: publish, root deployment statistics, package
+reads, release reads, event reads, readiness reads, object inventory reads,
+object reads, npm packuments, npm version manifests, npm tarball redirects, and
+redirected object downloads.
 
 A production gate fails if:
 

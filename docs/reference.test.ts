@@ -397,6 +397,12 @@ describe('documentation references', () => {
   })
 
   it('keeps operational smoke checks documented and script-backed', async () => {
+    const dockerSmokeScript = await readWorkspaceText(
+      'scripts/docker-smoke.mjs',
+    )
+    const loadSmokeScript = await readWorkspaceText('scripts/load-smoke.mjs')
+    const gettingStarted = await readText('getting-started.md')
+    const normalizedGettingStarted = gettingStarted.replaceAll(/\s+/gu, ' ')
     const operations = await readText('operations.md')
     const normalizedOperations = operations.replaceAll(/\s+/gu, ' ')
     const packageJson = await readWorkspaceJson('package.json')
@@ -410,12 +416,23 @@ describe('documentation references', () => {
     expect(scripts['smoke:load']).toBe(
       'node --conditions=regesta-source scripts/load-smoke.mjs',
     )
+    expect(dockerSmokeScript).toContain(
+      'Docker smoke requires a running Docker daemon.',
+    )
+    expect(dockerSmokeScript).toContain(
+      'Start Docker and retry `pnpm smoke:docker`.',
+    )
+    expect(dockerSmokeScript).toContain("object: 'regesta.deployment-info'")
+    expect(dockerSmokeScript).toContain('packages: 1')
+    expect(loadSmokeScript).toContain("object: 'regesta.deployment-info'")
+    expect(loadSmokeScript).toContain('packages: published.length')
 
     for (const text of [
       'pnpm smoke:docker',
       'pnpm smoke:load',
       'REGESTA_LOAD_PROFILE=local pnpm smoke:load',
       'SQLite/filesystem',
+      'reads root deployment statistics',
       'checks readiness',
       'reads core package state',
       'reads events',
@@ -428,6 +445,7 @@ describe('documentation references', () => {
       'REGESTA_MAX_PUBLISH_ARTIFACT_BYTES',
       'REGESTA_MAX_PUBLISH_SOURCE_BYTES',
       'readiness reads',
+      'root deployment statistics',
       'object inventory reads',
       'redirected object downloads',
       'readiness checks are cheap, bounded, independent adapter probes',
@@ -445,6 +463,20 @@ describe('documentation references', () => {
       expect(normalizedOperations).toContain(text)
     }
     expect(normalizedOperations).toContain('npm tarball redirects')
+    expect(normalizedOperations).toContain(
+      'requires an accessible Docker daemon',
+    )
+    expect(normalizedOperations).toContain('runs a real OCI image')
+    expect(normalizedGettingStarted).toContain(
+      'requires an accessible Docker daemon',
+    )
+    expect(normalizedGettingStarted).toContain(
+      'reports the missing daemon prerequisite',
+    )
+    expect(normalizedGettingStarted).toContain('verifies deployment statistics')
+    expect(normalizedGettingStarted).toContain(
+      'reads root deployment statistics',
+    )
   })
 
   it('documents npm metadata tarball URLs and projection redirects', async () => {
