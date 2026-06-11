@@ -286,6 +286,7 @@ describe('compareMirrorDirectories', () => {
           directory: leftDir,
           events: 1,
           lastEventId: fixture.event.id,
+          mirroredAt: expect.any(String),
           objects: 4,
           packages: 1,
           releases: 1,
@@ -296,11 +297,41 @@ describe('compareMirrorDirectories', () => {
           directory: rightDir,
           events: 1,
           lastEventId: fixture.event.id,
+          mirroredAt: expect.any(String),
           objects: 4,
           packages: 1,
           releases: 1,
         },
       })
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects local mirror inventories with non-canonical mirroredAt timestamps', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = JSON.parse(
+        await readText(join(rightDir, 'inventory.json')),
+      )
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          mirroredAt: '2026-06-10T00:00:00Z',
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory mirroredAt must be canonical ISO 8601',
+      ])
     } finally {
       await rm(leftDir, { force: true, recursive: true })
       await rm(rightDir, { force: true, recursive: true })

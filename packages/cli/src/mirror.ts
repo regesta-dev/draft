@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
+  assertCanonicalTimestamp,
   assertSha256Digest,
   canonicalJson,
   parseObjectDescriptor,
@@ -47,6 +48,7 @@ export interface MirrorDirectoryComparisonSide {
   directory: string
   events: number
   lastEventId?: Sha256Digest
+  mirroredAt?: string
   objects: number
   packages: number
   releases: number
@@ -77,6 +79,7 @@ interface LocalMirrorInventory {
   events: Sha256Digest[]
   kind: 'regesta.local-mirror.inventory'
   lastEventId?: Sha256Digest
+  mirroredAt: string
   objects: Sha256Digest[]
   packages: PackageId[]
   registry: string
@@ -717,6 +720,10 @@ function parseLocalMirrorInventory(
             readString(value.lastEventId, `${label} inventory lastEventId`),
           ),
         }),
+    mirroredAt: assertCanonicalTimestamp(
+      readString(value.mirroredAt, `${label} inventory mirroredAt`),
+      `${label} inventory mirroredAt`,
+    ),
     objects: readDigestArray(value.objects, `${label} inventory objects`),
     packages: readPackageIdArray(value.packages, `${label} inventory packages`),
     registry: readString(value.registry, `${label} inventory registry`),
@@ -1083,6 +1090,7 @@ function mirrorDirectoryComparisonSide(
     directory,
     events: inventory?.events.length ?? 0,
     ...(inventory?.lastEventId ? { lastEventId: inventory.lastEventId } : {}),
+    ...(inventory?.mirroredAt ? { mirroredAt: inventory.mirroredAt } : {}),
     objects: inventory?.objects.length ?? 0,
     packages: inventory?.packages.length ?? 0,
     releases: inventory?.releases.length ?? 0,
