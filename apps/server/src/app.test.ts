@@ -2508,7 +2508,14 @@ describe('createRegestaApp', () => {
 
     expect(state.status).toBe(200)
     expect(state.headers.get('cache-control')).toBe('no-cache')
+    expect(state.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
     expect(state.headers.get('etag')).toBe(`W/"${published.event.id}"`)
+    const stateText = await state.clone().text()
+    expect(state.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(stateText)),
+    )
     const stateBody = await state.json()
     expect(stateBody).toMatchObject({
       channels: {
@@ -2523,6 +2530,12 @@ describe('createRegestaApp', () => {
     })
     expect(stateHead.status).toBe(200)
     expect(stateHead.headers.get('cache-control')).toBe('no-cache')
+    expect(stateHead.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(stateHead.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(stateText)),
+    )
     expect(stateHead.headers.get('etag')).toBe(`W/"${published.event.id}"`)
     expect(await stateHead.text()).toBe('')
     expect(conditionalState.status).toBe(304)
@@ -2530,6 +2543,7 @@ describe('createRegestaApp', () => {
     expect(conditionalState.headers.get('etag')).toBe(
       `W/"${published.event.id}"`,
     )
+    expect(conditionalState.headers.get('content-length')).toBeNull()
     expect(await conditionalState.text()).toBe('')
     expect(release.status).toBe(200)
     expect(release.headers.get('cache-control')).toBe(
