@@ -1131,8 +1131,15 @@ describe('createRegestaApp', () => {
 
     expect(firstPage.status).toBe(200)
     expect(firstPage.headers.get('cache-control')).toBe('no-cache')
+    expect(firstPage.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
     expect(firstEtag).toBe(
       `W/"regesta.object-inventory:${sorted[1]!.digest}:2"`,
+    )
+    const firstPageText = await firstPage.clone().text()
+    expect(firstPage.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(firstPageText)),
     )
     await expect(firstPage.json()).resolves.toEqual({
       nextAfter: sorted[1]!.digest,
@@ -1140,9 +1147,19 @@ describe('createRegestaApp', () => {
       objects: sorted.slice(0, 2),
     })
     expect(firstHead.status).toBe(200)
+    expect(firstHead.headers.get('cache-control')).toBe('no-cache')
+    expect(firstHead.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(firstHead.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(firstPageText)),
+    )
     expect(firstHead.headers.get('etag')).toBe(firstEtag)
     expect(await firstHead.text()).toBe('')
     expect(conditional.status).toBe(304)
+    expect(conditional.headers.get('cache-control')).toBe('no-cache')
+    expect(conditional.headers.get('etag')).toBe(firstEtag)
+    expect(conditional.headers.get('content-length')).toBeNull()
     expect(await conditional.text()).toBe('')
     expect(secondPage.status).toBe(200)
     await expect(secondPage.json()).resolves.toEqual({
