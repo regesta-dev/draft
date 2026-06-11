@@ -2051,6 +2051,48 @@ describe('verifyPackageStateFromRegistry', () => {
     })
   })
 
+  it('reports public package state responses without Cache-Control headers', async () => {
+    const fixture = releaseFixture()
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          stateCacheControl: null,
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toEqual([
+      'Public package state response is missing Cache-Control',
+    ])
+  })
+
+  it('reports public package state responses without no-cache directives', async () => {
+    const fixture = releaseFixture()
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          stateCacheControl: 'public, max-age=60',
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toEqual([
+      'Public package state response Cache-Control must include no-cache',
+    ])
+  })
+
   it('reports public package state identity mismatches once', async () => {
     const fixture = releaseFixture()
     const state: PackageState = {
@@ -2554,6 +2596,7 @@ function publicPackageStateFetch(
   packageId: PackageId,
   events: RegistryEvent[],
   options: {
+    stateCacheControl?: string | null
     state?: PackageState
     stateEtag?: string
     stateResponseInit?: ResponseInit & { omitContentLength?: boolean }
@@ -2583,7 +2626,13 @@ function publicPackageStateFetch(
       }
 
       const headers = new Headers(options.stateResponseInit?.headers)
-      if (!headers.has('cache-control')) {
+      if (options.stateCacheControl !== undefined) {
+        if (options.stateCacheControl === null) {
+          headers.delete('cache-control')
+        } else {
+          headers.set('cache-control', options.stateCacheControl)
+        }
+      } else if (!headers.has('cache-control')) {
         headers.set('cache-control', 'no-cache')
       }
       if (!headers.has('etag')) {
