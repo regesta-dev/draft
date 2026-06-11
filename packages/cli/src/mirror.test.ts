@@ -530,6 +530,62 @@ describe('compareMirrorDirectories', () => {
     }
   })
 
+  it('rejects local mirror inventories with unsorted object lists', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = await readInventory(join(rightDir, 'inventory.json'))
+      const objects = readUnknownArray(inventory, 'objects')
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          objects: objects.toReversed(),
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory objects must be sorted and unique',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects local mirror inventories with duplicate package lists', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = await readInventory(join(rightDir, 'inventory.json'))
+      const packages = readUnknownArray(inventory, 'packages')
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          packages: [...packages, packages[0]],
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory packages must be sorted and unique',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
   it('reports corrupted local mirror objects', async () => {
     const fixture = releaseFixture()
     const leftDir = await mirroredDirectory(fixture)
@@ -946,6 +1002,31 @@ function releasePath(outputDir: string, packageId: string, version: string) {
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value)
+}
+
+async function readInventory(path: string): Promise<Record<string, unknown>> {
+  const value: unknown = JSON.parse(await readText(path))
+  if (!isRecord(value)) {
+    throw new TypeError('Expected mirror inventory to be an object')
+  }
+
+  return value
+}
+
+function readUnknownArray(
+  record: Record<string, unknown>,
+  key: string,
+): unknown[] {
+  const value = record[key]
+  if (!Array.isArray(value)) {
+    throw new TypeError(`Expected mirror inventory ${key} to be an array`)
+  }
+
+  return value
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function readText(path: string): Promise<string> {

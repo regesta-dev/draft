@@ -780,8 +780,17 @@ function parseLocalMirrorInventory(
     `${label} inventory`,
   )
 
+  const events = readDigestArray(value.events, `${label} inventory events`)
+  const objects = readDigestArray(value.objects, `${label} inventory objects`)
+  const packages = readPackageIdArray(
+    value.packages,
+    `${label} inventory packages`,
+  )
+  assertSortedUniqueStrings(objects, `${label} inventory objects`)
+  assertSortedUniqueStrings(packages, `${label} inventory packages`)
+
   return {
-    events: readDigestArray(value.events, `${label} inventory events`),
+    events,
     kind: 'regesta.local-mirror.inventory',
     ...(value.lastEventId === undefined
       ? {}
@@ -794,15 +803,26 @@ function parseLocalMirrorInventory(
       readString(value.mirroredAt, `${label} inventory mirroredAt`),
       `${label} inventory mirroredAt`,
     ),
-    objects: readDigestArray(value.objects, `${label} inventory objects`),
+    objects,
     ok: readBoolean(value.ok, `${label} inventory ok`),
-    packages: readPackageIdArray(value.packages, `${label} inventory packages`),
+    packages,
     problems: readStringArray(value.problems, `${label} inventory problems`),
     registry: readString(value.registry, `${label} inventory registry`),
     releases: readInventoryReleases(
       value.releases,
       `${label} inventory releases`,
     ),
+  }
+}
+
+function assertSortedUniqueStrings<Value extends string>(
+  values: readonly Value[],
+  label: string,
+): void {
+  for (let index = 1; index < values.length; index += 1) {
+    if (values[index]! <= values[index - 1]!) {
+      throw new TypeError(`${label} must be sorted and unique`)
+    }
   }
 }
 
