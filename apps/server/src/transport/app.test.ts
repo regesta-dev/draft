@@ -1,5 +1,96 @@
 import { describe, expect, it } from 'vitest'
-import { createTransportRoutes } from './app.ts'
+import { createTransportApp, createTransportRoutes } from './app.ts'
+import type { RequestLogEntry } from './logging.ts'
+
+class ExpectedTransportError extends Error {
+  override readonly name = 'ExpectedTransportError'
+  readonly issues = ['field: Must be valid']
+}
+
+describe('createTransportApp', () => {
+  it('applies hostname-aware routing at the transport shell', async () => {
+    const app = createTransportApp()
+    app.get('/npm/package', (context) => context.text('npm projection'))
+    app.get('/root/package', (context) => context.text('core registry'))
+
+    const npm = await app.request('http://npm.registry.test/package')
+    const root = await app.request('http://registry.test/package')
+
+    expect(npm.status).toBe(200)
+    await expect(npm.text()).resolves.toBe('npm projection')
+    expect(root.status).toBe(200)
+    await expect(root.text()).resolves.toBe('core registry')
+  })
+
+  it('applies request ids, request logging, and known error mapping', async () => {
+    const entries: RequestLogEntry[] = []
+    const app = createTransportApp({
+      knownErrors: [
+        {
+          code: 'expected_transport_error',
+          match: (error) => error instanceof ExpectedTransportError,
+          status: 422,
+        },
+      ],
+      requestLog: (entry) => {
+        entries.push(entry)
+      },
+    })
+    app.get('/root/known', () => {
+      throw new ExpectedTransportError('Known transport error')
+    })
+
+    const response = await app.request('http://registry.test/known', {
+      headers: {
+        'x-request-id': 'transport-shell-001',
+      },
+    })
+
+    expect(response.status).toBe(422)
+    expect(response.headers.get('x-request-id')).toBe('transport-shell-001')
+    await expect(response.json()).resolves.toEqual({
+      code: 'expected_transport_error',
+      error: 'Known transport error',
+      issues: ['field: Must be valid'],
+      message: 'Known transport error',
+    })
+    expect(entries).toMatchObject([
+      {
+        host: 'registry.test',
+        kind: 'regesta.request',
+        method: 'GET',
+        path: '/known',
+        requestId: 'transport-shell-001',
+        status: 422,
+      },
+    ])
+  })
+
+  it('applies configured request size limits at the transport shell', async () => {
+    const app = createTransportApp({
+      requestSizeLimit: {
+        maxBytes: 3,
+      },
+    })
+    app.post('/root/upload', (context) => context.text('ok'))
+
+    const response = await app.request('http://registry.test/upload', {
+      body: '1234',
+      headers: {
+        'content-length': '4',
+      },
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(413)
+    await expect(response.json()).resolves.toEqual({
+      code: 'request_too_large',
+      error: 'Request body too large',
+      issues: ['content-length: Must be at most 3 bytes'],
+      message: 'Request body too large',
+    })
+  })
+})
 
 describe('createTransportRoutes', () => {
   it('serves schema-complete deployment statistics without a statistics reader', async () => {

@@ -1,4 +1,4 @@
-import { replayPackageState } from '@regesta/core'
+import { replayPackageState, type RegistryAdapters } from '@regesta/core'
 import {
   createNpmPackument,
   npmInstallArtifact,
@@ -29,6 +29,28 @@ export interface NpmRegistryRouteOptions {
 }
 
 const defaultUpstreamNpmFetchTimeoutMs = 10_000
+
+export function createNpmRegistryReader(
+  adapters: Pick<RegistryAdapters, 'database'>,
+): NpmRegistryReader {
+  return {
+    database: {
+      listPackageEvents: (packageId) => {
+        return adapters.database.listPackageEvents(packageId)
+      },
+      listPackageReleases: (packageId) => {
+        return adapters.database.listPackageReleases(packageId)
+      },
+    },
+  }
+}
+
+export function createNpmProjectionApp(
+  adapters: Pick<RegistryAdapters, 'database'>,
+  options: NpmRegistryRouteOptions = {},
+): Hono {
+  return createNpmRegistryRoutes(createNpmRegistryReader(adapters), options)
+}
 
 export function createNpmRegistryRoutes(
   adapters: NpmRegistryReader,

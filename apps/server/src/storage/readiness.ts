@@ -1,5 +1,4 @@
 import { assertSha256Digest } from '@regesta/protocol'
-import type { RegistryAdapters } from '@regesta/core'
 
 const objectReadinessProbeDigest = assertSha256Digest(
   `sha256:${'0'.repeat(64)}`,
@@ -13,8 +12,28 @@ export interface StorageReadinessCheckOptions {
   timeoutMs?: number
 }
 
+export interface StorageReadinessAdapters {
+  database: {
+    checkReadiness?: () => Promise<void>
+    listEvents: (options: { limit: number }) => Promise<unknown>
+  }
+  objects: {
+    checkReadiness?: () => Promise<void>
+    getDescriptor: (
+      digest: typeof objectReadinessProbeDigest,
+    ) => Promise<unknown>
+  }
+  queue: {
+    checkReadiness?: () => Promise<void>
+  }
+  signer: {
+    checkReadiness?: () => Promise<void>
+    sign: (bytes: Uint8Array) => Promise<Uint8Array>
+  }
+}
+
 export function createStorageReadinessCheck(
-  adapters: RegistryAdapters,
+  adapters: StorageReadinessAdapters,
   options: StorageReadinessCheckOptions = {},
 ): () => Promise<{
   checks: {
@@ -51,7 +70,7 @@ export function createStorageReadinessCheck(
 }
 
 async function databaseReady(
-  adapters: RegistryAdapters,
+  adapters: StorageReadinessAdapters,
   timeoutMs: number,
 ): Promise<boolean> {
   try {
@@ -74,7 +93,7 @@ async function databaseReady(
 }
 
 async function queueReady(
-  adapters: RegistryAdapters,
+  adapters: StorageReadinessAdapters,
   timeoutMs: number,
 ): Promise<boolean> {
   try {
@@ -93,7 +112,7 @@ async function queueReady(
 }
 
 async function signerReady(
-  adapters: RegistryAdapters,
+  adapters: StorageReadinessAdapters,
   timeoutMs: number,
 ): Promise<boolean> {
   try {
@@ -116,7 +135,7 @@ async function signerReady(
 }
 
 async function objectsReady(
-  adapters: RegistryAdapters,
+  adapters: StorageReadinessAdapters,
   timeoutMs: number,
 ): Promise<boolean> {
   try {

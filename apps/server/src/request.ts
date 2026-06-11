@@ -17,6 +17,20 @@ export class RequestValidationError extends Error {
   }
 }
 
+export interface RequestKnownError {
+  code: string
+  match: (error: Error) => boolean
+  status: 400 | 401 | 403 | 404 | 409 | 422
+}
+
+export const requestKnownErrors = [
+  {
+    code: 'request_invalid',
+    match: (error) => error instanceof RequestValidationError,
+    status: 400,
+  },
+] satisfies RequestKnownError[]
+
 export interface BinaryFieldOptions {
   maxBytes?: number
 }

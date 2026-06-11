@@ -1,8 +1,30 @@
 import { Hono } from 'hono'
 import {
   createDeploymentInfo,
+  normalizeDeploymentStatistics,
   type DeploymentStatistics,
 } from './build-info.ts'
+import { createCorsMiddleware } from './cors.ts'
+import {
+  createTransportErrorBoundary,
+  type KnownTransportError,
+} from './errors.ts'
+import {
+  createRequestIdMiddleware,
+  createRequestLogger,
+  type RequestLogSink,
+} from './logging.ts'
+import { createPathNormalizationMiddleware } from './path.ts'
+import {
+  createRequestSizeLimitMiddleware,
+  type RequestSizeLimitOptions,
+} from './request-size.ts'
+import { registryRoutePath } from './routing.ts'
+
+const defaultDeploymentStatisticsCacheTtlMs = 10_000
+
+export type { RequestLogSink } from './logging.ts'
+export type { RequestSizeLimitOptions } from './request-size.ts'
 
 export interface ReadinessStatus {
   checks?: {
@@ -20,9 +42,83 @@ export type StatisticsRead = () =>
   | DeploymentStatistics
   | Promise<DeploymentStatistics>
 
+export interface DeploymentStatisticsReadOptions {
+  cacheTtlMs?: number
+}
+
+export interface DeploymentStatisticsReader {
+  countPackages: () => number | Promise<number>
+}
+
 export interface TransportRoutesOptions {
   readiness?: ReadinessCheck
   statistics?: StatisticsRead
+}
+
+export interface TransportAppOptions {
+  knownErrors?: KnownTransportError[]
+  requestLog?: RequestLogSink
+  requestSizeLimit?: RequestSizeLimitOptions
+}
+
+export function createTransportApp(options: TransportAppOptions = {}): Hono {
+  const app = new Hono({
+    getPath: (request) => registryRoutePath(request),
+  })
+
+  app.use(createRequestIdMiddleware())
+  if (options.requestLog) {
+    app.use(createRequestLogger(options.requestLog))
+  }
+  app.use(createPathNormalizationMiddleware())
+  app.use(createCorsMiddleware())
+  if (options.requestSizeLimit) {
+    app.use(createRequestSizeLimitMiddleware(options.requestSizeLimit))
+  }
+  app.onError(createTransportErrorBoundary(options.knownErrors))
+
+  return app
+}
+
+export function createDeploymentStatisticsRead(
+  reader: DeploymentStatisticsReader,
+  options: DeploymentStatisticsReadOptions = {},
+): StatisticsRead {
+  const cacheTtlMs = normalizeDeploymentStatisticsCacheTtlMs(options.cacheTtlMs)
+  let cached:
+    | {
+        expiresAt: number
+        value: Awaited<ReturnType<StatisticsRead>>
+      }
+    | undefined
+  let pending: Promise<Awaited<ReturnType<StatisticsRead>>> | undefined
+
+  return () => {
+    const now = Date.now()
+
+    if (cacheTtlMs > 0 && cached && cached.expiresAt > now) {
+      return cached.value
+    }
+
+    pending ??= Promise.resolve(reader.countPackages())
+      .then((packages) => {
+        const value = normalizeDeploymentStatistics({ packages })
+        if (cacheTtlMs > 0) {
+          cached = {
+            expiresAt: Date.now() + cacheTtlMs,
+            value,
+          }
+        } else {
+          cached = undefined
+        }
+        return value
+      })
+      .finally(() => {
+        pending = undefined
+      })
+
+    return pending
+  }
 }
 
 export function createTransportRoutes(
@@ -110,6 +206,20 @@ function readinessStatus(ok: boolean): ReadinessStatus {
     kind: 'regesta.readiness',
     ok,
   }
+}
+
+function normalizeDeploymentStatisticsCacheTtlMs(
+  cacheTtlMs: number | undefined,
+): number {
+  const value = cacheTtlMs ?? defaultDeploymentStatisticsCacheTtlMs
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(
+      'Deployment statistics cache TTL must be a non-negative safe integer',
+    )
+  }
+
+  return value
 }
 
 function transportJson(

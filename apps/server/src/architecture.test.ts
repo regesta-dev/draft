@@ -59,6 +59,29 @@ describe('server layer boundaries', () => {
     ])
   })
 
+  it('keeps the transport shell owned by the transport layer', async () => {
+    const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+    const transportSource = await readFile(
+      join(serverSourceRoot, 'transport/app.ts'),
+      'utf8',
+    )
+
+    expect(source).toContain('createTransportApp')
+    expect(source).not.toContain('new Hono')
+    for (const text of [
+      'createRequestIdMiddleware',
+      'createRequestLogger',
+      'createPathNormalizationMiddleware',
+      'createCorsMiddleware',
+      'createRequestSizeLimitMiddleware',
+      'createTransportErrorBoundary',
+      'registryRoutePath',
+    ]) {
+      expect(source).not.toContain(text)
+      expect(transportSource).toContain(text)
+    }
+  })
+
   it('keeps shared HTTP response helpers independent from business layers', async () => {
     await expectNoForbiddenImports('responses.ts', [
       '@regesta/adapters',
@@ -95,6 +118,7 @@ describe('server layer boundaries', () => {
     await expectNoForbiddenImports('storage', [
       '@regesta/adapters',
       '@regesta/auth',
+      '@regesta/core',
       '@regesta/npm',
       'hono',
       'valibot',
@@ -105,6 +129,9 @@ describe('server layer boundaries', () => {
       '../npm/',
       '../transport/',
       '../trust/',
+    ])
+    await expectNoForbiddenSourcePatterns('storage', [
+      { label: 'full registry adapter type', pattern: /\bRegistryAdapters\b/u },
     ])
   })
 
@@ -143,16 +170,23 @@ describe('server layer boundaries', () => {
     await expectNoForbiddenImports('artifacts/process.ts', ['@regesta/npm'])
   })
 
-  it('wires ecosystem artifact processors only at the server composition root', async () => {
+  it('wires ecosystem artifact processors only through the artifact layer defaults', async () => {
     const violations: string[] = []
     const appSource = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+    const artifactAppSource = await readFile(
+      join(serverSourceRoot, 'artifacts/app.ts'),
+      'utf8',
+    )
 
-    expect(appSource).toContain('createPublishArtifactProcessor')
-    expect(appSource).toContain('processNpmArtifacts')
+    expect(appSource).toContain('createDefaultPublishArtifactProcessor')
+    expect(appSource).not.toContain('processNpmArtifacts')
+    expect(appSource).not.toContain('createPublishArtifactProcessor')
+    expect(artifactAppSource).toContain('createPublishArtifactProcessor')
+    expect(artifactAppSource).toContain('processNpmArtifacts')
 
     for (const file of await sourceFiles(serverSourceRoot)) {
       const relativePath = relative(serverSourceRoot, file)
-      if (['app.ts', 'artifacts/npm.ts'].includes(relativePath)) {
+      if (['artifacts/app.ts', 'artifacts/npm.ts'].includes(relativePath)) {
         continue
       }
 
@@ -223,6 +257,48 @@ describe('server layer boundaries', () => {
     expect(violations).toEqual([])
   })
 
+  it('keeps known business error mappings owned by their layers', async () => {
+    const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+    const coreErrorsSource = await readFile(
+      join(serverSourceRoot, 'core/errors.ts'),
+      'utf8',
+    )
+    const requestSource = await readFile(
+      join(serverSourceRoot, 'request.ts'),
+      'utf8',
+    )
+    const trustErrorsSource = await readFile(
+      join(serverSourceRoot, 'trust/errors.ts'),
+      'utf8',
+    )
+
+    expect(source).toContain('...requestKnownErrors')
+    expect(source).toContain('...trustKnownErrors')
+    expect(source).toContain('...coreRegistryKnownErrors')
+
+    for (const text of [
+      'ObjectCursorNotFoundError',
+      'PackageChannelConflictError',
+      'RegistryEventAlreadyExistsError',
+      'RegistryEventCursorNotFoundError',
+      'ReleaseAlreadyExistsError',
+      'ReleaseNotFoundError',
+      'WriteAuthorizationReplayError',
+      'WriteAuthorizationError',
+      'RequestValidationError',
+    ]) {
+      expect(source).not.toContain(text)
+    }
+
+    expect(requestSource).toContain('RequestValidationError')
+    expect(requestSource).toContain('request_invalid')
+    expect(coreErrorsSource).toContain('ReleaseNotFoundError')
+    expect(coreErrorsSource).toContain('package_channel_conflict')
+    expect(coreErrorsSource).toContain('write_authorization_replayed')
+    expect(trustErrorsSource).toContain('WriteAuthorizationError')
+    expect(trustErrorsSource).toContain('write_authorization_invalid')
+  })
+
   it('keeps npm projection tarball routes as redirects instead of byte proxies', async () => {
     const source = await readFile(join(serverSourceRoot, 'npm/app.ts'), 'utf8')
     const tarballStart = source.indexOf('function serveNpmTarball')
@@ -243,20 +319,63 @@ describe('server layer boundaries', () => {
     expect(tarballSource).not.toContain('localNpmPackageId')
   })
 
-  it('mounts npm projection behind a narrow registry reader', async () => {
+  it('mounts npm projection behind a layer-owned narrow registry reader', async () => {
     const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
-    const readerStart = source.indexOf('function createNpmRegistryReader')
-    const readerSource = source.slice(readerStart)
+    const projectionSource = await readFile(
+      join(serverSourceRoot, 'npm/app.ts'),
+      'utf8',
+    )
+    const appStart = projectionSource.indexOf(
+      'export function createNpmProjectionApp',
+    )
+    const readerStart = projectionSource.indexOf(
+      'export function createNpmRegistryReader',
+    )
+    const routesStart = projectionSource.indexOf(
+      'export function createNpmRegistryRoutes',
+    )
+    const readerSource = projectionSource.slice(readerStart, appStart)
+    const appSource = projectionSource.slice(appStart, routesStart)
 
-    expect(source).toContain('createNpmRegistryReader(adapters)')
+    expect(source).toContain('createNpmProjectionApp(adapters')
+    expect(source).not.toContain('createNpmRegistryReader')
     expect(source).not.toContain('createNpmRegistryRoutes(adapters')
+    expect(source).not.toContain('function createNpmRegistryReader')
+    expect(source).not.toContain('listPackageEvents:')
+    expect(source).not.toContain('listPackageReleases:')
+    expect(appStart).toBeGreaterThanOrEqual(0)
     expect(readerStart).toBeGreaterThanOrEqual(0)
+    expect(appStart).toBeGreaterThan(readerStart)
+    expect(routesStart).toBeGreaterThan(readerStart)
+    expect(routesStart).toBeGreaterThan(appStart)
+    expect(appSource).toContain('createNpmRegistryRoutes')
+    expect(appSource).toContain('createNpmRegistryReader')
     expect(readerSource).not.toContain('getRelease')
     expect(readerSource).toContain('listPackageEvents')
     expect(readerSource).toContain('listPackageReleases')
     expect(readerSource).not.toContain('.objects')
     expect(readerSource).not.toContain('.queue')
     expect(readerSource).not.toContain('.signer')
+  })
+
+  it('keeps deployment statistics caching in the transport layer', async () => {
+    const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+    const transportSource = await readFile(
+      join(serverSourceRoot, 'transport/app.ts'),
+      'utf8',
+    )
+
+    expect(source).toContain('createDeploymentStatisticsRead')
+    expect(source).toContain('adapters.database')
+    expect(source).not.toContain('normalizeDeploymentStatistics')
+    expect(source).not.toContain('countPackages()')
+    expect(source).not.toContain('cacheTtlMs > 0')
+    expect(transportSource).toContain(
+      'export function createDeploymentStatisticsRead',
+    )
+    expect(transportSource).toContain('normalizeDeploymentStatistics')
+    expect(transportSource).toContain('countPackages')
+    expect(transportSource).toContain('cacheTtlMs > 0')
   })
 
   it('keeps the server entrypoint wired to persistent local adapters', async () => {
@@ -329,6 +448,10 @@ describe('server layer boundaries', () => {
     const dockerfile = await readFile(join(workspaceRoot, 'Dockerfile'), 'utf8')
     const compose = await readFile(join(workspaceRoot, 'compose.yaml'), 'utf8')
     const app = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+    const devMount = await readFile(
+      join(serverSourceRoot, 'dev/mount.ts'),
+      'utf8',
+    )
     const devBinding = await readFile(
       join(serverSourceRoot, 'dev/domain-binding.ts'),
       'utf8',
@@ -337,9 +460,13 @@ describe('server layer boundaries', () => {
     expect(dockerfile).toContain('ENV NITRO_PRESET=node_server')
     expect(compose).toContain('NITRO_PRESET: node_server')
     expect(compose).toContain('NODE_ENV: production')
-    expect(app).toContain(
+    expect(app).toContain('mountDevLocalhostRoutes(app)')
+    expect(app).not.toContain("process.env.NODE_ENV === 'development'")
+    expect(app).not.toContain("app.all('/dev/*'")
+    expect(devMount).toContain(
       "import.meta.dev || process.env.NODE_ENV === 'development'",
     )
+    expect(devMount).toContain("app.all('/dev/*'")
     expect(devBinding).toContain(
       "import.meta.dev && process.env.NODE_ENV !== 'development'",
     )
