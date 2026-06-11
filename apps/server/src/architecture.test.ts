@@ -444,11 +444,33 @@ describe('workspace layer boundaries', () => {
       '@regesta/auth',
       '@regesta/core',
       'hono',
+      'node:fs',
+      'node:fs/promises',
+      'node:http',
+      'node:https',
+      'node:path',
+      'node:sqlite',
+      'undici',
       'valibot',
       '../adapters/',
       '../auth/',
       '../core/',
     ])
+  })
+
+  it('keeps upstream fallback and byte storage side effects out of the npm package', async () => {
+    await expectNoForbiddenSourcePatterns(
+      join(workspaceRoot, 'packages/npm/src'),
+      [
+        { label: 'network request', pattern: /\bfetch\s*\(/u },
+        { label: 'upstream npm registry', pattern: /registry\.npmjs\.org/u },
+        {
+          label: 'local filesystem access',
+          pattern: /\b(read|write)File\s*\(/u,
+        },
+        { label: 'SQLite implementation', pattern: /\bDatabaseSync\b/u },
+      ],
+    )
   })
 })
 
