@@ -10,7 +10,7 @@ import { mountDevLocalhostRoutes } from './dev/mount.ts'
 import {
   createNpmProjectionApp,
   type NpmRegistryRouteOptions,
-} from './npm/app.ts'
+} from './npm/projection-app.ts'
 import { requestKnownErrors } from './request.ts'
 import {
   createStorageReadinessCheck,

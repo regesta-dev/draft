@@ -148,10 +148,90 @@ describe('server layer boundaries', () => {
   })
 
   it('keeps npm projection channels derived from core event state', async () => {
-    const source = await readFile(join(serverSourceRoot, 'npm/app.ts'), 'utf8')
+    const routeSource = await readFile(
+      join(serverSourceRoot, 'npm/app.ts'),
+      'utf8',
+    )
+    const projectionSource = await readFile(
+      join(serverSourceRoot, 'npm/projection.ts'),
+      'utf8',
+    )
 
-    expect(source).toContain('replayPackageState')
-    expect(source).not.toContain('getPackageChannels')
+    expect(routeSource).toContain('readLocalNpmPackageProjection')
+    expect(routeSource).not.toContain('replayPackageState')
+    expect(routeSource).not.toContain('getPackageChannels')
+    expect(projectionSource).toContain('replayPackageState')
+    expect(projectionSource).not.toContain('getPackageChannels')
+  })
+
+  it('keeps local npm projection mechanics outside route handlers', async () => {
+    const routeSource = await readFile(
+      join(serverSourceRoot, 'npm/app.ts'),
+      'utf8',
+    )
+    const projectionSource = await readFile(
+      join(serverSourceRoot, 'npm/projection.ts'),
+      'utf8',
+    )
+
+    expect(routeSource).toContain('readLocalNpmPackageProjection')
+    for (const text of [
+      'createNpmPackument',
+      'npmInstallArtifact',
+      'coreRegistryHostname',
+      'coreObjectUrl',
+    ]) {
+      expect(routeSource).not.toContain(text)
+      expect(projectionSource).toContain(text)
+    }
+  })
+
+  it('keeps npm projection submodules on their own side of the boundary', async () => {
+    await expectNoForbiddenImports('npm/app.ts', [
+      '@regesta/adapters',
+      '@regesta/core',
+      '@regesta/npm',
+      './projection-app',
+    ])
+    await expectNoForbiddenImports('npm/projection.ts', [
+      '@regesta/adapters',
+      '@regesta/auth',
+      'hono',
+      '../responses',
+      './projection-app',
+      './reader',
+      './upstream',
+    ])
+    await expectNoForbiddenImports('npm/upstream.ts', [
+      '@regesta/adapters',
+      '@regesta/auth',
+      '@regesta/core',
+      '@regesta/npm',
+      '@regesta/protocol',
+      './projection',
+      './projection-app',
+      './reader',
+    ])
+    await expectNoForbiddenImports('npm/reader.ts', [
+      '@regesta/adapters',
+      '@regesta/auth',
+      '@regesta/npm',
+      'hono',
+      '../responses',
+      './app',
+      './projection',
+      './projection-app',
+      './upstream',
+    ])
+    await expectNoForbiddenImports('npm/projection-app.ts', [
+      '@regesta/adapters',
+      '@regesta/auth',
+      '@regesta/npm',
+      '@regesta/protocol',
+      '../responses',
+      './projection',
+      './upstream',
+    ])
   })
 
   it('keeps artifact helpers independent from server routes', async () => {
@@ -312,30 +392,56 @@ describe('server layer boundaries', () => {
     expect(source).not.toContain('assertObjectResponseIntegrity')
     expect(tarballStart).toBeGreaterThanOrEqual(0)
     expect(tarballEnd).toBeGreaterThan(tarballStart)
-    expect(tarballSource).toContain('upstreamNpmTarballUrl')
+    expect(tarballSource).toContain('upstream.tarballUrl')
     expect(tarballSource).not.toContain('adapters')
     expect(tarballSource).not.toContain('database')
     expect(tarballSource).not.toContain('fetch')
     expect(tarballSource).not.toContain('localNpmPackageId')
   })
 
-  it('mounts npm projection behind a layer-owned narrow registry reader', async () => {
-    const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
-    const projectionSource = await readFile(
+  it('keeps npm upstream fallback mechanics outside projection route handlers', async () => {
+    const routeSource = await readFile(
       join(serverSourceRoot, 'npm/app.ts'),
       'utf8',
     )
-    const appStart = projectionSource.indexOf(
+    const upstreamSource = await readFile(
+      join(serverSourceRoot, 'npm/upstream.ts'),
+      'utf8',
+    )
+
+    expect(routeSource).toContain('createNpmUpstreamFallback')
+    expect(routeSource).toContain('upstream.packument')
+    expect(routeSource).toContain('upstream.packageManifest')
+    expect(routeSource).toContain('upstream.distTags')
+    for (const text of [
+      'registry.npmjs.org',
+      'createBoundedUpstreamNpmFetch',
+      'upstream_npm_registry_unavailable',
+      'isNpmPackumentProjection',
+      'isNpmVersionManifestProjection',
+    ]) {
+      expect(routeSource).not.toContain(text)
+      expect(upstreamSource).toContain(text)
+    }
+  })
+
+  it('mounts npm projection behind a layer-owned narrow registry reader', async () => {
+    const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+    const routeSource = await readFile(
+      join(serverSourceRoot, 'npm/app.ts'),
+      'utf8',
+    )
+    const projectionAppSource = await readFile(
+      join(serverSourceRoot, 'npm/projection-app.ts'),
+      'utf8',
+    )
+    const readerSource = await readFile(
+      join(serverSourceRoot, 'npm/reader.ts'),
+      'utf8',
+    )
+    const projectionAppStart = projectionAppSource.indexOf(
       'export function createNpmProjectionApp',
     )
-    const readerStart = projectionSource.indexOf(
-      'export function createNpmRegistryReader',
-    )
-    const routesStart = projectionSource.indexOf(
-      'export function createNpmRegistryRoutes',
-    )
-    const readerSource = projectionSource.slice(readerStart, appStart)
-    const appSource = projectionSource.slice(appStart, routesStart)
 
     expect(source).toContain('createNpmProjectionApp(adapters')
     expect(source).not.toContain('createNpmRegistryReader')
@@ -343,13 +449,12 @@ describe('server layer boundaries', () => {
     expect(source).not.toContain('function createNpmRegistryReader')
     expect(source).not.toContain('listPackageEvents:')
     expect(source).not.toContain('listPackageReleases:')
-    expect(appStart).toBeGreaterThanOrEqual(0)
-    expect(readerStart).toBeGreaterThanOrEqual(0)
-    expect(appStart).toBeGreaterThan(readerStart)
-    expect(routesStart).toBeGreaterThan(readerStart)
-    expect(routesStart).toBeGreaterThan(appStart)
-    expect(appSource).toContain('createNpmRegistryRoutes')
-    expect(appSource).toContain('createNpmRegistryReader')
+    expect(routeSource).toContain('export function createNpmRegistryRoutes')
+    expect(routeSource).not.toContain('RegistryAdapters')
+    expect(routeSource).not.toContain('createNpmRegistryReader')
+    expect(projectionAppStart).toBeGreaterThanOrEqual(0)
+    expect(projectionAppSource).toContain('createNpmRegistryRoutes')
+    expect(projectionAppSource).toContain('createNpmRegistryReader')
     expect(readerSource).not.toContain('getRelease')
     expect(readerSource).toContain('listPackageEvents')
     expect(readerSource).toContain('listPackageReleases')
