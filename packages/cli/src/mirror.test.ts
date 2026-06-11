@@ -521,6 +521,62 @@ describe('compareMirrorDirectories', () => {
     }
   })
 
+  it('rejects successful local mirror inventories with recorded problems', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = await readInventory(join(rightDir, 'inventory.json'))
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          ok: true,
+          problems: ['tampered problem'],
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory ok must match problems',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects failed local mirror inventories without recorded problems', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = await readInventory(join(rightDir, 'inventory.json'))
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          ok: false,
+          problems: [],
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory ok must match problems',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects local mirror inventory release entries with unknown fields', async () => {
     const fixture = releaseFixture()
     const leftDir = await mirroredDirectory(fixture)

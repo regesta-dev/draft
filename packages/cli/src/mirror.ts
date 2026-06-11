@@ -804,6 +804,12 @@ function parseLocalMirrorInventory(
     `${label} inventory releases`,
   )
   assertLastEventId(events, lastEventId, `${label} inventory lastEventId`)
+  const ok = readBoolean(value.ok, `${label} inventory ok`)
+  const problems = readStringArray(
+    value.problems,
+    `${label} inventory problems`,
+  )
+  assertInventoryProblemState(ok, problems, `${label} inventory`)
 
   return {
     events,
@@ -814,11 +820,21 @@ function parseLocalMirrorInventory(
       `${label} inventory mirroredAt`,
     ),
     objects,
-    ok: readBoolean(value.ok, `${label} inventory ok`),
+    ok,
     packages,
-    problems: readStringArray(value.problems, `${label} inventory problems`),
+    problems,
     registry: readString(value.registry, `${label} inventory registry`),
     releases,
+  }
+}
+
+function assertInventoryProblemState(
+  ok: boolean,
+  problems: readonly string[],
+  label: string,
+): void {
+  if (ok !== (problems.length === 0)) {
+    throw new TypeError(`${label} ok must match problems`)
   }
 }
 
