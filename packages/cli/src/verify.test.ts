@@ -1997,6 +1997,60 @@ describe('verifyPackageStateFromRegistry', () => {
     ])
   })
 
+  it('reports public package state responses without Content-Length headers', async () => {
+    const fixture = releaseFixture()
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          stateResponseInit: {
+            omitContentLength: true,
+          },
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      problems: [
+        'Public package state request failed: Missing JSON Content-Length header: https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta',
+      ],
+    })
+  })
+
+  it('reports invalid public package state Content-Type headers', async () => {
+    const fixture = releaseFixture()
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          stateResponseInit: {
+            headers: {
+              'content-type': 'text/plain',
+            },
+          },
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      problems: [
+        'Public package state request failed: Invalid JSON Content-Type header: https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta',
+      ],
+    })
+  })
+
   it('reports public package state identity mismatches once', async () => {
     const fixture = releaseFixture()
     const state: PackageState = {
@@ -2502,6 +2556,7 @@ function publicPackageStateFetch(
   options: {
     state?: PackageState
     stateEtag?: string
+    stateResponseInit?: ResponseInit & { omitContentLength?: boolean }
   } = {},
 ): TestFetch {
   const eventLogFetch = publicEventLogFetch(events)
@@ -2527,14 +2582,20 @@ function publicPackageStateFetch(
         return Promise.resolve(new Response('not found', { status: 404 }))
       }
 
+      const headers = new Headers(options.stateResponseInit?.headers)
+      if (!headers.has('cache-control')) {
+        headers.set('cache-control', 'no-cache')
+      }
+      if (!headers.has('etag')) {
+        headers.set('etag', options.stateEtag ?? `W/"${lastPackageEvent.id}"`)
+      }
+
       return Promise.resolve(
         jsonResponse(
           options.state ?? replayPackageState(packageEvents, packageId),
           {
-            headers: {
-              'cache-control': 'no-cache',
-              etag: options.stateEtag ?? `W/"${lastPackageEvent.id}"`,
-            },
+            ...options.stateResponseInit,
+            headers,
           },
         ),
       )
