@@ -765,6 +765,8 @@ async function fetchJson<T>(
     }
 
     const text = await response.text()
+    validateJsonContentType(response.headers.get('content-type'), url)
+    validateJsonContentLength(url, response, text)
     const value: unknown = JSON.parse(text)
 
     return {
@@ -1126,6 +1128,51 @@ function validatePositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(`${label} must be a positive safe integer`)
   }
+}
+
+function validateJsonContentType(value: string | null, url: string): void {
+  if (!value) {
+    throw new TypeError(`Missing JSON Content-Type header: ${url}`)
+  }
+
+  const mediaType = value.split(';', 1)[0]?.trim().toLowerCase()
+
+  if (mediaType !== 'application/json' && !mediaType?.endsWith('+json')) {
+    throw new TypeError(`Invalid JSON Content-Type header: ${url}`)
+  }
+}
+
+function validateJsonContentLength(
+  url: string,
+  response: Response,
+  text: string,
+): void {
+  const sizeHeader = response.headers.get('content-length')
+
+  if (!sizeHeader) {
+    throw new TypeError(`Missing JSON Content-Length header: ${url}`)
+  }
+
+  if (
+    parseContentLength(sizeHeader, url) !==
+    new TextEncoder().encode(text).byteLength
+  ) {
+    throw new TypeError(`JSON Content-Length does not match body: ${url}`)
+  }
+}
+
+function parseContentLength(value: string, url: string): number {
+  if (!/^(?:0|[1-9]\d*)$/u.test(value)) {
+    throw new TypeError(`Invalid JSON Content-Length header: ${url}`)
+  }
+
+  const size = Number(value)
+
+  if (!Number.isSafeInteger(size)) {
+    throw new TypeError(`Invalid JSON Content-Length header: ${url}`)
+  }
+
+  return size
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

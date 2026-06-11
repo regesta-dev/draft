@@ -151,6 +151,28 @@ describe('mirrorRegistry', () => {
       await rm(outputDir, { force: true, recursive: true })
     }
   })
+
+  it('rejects public JSON responses without Content-Length', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          omitEventPageContentLength: true,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror JSON request failed: Missing JSON Content-Length header: https://registry.example/events?limit=999',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
 })
 
 describe('compareMirrorDirectories', () => {
@@ -313,6 +335,7 @@ async function mirroredDirectory(
 function mirrorFetch(
   fixture: ReturnType<typeof releaseFixture>,
   options: {
+    omitEventPageContentLength?: boolean
     objectOverrides?: ReadonlyMap<string, Uint8Array>
     releaseEnvelope?: unknown
   } = {},
@@ -373,10 +396,13 @@ function mirrorFetch(
       }
 
       return Promise.resolve(
-        jsonResponse({
-          events: [fixture.event],
-          nextAfter: fixture.event.id,
-        }),
+        jsonResponse(
+          {
+            events: [fixture.event],
+            nextAfter: fixture.event.id,
+          },
+          { omitContentLength: options.omitEventPageContentLength },
+        ),
       )
     }
 
@@ -418,14 +444,21 @@ function objectDescriptor(bytes: Uint8Array, mediaType: string) {
   }
 }
 
-function jsonResponse(value: unknown): Response {
+function jsonResponse(
+  value: unknown,
+  options: { omitContentLength?: boolean } = {},
+): Response {
   const body = canonicalJson(value)
+  const headers = new Headers({
+    'content-type': 'application/json',
+  })
+
+  if (!options.omitContentLength) {
+    headers.set('content-length', String(bytes(body).byteLength))
+  }
 
   return new Response(body, {
-    headers: {
-      'content-length': String(bytes(body).byteLength),
-      'content-type': 'application/json',
-    },
+    headers,
   })
 }
 
