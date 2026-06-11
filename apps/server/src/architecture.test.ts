@@ -19,6 +19,30 @@ describe('server layer boundaries', () => {
     ])
   })
 
+  it('keeps core routes independent from local storage implementations', async () => {
+    await expectNoForbiddenImports('core', [
+      '@regesta/adapters',
+      'node:fs',
+      'node:fs/promises',
+      'node:path',
+      'node:sqlite',
+      '../adapters/',
+      '../storage/',
+    ])
+    await expectNoForbiddenSourcePatterns('core', [
+      { label: 'SQLite implementation', pattern: /\bDatabaseSync\b/u },
+      {
+        label: 'local adapter factory',
+        pattern: /createLocalRegistryAdapters/u,
+      },
+      {
+        label: 'memory adapter factory',
+        pattern: /createMemoryRegistryAdapters/u,
+      },
+      { label: 'server data directory', pattern: /REGESTA_DATA_DIR/u },
+    ])
+  })
+
   it('keeps transport routes independent from registry business layers', async () => {
     await expectNoForbiddenImports('transport', [
       '@regesta/adapters',
