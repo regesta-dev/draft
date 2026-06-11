@@ -1082,6 +1082,41 @@ describe('compareMirrorDirectories', () => {
     }
   })
 
+  it('reports local release files whose event is missing from the mirror', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const { id: _id, ...payload } = fixture.event
+      const tamperedPayload = {
+        ...payload,
+        timestamp: '2026-06-10T00:01:00.000Z',
+      }
+      const tamperedEvent = {
+        ...tamperedPayload,
+        id: registryEventDigest(tamperedPayload),
+      }
+      await writeFile(
+        releasePath(rightDir, fixture.manifest.id, fixture.manifest.version),
+        `${canonicalJson({
+          ...fixture.releaseEnvelope,
+          event: tamperedEvent,
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Right mirror release event is missing from mirror: ${fixture.manifest.id}@${fixture.manifest.version}`,
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
   it('reports local release files that no longer match mirrored events', async () => {
     const fixture = releaseFixture()
     const leftDir = await mirroredDirectory(fixture)
