@@ -136,6 +136,7 @@ pnpm smoke:load
 
 This publishes a few temporary npm packages and repeatedly reads core package
 state, releases, events, objects, npm packuments, npm version manifests, and npm
-tarballs. It is an operational smoke check, not a benchmark.
+tarball redirects plus redirected object downloads. It is an operational smoke
+check, not a benchmark.
 
 For storage and recovery boundaries, see [Operations](/operations).
