@@ -255,6 +255,28 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('reports duplicate event ids in public event log pages', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          duplicateEventPage: true,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror event log contains duplicate event id: ${fixture.event.id}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects non-canonical immutable event endpoint responses', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -528,6 +550,7 @@ async function mirroredDirectory(
 function mirrorFetch(
   fixture: ReturnType<typeof releaseFixture>,
   options: {
+    duplicateEventPage?: boolean
     eventEndpointText?: string
     omitEventPageContentLength?: boolean
     objectCacheControls?: ReadonlyMap<string, string>
@@ -593,10 +616,14 @@ function mirrorFetch(
         return Promise.resolve(jsonResponse({ events: [] }))
       }
 
+      const events = options.duplicateEventPage
+        ? [fixture.event, fixture.event]
+        : [fixture.event]
+
       return Promise.resolve(
         jsonResponse(
           {
-            events: [fixture.event],
+            events,
             nextAfter: fixture.event.id,
           },
           { omitContentLength: options.omitEventPageContentLength },

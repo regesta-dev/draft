@@ -110,6 +110,7 @@ export async function mirrorRegistry(
   const limit = input.limit ?? defaultEventLogPageLimit
   const maxPages = input.maxPages ?? defaultEventLogMaxPages
   const eventIds: Sha256Digest[] = []
+  const acceptedEventIds = new Set<Sha256Digest>()
   const objectDescriptors = new Map<Sha256Digest, ObjectDescriptor>()
   const packageIds = new Set<PackageId>()
   const problems: string[] = []
@@ -161,6 +162,13 @@ export async function mirrorRegistry(
     }
 
     for (const event of page.value.events) {
+      if (acceptedEventIds.has(event.id)) {
+        problems.push(
+          `Mirror event log contains duplicate event id: ${event.id}`,
+        )
+        break
+      }
+
       const eventMirror = await mirrorEvent({
         event,
         fetch: fetchImpl,
@@ -176,6 +184,7 @@ export async function mirrorRegistry(
       }
 
       eventIds.push(event.id)
+      acceptedEventIds.add(event.id)
       packageIds.add(registryEventPackageId(event))
     }
 
