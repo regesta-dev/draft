@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
 const docsRoot = new URL('./', import.meta.url)
+const workspaceRoot = new URL('../', docsRoot)
 const schemaPath = 'public/schema/regesta-v0.schema.json'
 const openapiPath = 'public/openapi/regesta-v0.openapi.json'
 const expectedOpenapiRouteMethods = {
@@ -313,6 +314,36 @@ describe('documentation references', () => {
     )
   })
 
+  it('keeps operational smoke checks documented and script-backed', async () => {
+    const operations = await readText('operations.md')
+    const packageJson = await readWorkspaceJson('package.json')
+    const scripts = member(packageJson, 'scripts')
+
+    if (!isRecord(scripts)) {
+      throw new TypeError('workspace package.json scripts must be an object')
+    }
+
+    expect(scripts['smoke:docker']).toBe('node scripts/docker-smoke.mjs')
+    expect(scripts['smoke:load']).toBe(
+      'node --conditions=regesta-source scripts/load-smoke.mjs',
+    )
+
+    for (const text of [
+      'pnpm smoke:docker',
+      'pnpm smoke:load',
+      'REGESTA_LOAD_PROFILE=local pnpm smoke:load',
+      'SQLite/filesystem',
+      'reads core package state',
+      'reads events',
+      'reads objects',
+      'reads the npm projection',
+      'redirected object downloads',
+    ]) {
+      expect(operations).toContain(text)
+    }
+    expect(operations).toMatch(/npm tarball\s+redirects/u)
+  })
+
   it('documents npm metadata tarball URLs as projection redirects', async () => {
     const tarballSchema = await openapiValueAtPointer(
       '#/components/schemas/NpmVersionManifest/properties/dist/properties/tarball',
@@ -430,8 +461,19 @@ function readText(path: string): Promise<string> {
   return readFile(new URL(path, docsRoot), 'utf8')
 }
 
+function readWorkspaceText(path: string): Promise<string> {
+  return readFile(new URL(path, workspaceRoot), 'utf8')
+}
+
 async function readJson(path: string): Promise<unknown> {
   const text = await readText(path)
+  const parsed: unknown = JSON.parse(text)
+
+  return parsed
+}
+
+async function readWorkspaceJson(path: string): Promise<unknown> {
+  const text = await readWorkspaceText(path)
   const parsed: unknown = JSON.parse(text)
 
   return parsed
