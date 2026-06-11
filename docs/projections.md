@@ -116,9 +116,10 @@ The npm projection may serve Regesta packages first and fall back to
 also implement the same policy outside the server by trying Regesta first and
 then resolving missing packages from the ecosystem's default registry.
 
-Fallback metadata should not be committed as Regesta package state. Upstream
-tarball URLs should remain upstream unless an operator explicitly mirrors those
-bytes as Regesta objects.
+Fallback metadata should not be committed as Regesta package state. When the
+server projection handles fallback, upstream packument and version-manifest
+`dist.tarball` fields are rewritten to npm projection URLs. Those projection
+URLs redirect to upstream tarballs and never proxy tarball bytes.
 
 ## Future Projection Profiles
 

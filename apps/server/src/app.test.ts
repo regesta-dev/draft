@@ -4706,6 +4706,11 @@ describe('createRegestaApp', () => {
   it('falls back to npmjs packuments without proxying tarballs', async () => {
     const fetchCalls: Array<{ headers: Headers; method: string; url: string }> =
       []
+    const upstreamHeaders = {
+      'cache-control': 'public, max-age=300',
+      etag: '"upstream-etag"',
+      'last-modified': 'Wed, 10 Jun 2026 00:00:00 GMT',
+    }
     const fetchMock: typeof fetch = (input, init) => {
       const request = {
         headers: new Headers(init?.headers),
@@ -4714,16 +4719,41 @@ describe('createRegestaApp', () => {
       }
       fetchCalls.push(request)
 
-      if (request.headers.get('if-none-match') === '"upstream-etag"') {
+      if (
+        request.url === 'https://registry.npmjs.org/%40upstream%2Fpkg/latest'
+      ) {
         return Promise.resolve(
-          new Response(null, {
-            headers: {
-              'cache-control': 'public, max-age=300',
-              etag: '"upstream-etag"',
-              'last-modified': 'Wed, 10 Jun 2026 00:00:00 GMT',
+          Response.json(
+            {
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@upstream/pkg/-/pkg-1.0.0.tgz',
+              },
+              name: '@upstream/pkg',
+              version: '1.0.0',
             },
-            status: 304,
-          }),
+            {
+              headers: upstreamHeaders,
+            },
+          ),
+        )
+      }
+
+      if (request.url === 'https://registry.npmjs.org/tinyexec/latest') {
+        return Promise.resolve(
+          Response.json(
+            {
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
+              },
+              name: 'tinyexec',
+              version: '0.0.1',
+            },
+            {
+              headers: upstreamHeaders,
+            },
+          ),
         )
       }
 
@@ -4746,11 +4776,7 @@ describe('createRegestaApp', () => {
             },
           },
           {
-            headers: {
-              'cache-control': 'public, max-age=300',
-              etag: '"upstream-etag"',
-              'last-modified': 'Wed, 10 Jun 2026 00:00:00 GMT',
-            },
+            headers: upstreamHeaders,
           },
         ),
       )
@@ -4771,7 +4797,8 @@ describe('createRegestaApp', () => {
 
     expect(packument.status).toBe(200)
     expect(packument.headers.get('cache-control')).toBe('public, max-age=300')
-    expect(packument.headers.get('etag')).toBe('"upstream-etag"')
+    const fallbackEtag = requiredHeader(packument, 'etag')
+    expect(fallbackEtag).toMatch(/^W\/"regesta\.npm-fallback:[a-f0-9]{64}"$/u)
     expect(packument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
@@ -4787,7 +4814,7 @@ describe('createRegestaApp', () => {
       versions: {
         '1.0.0': {
           dist: {
-            tarball: 'https://registry.npmjs.org/@upstream/pkg/-/pkg-1.0.0.tgz',
+            tarball: 'http://npm.registry.test/@upstream/pkg/-/pkg-1.0.0.tgz',
           },
         },
       },
@@ -4798,7 +4825,7 @@ describe('createRegestaApp', () => {
       {
         headers: {
           'if-modified-since': 'Tue, 09 Jun 2026 00:00:00 GMT',
-          'if-none-match': '"upstream-etag"',
+          'if-none-match': fallbackEtag,
         },
       },
     )
@@ -4807,16 +4834,14 @@ describe('createRegestaApp', () => {
     expect(conditionalPackument.headers.get('cache-control')).toBe(
       'public, max-age=300',
     )
-    expect(conditionalPackument.headers.get('etag')).toBe('"upstream-etag"')
+    expect(conditionalPackument.headers.get('etag')).toBe(fallbackEtag)
     expect(conditionalPackument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
     expect(fetchCalls.at(-1)?.headers.get('if-modified-since')).toBe(
       'Tue, 09 Jun 2026 00:00:00 GMT',
     )
-    expect(fetchCalls.at(-1)?.headers.get('if-none-match')).toBe(
-      '"upstream-etag"',
-    )
+    expect(fetchCalls.at(-1)?.headers.get('if-none-match')).toBeNull()
 
     const headPackument = await app.request(
       'http://npm.registry.test/@upstream/pkg',
@@ -4826,7 +4851,7 @@ describe('createRegestaApp', () => {
     )
 
     expect(headPackument.status).toBe(200)
-    expect(headPackument.headers.get('etag')).toBe('"upstream-etag"')
+    expect(headPackument.headers.get('etag')).toBeNull()
     expect(headPackument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
@@ -4841,6 +4866,11 @@ describe('createRegestaApp', () => {
     expect(fetchCalls.at(-1)?.url).toBe(
       'https://registry.npmjs.org/%40upstream%2Fpkg/latest',
     )
+    await expect(manifest.json()).resolves.toMatchObject({
+      dist: {
+        tarball: 'http://npm.registry.test/@upstream/pkg/-/pkg-1.0.0.tgz',
+      },
+    })
 
     const unscopedManifest = await app.request(
       'http://npm.registry.test/tinyexec/latest',
@@ -4850,6 +4880,11 @@ describe('createRegestaApp', () => {
     expect(fetchCalls.at(-1)?.url).toBe(
       'https://registry.npmjs.org/tinyexec/latest',
     )
+    await expect(unscopedManifest.json()).resolves.toMatchObject({
+      dist: {
+        tarball: 'http://npm.registry.test/tinyexec/-/tinyexec-0.0.1.tgz',
+      },
+    })
 
     const distTags = await app.request(
       'http://npm.registry.test/-/package/@upstream/pkg/dist-tags',

@@ -102,7 +102,6 @@ Install through npm:
 ```sh
 npm install \
   --registry http://npm.localhost:4321 \
-  --replace-registry-host=never \
   @dev.localhost/hello-regesta@0.0.5
 ```
 
@@ -111,8 +110,10 @@ are served from Regesta, while missing packages can fall back to
 `registry.npmjs.org`. The same fallback policy can also be handled by a
 client/package manager instead of the server projection.
 
-`--replace-registry-host=never` prevents npm from rewriting upstream npmjs.org
-tarball URLs through the Regesta npm projection during fallback installs.
+Fallback packuments and version manifests expose tarball URLs on the npm
+projection host, such as
+`https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz`. Those URLs redirect to
+upstream npmjs.org tarballs; Regesta does not proxy tarball bytes.
 
 ## Docker Smoke Test
 

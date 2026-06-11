@@ -5,15 +5,16 @@ import {
   npmPackageIdFromName,
   tarballFileName,
 } from '@regesta/npm'
+import {
+  sha256,
+  type PackageId,
+  type RegistryEvent,
+  type ReleaseManifest,
+  type Sha256Digest,
+} from '@regesta/protocol'
 import { Hono, type Context } from 'hono'
 import { decodeRequestComponent, requiredParam } from '../request.ts'
 import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
-import type {
-  PackageId,
-  RegistryEvent,
-  ReleaseManifest,
-  Sha256Digest,
-} from '@regesta/protocol'
 
 interface NpmRegistryReader {
   database: {
@@ -314,9 +315,10 @@ async function serveNpmPackageManifest(
     )
   }
 
-  return fetchUpstreamNpm(
+  return fetchUpstreamNpmJsonWithTarballRedirects(
     context,
     upstreamFetch,
+    packageName,
     upstreamNpmPackageManifestUrl(packageName, tagOrVersion),
   )
 }
@@ -355,9 +357,10 @@ function fetchUpstreamNpmPackument(
   upstreamFetch: typeof fetch,
   packageName: string,
 ): Promise<Response> {
-  return fetchUpstreamNpm(
+  return fetchUpstreamNpmJsonWithTarballRedirects(
     context,
     upstreamFetch,
+    packageName,
     upstreamNpmPackumentUrl(packageName),
   )
 }
@@ -400,18 +403,65 @@ async function fetchUpstreamNpm(
     )
   }
 
-  const headers = new Headers()
+  return upstreamNpmResponse(context, response)
+}
 
-  copyHeader(response.headers, headers, 'cache-control')
-  copyHeader(response.headers, headers, 'content-type')
-  copyHeader(response.headers, headers, 'etag')
-  copyHeader(response.headers, headers, 'last-modified')
+async function fetchUpstreamNpmJsonWithTarballRedirects(
+  context: Context,
+  upstreamFetch: typeof fetch,
+  packageName: string,
+  url: string,
+): Promise<Response> {
+  let response: Response
 
-  return new Response(context.req.method === 'HEAD' ? null : response.body, {
-    headers,
-    status: response.status,
-    statusText: response.statusText,
-  })
+  try {
+    const requestHeaders = new Headers()
+    requestHeaders.set(
+      'accept',
+      context.req.header('accept') ?? 'application/json',
+    )
+    copyHeader(context.req.raw.headers, requestHeaders, 'if-modified-since')
+
+    response = await upstreamFetch(url, {
+      headers: requestHeaders,
+      method: context.req.method === 'HEAD' ? 'HEAD' : 'GET',
+    })
+  } catch (error) {
+    const id = requestId(context)
+
+    console.error('Upstream npm registry request failed', {
+      error,
+      kind: 'regesta.npm-upstream-failure',
+      ...(id ? { requestId: id } : {}),
+      url,
+    })
+    return context.json(
+      errorResponse(
+        'upstream_npm_registry_unavailable',
+        'Upstream npm registry unavailable',
+      ),
+      502,
+    )
+  }
+
+  if (context.req.method === 'HEAD' || response.status !== 200) {
+    return upstreamNpmResponse(context, response, false)
+  }
+
+  const text = await response.text()
+  let body: unknown
+
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return upstreamNpmTextResponse(context, response, text, false)
+  }
+
+  return serveTransformedUpstreamNpmJson(
+    context,
+    rewriteNpmTarballUrls(body, packageName, new URL(context.req.url).origin),
+    response,
+  )
 }
 
 function upstreamNpmPackumentUrl(packageName: string): string {
@@ -443,6 +493,53 @@ function copyHeader(source: Headers, target: Headers, name: string): void {
   if (value) {
     target.set(name, value)
   }
+}
+
+function upstreamNpmResponse(
+  context: Context,
+  response: Response,
+  copyEtag = true,
+): Response {
+  const headers = upstreamNpmResponseHeaders(response, copyEtag)
+
+  return new Response(context.req.method === 'HEAD' ? null : response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  })
+}
+
+function upstreamNpmTextResponse(
+  context: Context,
+  response: Response,
+  text: string,
+  copyEtag = true,
+): Response {
+  const bytes = new TextEncoder().encode(text)
+  const headers = upstreamNpmResponseHeaders(response, copyEtag)
+  headers.set('content-length', String(bytes.byteLength))
+
+  return new Response(context.req.method === 'HEAD' ? null : bytes, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  })
+}
+
+function upstreamNpmResponseHeaders(
+  response: Response,
+  copyEtag: boolean,
+): Headers {
+  const headers = new Headers()
+
+  copyHeader(response.headers, headers, 'cache-control')
+  copyHeader(response.headers, headers, 'content-type')
+  if (copyEtag) {
+    copyHeader(response.headers, headers, 'etag')
+  }
+  copyHeader(response.headers, headers, 'last-modified')
+
+  return headers
 }
 
 function requestId(context: Context): string | undefined {
@@ -479,6 +576,36 @@ function serveNpmProjectionJson(
   return context.req.method === 'HEAD'
     ? new Response(null, { headers })
     : new Response(bytes, { headers })
+}
+
+function serveTransformedUpstreamNpmJson(
+  context: Context,
+  body: unknown,
+  upstreamResponse: Response,
+): Response {
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  const etag = `W/"regesta.npm-fallback:${sha256(bytes).slice(
+    'sha256:'.length,
+  )}"`
+  const headers = upstreamNpmResponseHeaders(upstreamResponse, false)
+  headers.set('content-length', String(bytes.byteLength))
+  headers.set('content-type', 'application/json; charset=UTF-8')
+  headers.set('etag', etag)
+
+  if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
+    headers.delete('content-length')
+
+    return new Response(null, {
+      headers,
+      status: 304,
+    })
+  }
+
+  return new Response(bytes, {
+    headers,
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+  })
 }
 
 function versionManifestEtag(releaseEventId: string): string {
@@ -560,6 +687,83 @@ function coreRegistryHostname(hostname: string): string {
   }
 
   return ['registry', ...labels.slice(1)].join('.')
+}
+
+function rewriteNpmTarballUrls(
+  value: unknown,
+  packageName: string,
+  registryBaseUrl: string,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      return rewriteNpmTarballUrls(item, packageName, registryBaseUrl)
+    })
+  }
+
+  if (!isRecord(value)) {
+    return value
+  }
+
+  const result: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    result[key] = rewriteNpmTarballUrls(item, packageName, registryBaseUrl)
+  }
+
+  if (isRecord(result.dist) && typeof result.dist.tarball === 'string') {
+    const tarballFile = npmTarballFileFromUrl(result.dist.tarball)
+    if (tarballFile) {
+      result.dist = {
+        ...result.dist,
+        tarball: npmProjectionTarballUrl(
+          packageName,
+          tarballFile,
+          registryBaseUrl,
+        ),
+      }
+    }
+  }
+
+  return result
+}
+
+function npmTarballFileFromUrl(value: string): string | undefined {
+  const marker = '/-/'
+  let path = value
+
+  try {
+    path = new URL(value).pathname
+  } catch {
+    // npm packuments normally use absolute tarball URLs, but custom upstream
+    // registries may return relative URLs with the same path shape.
+  }
+
+  const markerIndex = path.lastIndexOf(marker)
+  if (markerIndex === -1) {
+    return undefined
+  }
+
+  const encodedFile = path.slice(markerIndex + marker.length)
+  if (!encodedFile || encodedFile.includes('/')) {
+    return undefined
+  }
+
+  return decodeRequestComponent(encodedFile)
+}
+
+function npmProjectionTarballUrl(
+  packageName: string,
+  file: string,
+  registryBaseUrl: string,
+): string {
+  const baseUrl = registryBaseUrl.endsWith('/')
+    ? registryBaseUrl.slice(0, -1)
+    : registryBaseUrl
+
+  return `${baseUrl}/${packageName}/-/${encodeURIComponent(file)}`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function scopedNpmPackageName(scope: string, name: string): string {
