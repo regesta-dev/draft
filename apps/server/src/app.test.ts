@@ -2706,6 +2706,29 @@ describe('createRegestaApp', () => {
     expect(await conditional.text()).toBe('')
   })
 
+  it('returns uncached verification problem responses', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const packageId = 'npm:example.com/missing-regesta'
+
+    const response = await app.request(
+      `/packages/${encodeURIComponent(packageId)}/releases/0.0.1/verification`,
+    )
+
+    expect(response.status).toBe(422)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    const text = await response.clone().text()
+    expect(response.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(text)),
+    )
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      problems: [`Release not found: ${packageId}@0.0.1`],
+    })
+  })
+
   it('returns 404 for missing package channels', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const packageId = encodeURIComponent('npm:example.com/hello-regesta')
