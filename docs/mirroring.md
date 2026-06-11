@@ -157,8 +157,11 @@ node --conditions=regesta-source packages/cli/src/index.ts mirror ./mirror \
 
 The mirror helper reads event pages and `/objects` descriptor inventory, then
 writes event JSON, release envelopes, object bytes, and a local inventory file.
-The local inventory is a tool artifact. Future mirror sync or checkpoint
-formats can build on the public descriptor list.
+The local inventory records the source registry URL, capture time, final event
+cursor, observed event ids, object digests, package ids, release keys, mirror
+status, and known problems. It is a tool artifact, not a protocol object.
+Future mirror sync or checkpoint formats can build on the public descriptor
+list.
 
 Two local mirror directories can be compared without contacting either
 registry again:

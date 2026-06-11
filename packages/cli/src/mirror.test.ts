@@ -77,7 +77,9 @@ describe('mirrorRegistry', () => {
           fixture.manifest.source.digest,
           fixture.manifestDescriptor.digest,
         ].toSorted(),
+        ok: true,
         packages: [fixture.manifest.id],
+        problems: [],
         registry: 'https://registry.example',
         releases: [
           { id: fixture.manifest.id, version: fixture.manifest.version },
@@ -108,6 +110,14 @@ describe('mirrorRegistry', () => {
       expect(result.problems).toEqual([
         `Mirror object request failed: Object size does not match descriptor: ${fixture.manifest.source.digest}`,
       ])
+      await expect(
+        readText(join(outputDir, 'inventory.json')).then((text) =>
+          JSON.parse(text),
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        problems: result.problems,
+      })
     } finally {
       await rm(outputDir, { force: true, recursive: true })
     }
@@ -289,7 +299,9 @@ describe('compareMirrorDirectories', () => {
           lastEventId: fixture.event.id,
           mirroredAt: expect.any(String),
           objects: 4,
+          ok: true,
           packages: 1,
+          problems: [],
           releases: 1,
         },
         ok: true,
@@ -300,7 +312,9 @@ describe('compareMirrorDirectories', () => {
           lastEventId: fixture.event.id,
           mirroredAt: expect.any(String),
           objects: 4,
+          ok: true,
           packages: 1,
+          problems: [],
           releases: 1,
         },
       })

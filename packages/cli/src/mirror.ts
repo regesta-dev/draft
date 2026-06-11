@@ -51,7 +51,9 @@ export interface MirrorDirectoryComparisonSide {
   lastEventId?: Sha256Digest
   mirroredAt?: string
   objects: number
+  ok: boolean
   packages: number
+  problems: string[]
   releases: number
 }
 
@@ -82,7 +84,9 @@ interface LocalMirrorInventory {
   lastEventId?: Sha256Digest
   mirroredAt: string
   objects: Sha256Digest[]
+  ok: boolean
   packages: PackageId[]
+  problems: string[]
   registry: string
   releases: Array<{ id: PackageId; version: string }>
 }
@@ -217,7 +221,9 @@ export async function mirrorRegistry(
     ...(result.lastEventId ? { lastEventId: result.lastEventId } : {}),
     mirroredAt,
     objects: [...objectDescriptors.keys()].toSorted(),
+    ok: result.ok,
     packages: [...packageIds].toSorted(),
+    problems,
     registry,
     releases,
   })
@@ -729,7 +735,9 @@ function parseLocalMirrorInventory(
       `${label} inventory mirroredAt`,
     ),
     objects: readDigestArray(value.objects, `${label} inventory objects`),
+    ok: readBoolean(value.ok, `${label} inventory ok`),
     packages: readPackageIdArray(value.packages, `${label} inventory packages`),
+    problems: readStringArray(value.problems, `${label} inventory problems`),
     registry: readString(value.registry, `${label} inventory registry`),
     releases: readInventoryReleases(
       value.releases,
@@ -1024,6 +1032,24 @@ function readString(value: unknown, label: string): string {
   return value
 }
 
+function readBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new TypeError(`${label} must be a boolean`)
+  }
+
+  return value
+}
+
+function readStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an array`)
+  }
+
+  return value.map((item, index) => {
+    return readString(item, `${label}[${index}]`)
+  })
+}
+
 function registryEventPackageId(event: RegistryEvent): PackageId {
   switch (event.eventType) {
     case 'channel.deleted':
@@ -1098,7 +1124,9 @@ function mirrorDirectoryComparisonSide(
     ...(inventory?.lastEventId ? { lastEventId: inventory.lastEventId } : {}),
     ...(inventory?.mirroredAt ? { mirroredAt: inventory.mirroredAt } : {}),
     objects: inventory?.objects.length ?? 0,
+    ok: inventory?.ok ?? false,
     packages: inventory?.packages.length ?? 0,
+    problems: inventory?.problems ?? [],
     releases: inventory?.releases.length ?? 0,
   }
 }
