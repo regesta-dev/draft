@@ -391,6 +391,20 @@ describe('npm package projection', () => {
     })
   })
 
+  it('returns an empty npm processing result after validating minimal install artifacts', async () => {
+    await expect(
+      processNpmPublishArtifacts(npmConfig(), [
+        {
+          bytes: await packageJsonTarball({
+            name: '@some.dev/sdk',
+            version: '1.0.0',
+          }),
+          role: 'install',
+        },
+      ]),
+    ).resolves.toEqual({})
+  })
+
   it('rejects invalid npm dev dependency metadata', async () => {
     await expect(
       processNpmPublishArtifacts(npmConfig(), [

@@ -16,6 +16,15 @@ export async function processNpmArtifacts(
     return input
   }
 
+  if (
+    input.config.description !== undefined &&
+    input.config.description !== npmProcessing.description
+  ) {
+    throw new TypeError(
+      'regesta.json description must match npm package.json description',
+    )
+  }
+
   return {
     artifacts: input.artifacts.map((artifact) => ({
       ...artifact,

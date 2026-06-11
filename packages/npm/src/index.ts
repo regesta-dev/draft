@@ -219,7 +219,7 @@ export async function processNpmPublishArtifacts(
     result.ecosystemMetadata = { npm: npmManifest.metadata }
   }
 
-  return Object.keys(result).length > 0 ? result : undefined
+  return result
 }
 
 export function integrityFromBytes(bytes: Uint8Array): string {

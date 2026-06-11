@@ -260,11 +260,11 @@ describe('processPublishArtifacts', () => {
     })
   })
 
-  it('keeps explicit config description over npm artifact description', async () => {
+  it('keeps explicit config descriptions that match npm artifact descriptions', async () => {
     const tarball = await createNpmTarball()
     const config = {
       ...npmConfig(),
-      description: 'Explicit config description',
+      description: 'Fixture package',
     }
 
     await expect(
@@ -280,9 +280,58 @@ describe('processPublishArtifacts', () => {
       }),
     ).resolves.toMatchObject({
       config: {
-        description: 'Explicit config description',
+        description: 'Fixture package',
       },
     })
+  })
+
+  it('rejects explicit config descriptions that do not match npm artifact descriptions', async () => {
+    const tarball = await createNpmTarball()
+    const config = {
+      ...npmConfig(),
+      description: 'Different package description',
+    }
+
+    await expect(
+      processPublishArtifacts({
+        artifacts: [
+          {
+            bytes: tarball,
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config,
+      }),
+    ).rejects.toThrow(
+      'regesta.json description must match npm package.json description',
+    )
+  })
+
+  it('rejects explicit config descriptions when npm artifacts do not declare descriptions', async () => {
+    const tarball = await createNpmTarball({
+      dependencies: undefined,
+      description: undefined,
+    })
+    const config = {
+      ...npmConfig(),
+      description: 'Config-only package description',
+    }
+
+    await expect(
+      processPublishArtifacts({
+        artifacts: [
+          {
+            bytes: tarball,
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config,
+      }),
+    ).rejects.toThrow(
+      'regesta.json description must match npm package.json description',
+    )
   })
 })
 
@@ -299,7 +348,9 @@ function npmConfig(): RegestaConfig {
   }
 }
 
-async function createNpmTarball(): Promise<Uint8Array> {
+async function createNpmTarball(
+  packageJsonOverrides: Record<string, unknown> = {},
+): Promise<Uint8Array> {
   const projectDir = await mkdtemp(join(tmpdir(), 'regesta-artifact-test-'))
   const outputDir = join(projectDir, 'packed')
 
@@ -315,6 +366,7 @@ async function createNpmTarball(): Promise<Uint8Array> {
           description: 'Fixture package',
           name: '@example.com/hello-regesta',
           version: '0.0.1',
+          ...packageJsonOverrides,
         },
         null,
         2,
