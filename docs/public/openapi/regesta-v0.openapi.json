@@ -700,6 +700,7 @@
       "get": {
         "tags": ["npm Projection"],
         "summary": "Read npm scoped packument or unscoped package version",
+        "description": "This physical npm route has two native npm meanings: `@scope/name` reads a scoped packument, while `name/tag` or `name/version` reads an unscoped fallback package version manifest, such as `/tinyexec/latest`.",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
           { "$ref": "#/components/parameters/NpmName" }
@@ -720,6 +721,7 @@
       "head": {
         "tags": ["npm Projection"],
         "summary": "Read npm scoped packument or unscoped package version headers",
+        "description": "This physical npm route has two native npm meanings: `@scope/name` reads scoped packument headers, while `name/tag` or `name/version` reads unscoped fallback package version headers.",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
           { "$ref": "#/components/parameters/NpmName" }
@@ -900,12 +902,14 @@
         "in": "path",
         "name": "name",
         "required": true,
+        "description": "npm path segment. For scoped package routes this is the package name. For unscoped fallback version routes under `/{scope}/{name}`, this segment is the requested tag or version.",
         "schema": { "$ref": "#/components/schemas/NonEmptyString" }
       },
       "NpmScope": {
         "in": "path",
         "name": "scope",
         "required": true,
+        "description": "npm path segment. For scoped package routes this is the leading scope, including `@`. For unscoped fallback version routes under `/{scope}/{name}`, this segment is the package name.",
         "schema": { "$ref": "#/components/schemas/NonEmptyString" }
       },
       "NpmTagOrVersion": {

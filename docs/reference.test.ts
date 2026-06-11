@@ -267,6 +267,19 @@ describe('documentation references', () => {
     )
   })
 
+  it('documents unscoped npm fallback version routes on the shared npm path', async () => {
+    await expect(readText('api.md')).resolves.toContain('GET /tinyexec/latest')
+    await expect(
+      openapiValueAtPointer('#/paths/~1{scope}~1{name}/get/description'),
+    ).resolves.toContain('/tinyexec/latest')
+    await expect(
+      openapiValueAtPointer('#/components/parameters/NpmScope/description'),
+    ).resolves.toContain('package name')
+    await expect(
+      openapiValueAtPointer('#/components/parameters/NpmName/description'),
+    ).resolves.toContain('tag or version')
+  })
+
   it('documents npm metadata tarball URLs as projection redirects', async () => {
     const tarballSchema = await openapiValueAtPointer(
       '#/components/schemas/NpmVersionManifest/properties/dist/properties/tarball',
