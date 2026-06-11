@@ -3,6 +3,7 @@ import type {
   ChannelUpdatedEvent,
   ObjectDescriptor,
   PackageId,
+  PackageState,
   RegistryEvent,
   ReleaseManifest,
   Sha256Digest,
@@ -88,6 +89,12 @@ export interface StoredRelease {
   manifestDescriptor: ObjectDescriptor
 }
 
+export interface PackageStateSnapshot {
+  lastEventId?: Sha256Digest
+  lastEventTimestamp?: string
+  state: PackageState
+}
+
 export interface RegistryEventListOptions {
   after?: Sha256Digest
   limit?: number
@@ -121,6 +128,7 @@ export interface RegistryDatabase {
   getEvent: (id: Sha256Digest) => Promise<RegistryEvent | undefined>
   getEventLog: () => Promise<RegistryEvent[]>
   getPackageChannels: (packageId: PackageId) => Promise<Record<string, string>>
+  getPackageEventState: (packageId: PackageId) => Promise<PackageStateSnapshot>
   getRelease: (
     packageId: PackageId,
     version: string,

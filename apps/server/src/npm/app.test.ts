@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createNpmRegistryRoutes } from './app.ts'
 import { createNpmProjectionApp } from './projection-app.ts'
 import type { NpmRegistryReader } from './reader.ts'
+import type { PackageStateSnapshot } from '@regesta/core'
 
 const packageId = parsePackageId('npm:example.com/hello-regesta').id
 
@@ -90,9 +91,11 @@ describe('createNpmRegistryRoutes', () => {
             latest: '1.0.0',
           }),
         ),
+        getPackageEventState: vi.fn(() =>
+          Promise.resolve(packageStateSnapshot(event)),
+        ),
         getRelease: vi.fn(() => Promise.resolve(undefined)),
         hasPackage: vi.fn(() => Promise.resolve(true)),
-        listPackageEvents: vi.fn(() => Promise.resolve([event])),
         listPackageReleases: vi.fn(() =>
           Promise.resolve([
             {
@@ -132,7 +135,7 @@ describe('createNpmRegistryRoutes', () => {
       },
     })
     expect(reader.database.listPackageReleases).toHaveBeenCalledWith(packageId)
-    expect(reader.database.listPackageEvents).toHaveBeenCalledWith(packageId)
+    expect(reader.database.getPackageEventState).toHaveBeenCalledWith(packageId)
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
@@ -148,9 +151,13 @@ describe('createNpmRegistryRoutes', () => {
             next: '2.0.0',
           }),
         ),
+        getPackageEventState: vi.fn(() =>
+          Promise.reject(
+            new Error('dist-tags should not read package event state'),
+          ),
+        ),
         getRelease: vi.fn(() => Promise.resolve(undefined)),
         hasPackage: vi.fn(() => Promise.resolve(true)),
-        listPackageEvents: vi.fn(() => Promise.resolve([])),
         listPackageReleases: vi.fn(() => Promise.resolve([])),
       },
     } satisfies NpmRegistryReader
@@ -170,7 +177,7 @@ describe('createNpmRegistryRoutes', () => {
     })
     expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
     expect(reader.database.hasPackage).not.toHaveBeenCalled()
-    expect(reader.database.listPackageEvents).not.toHaveBeenCalled()
+    expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
     expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
@@ -188,6 +195,11 @@ describe('createNpmRegistryRoutes', () => {
             latest: '1.0.0',
           }),
         ),
+        getPackageEventState: vi.fn(() =>
+          Promise.reject(
+            new Error('tagged manifests should not read package event state'),
+          ),
+        ),
         getRelease: vi.fn(() =>
           Promise.resolve({
             event,
@@ -195,7 +207,6 @@ describe('createNpmRegistryRoutes', () => {
           }),
         ),
         hasPackage: vi.fn(() => Promise.resolve(true)),
-        listPackageEvents: vi.fn(() => Promise.resolve([])),
         listPackageReleases: vi.fn(() => Promise.resolve([])),
       },
     } satisfies NpmRegistryReader
@@ -220,7 +231,7 @@ describe('createNpmRegistryRoutes', () => {
     expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
     expect(reader.database.getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(reader.database.hasPackage).not.toHaveBeenCalled()
-    expect(reader.database.listPackageEvents).not.toHaveBeenCalled()
+    expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
     expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
@@ -232,9 +243,13 @@ describe('createNpmRegistryRoutes', () => {
     const reader = {
       database: {
         getPackageChannels: vi.fn(() => Promise.resolve({})),
+        getPackageEventState: vi.fn(() =>
+          Promise.reject(
+            new Error('missing versions should not read package event state'),
+          ),
+        ),
         getRelease: vi.fn(() => Promise.resolve(undefined)),
         hasPackage: vi.fn(() => Promise.resolve(true)),
-        listPackageEvents: vi.fn(() => Promise.resolve([])),
         listPackageReleases: vi.fn(() => Promise.resolve([])),
       },
     } satisfies NpmRegistryReader
@@ -254,7 +269,7 @@ describe('createNpmRegistryRoutes', () => {
       'missing',
     )
     expect(reader.database.hasPackage).toHaveBeenCalledWith(packageId)
-    expect(reader.database.listPackageEvents).not.toHaveBeenCalled()
+    expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
     expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
@@ -316,5 +331,32 @@ function publishEvent(manifest: ReleaseManifest): RegistryEvent {
   return {
     ...payload,
     id: registryEventDigest(payload),
+  }
+}
+
+function packageStateSnapshot(event: RegistryEvent): PackageStateSnapshot {
+  if (event.eventType !== 'release.published') {
+    throw new Error('Expected publish event')
+  }
+
+  return {
+    lastEventId: event.id,
+    lastEventTimestamp: event.timestamp,
+    state: {
+      channels: {
+        latest: event.release.version,
+      },
+      ecosystem: 'npm',
+      id: event.release.id,
+      name: 'example.com/hello-regesta',
+      object: 'regesta.package-state',
+      releases: [
+        {
+          createdAt: event.timestamp,
+          manifestDigest: event.release.manifestDigest,
+          version: event.release.version,
+        },
+      ],
+    },
   }
 }

@@ -108,6 +108,34 @@ describe('adapters package architecture', () => {
       expect(deleteSource).not.toContain('assertAppendableRegistryEvent')
     }
   })
+
+  it('keeps package event state snapshots on indexed event state', async () => {
+    const sources = {
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
+    const memorySource = methodSource(
+      sources.memory,
+      'getPackageEventState',
+      'getRelease',
+    )
+    const sqliteSource = methodSource(
+      sources.sqlite,
+      'getPackageEventState',
+      'getRelease',
+    )
+
+    for (const source of [memorySource, sqliteSource]) {
+      expect(source).not.toContain('listPackageEvents')
+      expect(source).not.toContain('replayPackageState')
+      expect(source).not.toContain('event_json')
+    }
+
+    expect(memorySource).toContain('eventReleases')
+    expect(memorySource).toContain('eventChannels')
+    expect(sqliteSource).toContain('registry_event_releases')
+    expect(sqliteSource).toContain('registry_event_channels')
+  })
 })
 
 async function productionSourceFiles(directory: string): Promise<string[]> {

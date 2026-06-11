@@ -11,10 +11,13 @@ import {
   WriteAuthorizationReplayError,
 } from '@regesta/core'
 import {
+  assertSha256Digest,
   canonicalJson,
+  parsePackageId,
   type ChannelDeletedEvent,
   type ChannelUpdatedEvent,
   type PackageId,
+  type PackageStateRelease,
   type RegistryEvent,
   type Sha256Digest,
 } from '@regesta/protocol'
@@ -24,6 +27,7 @@ import {
 } from './events.ts'
 import { assertEventListOptions } from './pagination.ts'
 import type {
+  PackageStateSnapshot,
   RegistryDatabase,
   RegistryEventListOptions,
   StoredRelease,
@@ -80,6 +84,8 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       CREATE TABLE IF NOT EXISTS registry_event_releases (
         package_id TEXT NOT NULL,
         version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        manifest_digest TEXT NOT NULL,
         PRIMARY KEY (package_id, version)
       );
 
@@ -102,6 +108,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
 
     `)
     this.ensureRegistryEventColumns()
+    this.ensureRegistryEventReleaseColumns()
     this.ensureRegistryEventState()
     this.ensureRegistryStats()
     this.db.exec(`
@@ -428,6 +435,64 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
   }
 
+  getPackageEventState(packageId: PackageId): Promise<PackageStateSnapshot> {
+    const parsed = parsePackageId(packageId)
+    const releaseRows = this.db
+      .prepare(
+        `SELECT version, created_at, manifest_digest
+          FROM registry_event_releases
+          WHERE package_id = ?
+          ORDER BY created_at ASC, version ASC`,
+      )
+      .all(packageId)
+    const channelRows = this.db
+      .prepare(
+        `SELECT channel, version
+          FROM registry_event_channels
+          WHERE package_id = ?
+          ORDER BY channel ASC`,
+      )
+      .all(packageId)
+    const lastEventRow = this.db
+      .prepare(
+        `SELECT id, timestamp
+          FROM registry_events
+          WHERE package_id = ?
+          ORDER BY sequence DESC
+          LIMIT 1`,
+      )
+      .get(packageId)
+    const channels = Object.fromEntries(
+      channelRows.map((row) => [
+        requiredText(row, 'channel'),
+        requiredText(row, 'version'),
+      ]),
+    )
+
+    return Promise.resolve({
+      ...(lastEventRow
+        ? {
+            lastEventId: requiredSha256Digest(lastEventRow, 'id'),
+            lastEventTimestamp: requiredText(lastEventRow, 'timestamp'),
+          }
+        : {}),
+      state: {
+        ...(Object.keys(channels).length === 0 ? {} : { channels }),
+        ecosystem: parsed.ecosystem,
+        id: packageId,
+        name: parsed.name,
+        object: 'regesta.package-state',
+        releases: releaseRows.map((row) => {
+          return {
+            createdAt: requiredText(row, 'created_at'),
+            manifestDigest: requiredSha256Digest(row, 'manifest_digest'),
+            version: requiredText(row, 'version'),
+          } satisfies PackageStateRelease
+        }),
+      },
+    })
+  }
+
   getRelease(
     packageId: PackageId,
     version: string,
@@ -659,6 +724,34 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     }
   }
 
+  private ensureRegistryEventReleaseColumns(): void {
+    const columns = new Set(
+      this.db
+        .prepare(`PRAGMA table_info(registry_event_releases)`)
+        .all()
+        .map((row) => requiredText(row, 'name')),
+    )
+
+    if (columns.has('created_at') && columns.has('manifest_digest')) {
+      return
+    }
+
+    this.db.exec(`
+      DROP TABLE registry_event_releases;
+
+      CREATE TABLE registry_event_releases (
+        package_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        manifest_digest TEXT NOT NULL,
+        PRIMARY KEY (package_id, version)
+      );
+
+      DELETE FROM registry_event_state_meta
+        WHERE key = 'rebuilt';
+    `)
+  }
+
   private ensureRegistryEventState(): void {
     if (this.registryEventStateExists()) {
       return
@@ -746,10 +839,19 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       case 'release.published': {
         this.db
           .prepare(
-            `INSERT INTO registry_event_releases (package_id, version)
-              VALUES (?, ?)`,
+            `INSERT INTO registry_event_releases (
+              package_id,
+              version,
+              created_at,
+              manifest_digest
+            ) VALUES (?, ?, ?, ?)`,
           )
-          .run(event.release.id, event.release.version)
+          .run(
+            event.release.id,
+            event.release.version,
+            event.timestamp,
+            event.release.manifestDigest,
+          )
         this.db
           .prepare(
             `INSERT INTO registry_event_channels (package_id, channel, version)
@@ -1038,6 +1140,10 @@ function requiredText(row: SqliteRow, column: string): string {
   }
 
   return value
+}
+
+function requiredSha256Digest(row: SqliteRow, column: string): Sha256Digest {
+  return assertSha256Digest(requiredText(row, column))
 }
 
 function requiredNumber(row: SqliteRow, column: string): number {

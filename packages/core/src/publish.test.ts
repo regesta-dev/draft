@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   deletePackageChannel,
   getPackageState,
+  replayPackageState,
   updatePackageChannel,
 } from './channels.ts'
 import { verifyRelease } from './verify.ts'
@@ -860,7 +861,7 @@ describe('publishRelease', () => {
     ])
   })
 
-  it('derives package state from append-only package events', async () => {
+  it('derives package state from indexed event state', async () => {
     const adapters = createTestRegistryAdapters()
 
     await publishRelease(
@@ -880,6 +881,8 @@ describe('publishRelease', () => {
       Promise.reject(new Error('package state should not read channel views'))
     adapters.database.listPackageReleases = () =>
       Promise.reject(new Error('package state should not read release views'))
+    adapters.database.listPackageEvents = () =>
+      Promise.reject(new Error('package state should not replay events'))
 
     await expect(
       getPackageState(adapters, 'npm:example.com/hello-regesta'),
@@ -2067,6 +2070,22 @@ function createTestRegistryAdapters(): RegistryAdapters {
         const packageChannels = channels.get(packageId)
 
         return Promise.resolve(packageChannels ? { ...packageChannels } : {})
+      },
+      getPackageEventState: (packageId) => {
+        const packageEvents = events.filter((event) => {
+          return eventPackageId(event) === packageId
+        })
+        const lastEvent = packageEvents.at(-1)
+
+        return Promise.resolve({
+          ...(lastEvent
+            ? {
+                lastEventId: lastEvent.id,
+                lastEventTimestamp: lastEvent.timestamp,
+              }
+            : {}),
+          state: replayPackageState(packageEvents, packageId),
+        })
       },
       getRelease: (packageId, version) =>
         Promise.resolve(releases.get(packageId)?.get(version)),

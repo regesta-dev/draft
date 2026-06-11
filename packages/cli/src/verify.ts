@@ -878,6 +878,7 @@ function publicRegistryDatabase(input: {
       Promise.resolve(id === input.release.event.id ? input.event : undefined),
     getEventLog: unsupportedRead('read full event log'),
     getPackageChannels: unsupportedRead('read package channels'),
+    getPackageEventState: unsupportedRead('read package event state'),
     getRelease: (packageId, version) => {
       return Promise.resolve(
         packageId === input.packageId && version === input.version

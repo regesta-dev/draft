@@ -219,7 +219,7 @@
         "parameters": [{ "$ref": "#/components/parameters/PackageId" }],
         "responses": {
           "200": {
-            "description": "Package state replayed from package events.",
+            "description": "Event-derived package state snapshot.",
             "headers": {
               "ETag": { "$ref": "#/components/headers/WeakEtag" }
             },

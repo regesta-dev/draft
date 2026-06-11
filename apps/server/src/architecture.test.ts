@@ -147,7 +147,7 @@ describe('server layer boundaries', () => {
     ])
   })
 
-  it('keeps full npm packument channels replayed while narrow routes use indexed state', async () => {
+  it('keeps npm projection routes on indexed package state reads', async () => {
     const routeSource = await readFile(
       join(serverSourceRoot, 'npm/app.ts'),
       'utf8',
@@ -160,8 +160,19 @@ describe('server layer boundaries', () => {
     expect(routeSource).toContain('readLocalNpmPackageProjection')
     expect(routeSource).not.toContain('replayPackageState')
     expect(routeSource).toContain('getPackageChannels')
-    expect(projectionSource).toContain('replayPackageState')
+    expect(projectionSource).not.toContain('replayPackageState')
+    expect(projectionSource).toContain('getPackageEventState')
     expect(projectionSource).not.toContain('getPackageChannels')
+  })
+
+  it('keeps core package state reads on adapter-owned event indexes', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+
+    expect(coreSource).toContain('getPackageEventState')
+    expect(coreSource).not.toContain('replayPackageState')
   })
 
   it('keeps local npm projection mechanics outside route handlers', async () => {
@@ -456,9 +467,9 @@ describe('server layer boundaries', () => {
     expect(projectionAppSource).toContain('createNpmRegistryRoutes')
     expect(projectionAppSource).toContain('createNpmRegistryReader')
     expect(readerSource).toContain('getPackageChannels')
+    expect(readerSource).toContain('getPackageEventState')
     expect(readerSource).toContain('getRelease')
     expect(readerSource).toContain('hasPackage')
-    expect(readerSource).toContain('listPackageEvents')
     expect(readerSource).toContain('listPackageReleases')
     expect(readerSource).not.toContain('.objects')
     expect(readerSource).not.toContain('.queue')

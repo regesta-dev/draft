@@ -87,10 +87,7 @@ export async function getPackageState(
   adapters: RegistryAdapters,
   packageId: PackageId,
 ): Promise<PackageState> {
-  return replayPackageState(
-    await adapters.database.listPackageEvents(packageId),
-    packageId,
-  )
+  return (await adapters.database.getPackageEventState(packageId)).state
 }
 
 export async function getPackageChannelVersion(

@@ -56,7 +56,9 @@ A backup must preserve a consistent view of:
 
 Database-only backups are incomplete because releases reference
 content-addressed objects. Object-only backups are incomplete because package
-state is replayed from events stored in the database.
+state is derived from events stored in the database. Adapter-owned package-state
+indexes are recoverable implementation data; event rows are the durable source
+for rebuilding them.
 
 For the local SQLite/filesystem adapter, a conservative backup should stop
 writes, snapshot the whole `REGESTA_DATA_DIR`, then resume service. Future

@@ -193,6 +193,84 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('reads package state from event-derived registry state', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/event-state'
+        const firstEvent = publishEventForPackage(
+          packageId,
+          '0.0.1',
+          '2026-06-01T00:00:00.000Z',
+        )
+        const secondEvent = publishEventForPackage(
+          packageId,
+          '0.0.2',
+          '2026-06-01T00:01:00.000Z',
+        )
+        const updateEvent = channelUpdatedEvent(packageId, {
+          previousVersion: '0.0.2',
+          version: '0.0.1',
+        })
+
+        await database.appendEvent(firstEvent)
+        await database.appendEvent(secondEvent)
+        await database.appendEvent(updateEvent)
+
+        await expect(database.getPackageEventState(packageId)).resolves.toEqual(
+          {
+            lastEventId: updateEvent.id,
+            lastEventTimestamp: updateEvent.timestamp,
+            state: {
+              channels: {
+                latest: '0.0.1',
+              },
+              ecosystem: 'npm',
+              id: packageId,
+              name: 'example.com/event-state',
+              object: 'regesta.package-state',
+              releases: [
+                {
+                  createdAt: '2026-06-01T00:00:00.000Z',
+                  manifestDigest: firstEvent.release.manifestDigest,
+                  version: '0.0.1',
+                },
+                {
+                  createdAt: '2026-06-01T00:01:00.000Z',
+                  manifestDigest: secondEvent.release.manifestDigest,
+                  version: '0.0.2',
+                },
+              ],
+            },
+          },
+        )
+      })
+    })
+
+    it('returns isolated package event state snapshots', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/isolated-event-state'
+        const event = publishEventForPackage(
+          packageId,
+          '0.0.1',
+          '2026-06-01T00:00:00.000Z',
+        )
+
+        await database.appendEvent(event)
+
+        const expected = await database.getPackageEventState(packageId)
+        const firstRead = await database.getPackageEventState(packageId)
+        firstRead.state.channels!.latest = '9.9.9'
+        firstRead.state.releases[0]!.createdAt = '2099-01-01T00:00:00.000Z'
+        firstRead.state.releases[0]!.manifestDigest = sha256(
+          bytes('mutated manifest'),
+        )
+        firstRead.state.releases[0]!.version = '9.9.9'
+
+        await expect(database.getPackageEventState(packageId)).resolves.toEqual(
+          expected,
+        )
+      })
+    })
+
     it('lists event pages in sequence order and rejects unknown cursors', async () => {
       await withDatabase(target, async (database) => {
         const firstEvent = publishEventForPackage(

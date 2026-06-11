@@ -4,7 +4,6 @@ import {
   getPackageChannelVersion,
   normalizeRegestaConfig,
   publishRelease,
-  replayPackageState,
   updatePackageChannel,
   verifyRelease,
   type ObjectDescriptorListOptions,
@@ -682,8 +681,8 @@ async function servePackageStateRequest(
   const packageId = parseRequestPackageId(
     requiredParam(context.req.param('packageId'), 'packageId'),
   )
-  const events = await adapters.database.listPackageEvents(packageId)
-  const state = replayPackageState(events, packageId)
+  const { lastEventId, state } =
+    await adapters.database.getPackageEventState(packageId)
   if (state.releases.length === 0) {
     return context.json(
       errorResponse('package_not_found', 'Package not found'),
@@ -691,7 +690,7 @@ async function servePackageStateRequest(
     )
   }
 
-  return servePackageState(context, state, events.at(-1)?.id)
+  return servePackageState(context, state, lastEventId)
 }
 
 async function serveReleaseEnvelopeRequest(

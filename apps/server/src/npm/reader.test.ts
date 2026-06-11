@@ -8,9 +8,12 @@ describe('createNpmRegistryReader', () => {
     const packageId = parsePackageId('npm:example.com/hello-regesta').id
     const adapters = createMemoryRegistryAdapters()
     const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const getPackageEventState = vi.spyOn(
+      adapters.database,
+      'getPackageEventState',
+    )
     const getRelease = vi.spyOn(adapters.database, 'getRelease')
     const hasPackage = vi.spyOn(adapters.database, 'hasPackage')
-    const listPackageEvents = vi.spyOn(adapters.database, 'listPackageEvents')
     const listPackageReleases = vi.spyOn(
       adapters.database,
       'listPackageReleases',
@@ -21,12 +24,17 @@ describe('createNpmRegistryReader', () => {
       reader.database.getPackageChannels(packageId),
     ).resolves.toEqual({})
     await expect(
+      reader.database.getPackageEventState(packageId),
+    ).resolves.toMatchObject({
+      state: {
+        id: packageId,
+        releases: [],
+      },
+    })
+    await expect(
       reader.database.getRelease(packageId, '1.0.0'),
     ).resolves.toBeUndefined()
     await expect(reader.database.hasPackage(packageId)).resolves.toBe(false)
-    await expect(reader.database.listPackageEvents(packageId)).resolves.toEqual(
-      [],
-    )
     await expect(
       reader.database.listPackageReleases(packageId),
     ).resolves.toEqual([])
@@ -34,15 +42,15 @@ describe('createNpmRegistryReader', () => {
     expect(Object.keys(reader)).toEqual(['database'])
     expect(Object.keys(reader.database).toSorted()).toEqual([
       'getPackageChannels',
+      'getPackageEventState',
       'getRelease',
       'hasPackage',
-      'listPackageEvents',
       'listPackageReleases',
     ])
     expect(getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(getPackageEventState).toHaveBeenCalledWith(packageId)
     expect(getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(hasPackage).toHaveBeenCalledWith(packageId)
-    expect(listPackageEvents).toHaveBeenCalledWith(packageId)
     expect(listPackageReleases).toHaveBeenCalledWith(packageId)
   })
 })

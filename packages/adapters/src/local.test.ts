@@ -1128,6 +1128,65 @@ describe('SQLiteRegistryDatabase', () => {
     }
   })
 
+  it('backfills event-derived registry state for existing event logs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-events-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const firstDatabase = new SQLiteRegistryDatabase(databasePath)
+    let firstDatabaseClosed = false
+
+    try {
+      const release = storedRelease(
+        'npm:example.com/event-state-migration',
+        '0.0.1',
+      )
+      await firstDatabase.putRelease(release)
+      await firstDatabase.setPackageChannel(
+        release.manifest.id,
+        'latest',
+        release.manifest.version,
+      )
+      await firstDatabase.appendEvent(release.event)
+      firstDatabase.close()
+      firstDatabaseClosed = true
+
+      const rawDatabase = new DatabaseSync(databasePath)
+      rawDatabase.prepare(`DELETE FROM registry_event_state_meta`).run()
+      rawDatabase.exec(`
+        DROP TABLE registry_event_releases;
+
+        CREATE TABLE registry_event_releases (
+          package_id TEXT NOT NULL,
+          version TEXT NOT NULL,
+          PRIMARY KEY (package_id, version)
+        );
+      `)
+      rawDatabase.prepare(`DELETE FROM registry_event_channels`).run()
+      rawDatabase.close()
+
+      const migratedDatabase = new SQLiteRegistryDatabase(databasePath)
+      try {
+        const update = channelUpdatedEvent(release.manifest.id, {
+          previousVersion: release.manifest.version,
+          version: release.manifest.version,
+        })
+
+        await expect(
+          migratedDatabase.commitPackageChannelUpdate(update),
+        ).resolves.toBeUndefined()
+        await expect(migratedDatabase.getEvent(update.id)).resolves.toEqual(
+          update,
+        )
+      } finally {
+        migratedDatabase.close()
+      }
+    } finally {
+      if (!firstDatabaseClosed) {
+        firstDatabase.close()
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it('maintains package counts for direct release projection writes', async () => {
     const database = new SQLiteRegistryDatabase(':memory:')
 
@@ -1321,6 +1380,55 @@ describe('SQLiteRegistryDatabase', () => {
       await expect(sqlite.getEvent(event.id)).resolves.toBeUndefined()
       await expect(sqlite.getPackageChannels(packageId)).resolves.toEqual({
         latest: '0.0.1',
+      })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('does not expose direct projection writes as event-derived package state', async () => {
+    const release = storedRelease(
+      'npm:example.com/direct-projection-state',
+      '0.0.1',
+    )
+    const memory = new MemoryRegistryDatabase()
+    const sqlite = new SQLiteRegistryDatabase(':memory:')
+
+    try {
+      await memory.putRelease(release)
+      await memory.setPackageChannel(
+        release.manifest.id,
+        'latest',
+        release.manifest.version,
+      )
+      await expect(
+        memory.getPackageEventState(release.manifest.id),
+      ).resolves.toEqual({
+        state: {
+          ecosystem: 'npm',
+          id: release.manifest.id,
+          name: 'example.com/direct-projection-state',
+          object: 'regesta.package-state',
+          releases: [],
+        },
+      })
+
+      await sqlite.putRelease(release)
+      await sqlite.setPackageChannel(
+        release.manifest.id,
+        'latest',
+        release.manifest.version,
+      )
+      await expect(
+        sqlite.getPackageEventState(release.manifest.id),
+      ).resolves.toEqual({
+        state: {
+          ecosystem: 'npm',
+          id: release.manifest.id,
+          name: 'example.com/direct-projection-state',
+          object: 'regesta.package-state',
+          releases: [],
+        },
       })
     } finally {
       sqlite.close()

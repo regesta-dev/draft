@@ -79,7 +79,9 @@ Package state is a mutable projection derived from append-only package events.
 ```
 
 The package state response is useful to clients, but it is not the immutable
-source of truth. The event log is.
+source of truth. The event log is. Servers can materialize this object from
+event-derived indexes for read performance; verifiers should still reconstruct
+package state from public events when auditing it.
 
 ## Release Manifest
 

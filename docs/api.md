@@ -137,7 +137,7 @@ GET  /packages/{packageId}
 HEAD /packages/{packageId}
 ```
 
-Returns package state replayed from ordered package events:
+Returns an event-derived package state snapshot:
 
 ```json
 {
@@ -160,6 +160,11 @@ Returns package state replayed from ordered package events:
 
 Package state is mutable. Later channel events can change channel pointers, and
 later publish events can add releases.
+
+The served state is a convenience view over Regesta-native events. A production
+server may materialize it from adapter-owned indexes for performance, but the
+event log remains the source of truth. Auditors should replay public events and
+compare the result with this response when checking package state.
 
 Package state responses include `Cache-Control: no-cache`. Non-empty states
 include a weak `ETag` derived from the last package event id, so clients can

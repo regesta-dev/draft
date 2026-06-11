@@ -3162,6 +3162,78 @@ describe('createRegestaApp', () => {
     })
   })
 
+  it('serves package state from indexed event state', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const packageId = 'npm:example.com/package-state-read'
+    const publish = await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    const channel = await updatePackageChannel(adapters, {
+      channel: 'beta',
+      packageId,
+      timestamp: '2026-06-01T00:01:00.000Z',
+      version: '0.0.1',
+    })
+    adapters.database.listPackageEvents = () =>
+      Promise.reject(new Error('package state reads should not replay events'))
+
+    const response = await app.request(
+      `/packages/${encodeURIComponent(packageId)}`,
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    const etag = `W/"${channel.event.id}"`
+    expect(response.headers.get('etag')).toBe(etag)
+    await expect(response.json()).resolves.toMatchObject({
+      channels: {
+        beta: '0.0.1',
+        latest: '0.0.1',
+      },
+      id: packageId,
+      releases: [
+        {
+          createdAt: '2026-06-01T00:00:00.000Z',
+          manifestDigest: publish.manifestDescriptor.digest,
+          version: '0.0.1',
+        },
+      ],
+    })
+
+    const conditional = await app.request(
+      `/packages/${encodeURIComponent(packageId)}`,
+      {
+        headers: {
+          'if-none-match': etag,
+        },
+      },
+    )
+
+    expect(conditional.status).toBe(304)
+    expect(conditional.headers.get('cache-control')).toBe('no-cache')
+    expect(conditional.headers.get('etag')).toBe(etag)
+    expect(await conditional.text()).toBe('')
+  })
+
   it('serves package channel releases from indexed channel state', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)

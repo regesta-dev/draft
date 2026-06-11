@@ -1,4 +1,3 @@
-import { replayPackageState } from '@regesta/core'
 import {
   createNpmPackument,
   npmInstallArtifact,
@@ -10,13 +9,23 @@ import {
   canonicalJson,
   sha256,
   type PackageId,
+  type PackageState,
   type RegistryEvent,
   type ReleaseManifest,
+  type Sha256Digest,
 } from '@regesta/protocol'
+
+export interface NpmPackageStateSnapshot {
+  lastEventId?: Sha256Digest
+  lastEventTimestamp?: string
+  state: PackageState
+}
 
 export interface NpmProjectionStateReader {
   database: {
-    listPackageEvents: (packageId: PackageId) => Promise<RegistryEvent[]>
+    getPackageEventState: (
+      packageId: PackageId,
+    ) => Promise<NpmPackageStateSnapshot>
   }
 }
 
@@ -41,20 +50,22 @@ export async function readLocalNpmPackageProjection(
   releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }>,
   requestUrl: URL,
 ): Promise<LocalNpmPackageProjection> {
-  const events = await reader.database.listPackageEvents(packageId)
-  const state = replayPackageState(events, packageId)
+  const snapshot = await reader.database.getPackageEventState(packageId)
   const releaseTimestamps = releases.map(
     (release) => release.manifest.createdAt,
   )
-  const eventTimestamps = events.map((event) => event.timestamp)
-  const lastEventId = events.at(-1)?.id ?? 'empty'
-  const channels = state.channels ?? {}
+  const channels = snapshot.state.channels ?? {}
   const modifiedAt =
-    [...releaseTimestamps, ...eventTimestamps].toSorted().at(-1) ?? ''
+    [
+      ...releaseTimestamps,
+      ...(snapshot.lastEventTimestamp ? [snapshot.lastEventTimestamp] : []),
+    ]
+      .toSorted()
+      .at(-1) ?? ''
 
   return {
     channels,
-    etag: `W/"regesta.npm-projection:${lastEventId}"`,
+    etag: `W/"regesta.npm-projection:${snapshot.lastEventId ?? 'empty'}"`,
     modifiedAt,
     packument: createLocalNpmPackument(
       requestUrl,

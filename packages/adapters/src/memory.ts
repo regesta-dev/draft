@@ -11,10 +11,12 @@ import {
 import {
   assertObjectMediaType,
   canonicalJson,
+  parsePackageId,
   sha256,
   type ChannelDeletedEvent,
   type ChannelUpdatedEvent,
   type PackageId,
+  type PackageStateRelease,
   type RegistryEvent,
   type Sha256Digest,
 } from '@regesta/protocol'
@@ -26,6 +28,7 @@ import { assertEventListOptions } from './pagination.ts'
 import type {
   ObjectDescriptorListOptions,
   ObjectStore,
+  PackageStateSnapshot,
   QueueAdapter,
   RegistryAdapters,
   RegistryDatabase,
@@ -208,7 +211,10 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   readonly channels: Map<PackageId, Map<string, string>> = new Map()
   readonly eventChannels: Map<PackageId, Map<string, string>> = new Map()
   readonly eventIds: Set<Sha256Digest> = new Set()
-  readonly eventReleases: Map<PackageId, Set<string>> = new Map()
+  readonly eventLast: Map<PackageId, { id: Sha256Digest; timestamp: string }> =
+    new Map()
+  readonly eventReleases: Map<PackageId, Map<string, PackageStateRelease>> =
+    new Map()
   readonly events: RegistryEvent[] = []
   readonly releases: Map<PackageId, Map<string, StoredRelease>> = new Map()
 
@@ -346,6 +352,36 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     )
   }
 
+  getPackageEventState(packageId: PackageId): Promise<PackageStateSnapshot> {
+    const parsed = parsePackageId(packageId)
+    const releases = [...(this.eventReleases.get(packageId)?.values() ?? [])]
+      .map((release) => ({ ...release }))
+      .toSorted((left, right) => {
+        return left.createdAt.localeCompare(right.createdAt)
+      })
+    const channels = Object.fromEntries(
+      this.eventChannels.get(packageId)?.entries() ?? [],
+    )
+    const lastEvent = this.eventLast.get(packageId)
+
+    return Promise.resolve({
+      ...(lastEvent
+        ? {
+            lastEventId: lastEvent.id,
+            lastEventTimestamp: lastEvent.timestamp,
+          }
+        : {}),
+      state: {
+        ...(Object.keys(channels).length === 0 ? {} : { channels }),
+        ecosystem: parsed.ecosystem,
+        id: packageId,
+        name: parsed.name,
+        object: 'regesta.package-state',
+        releases,
+      },
+    })
+  }
+
   getRelease(
     packageId: PackageId,
     version: string,
@@ -472,11 +508,21 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   }
 
   private applyRegistryEventState(event: RegistryEvent): void {
+    this.eventLast.set(eventPackageId(event), {
+      id: event.id,
+      timestamp: event.timestamp,
+    })
+
     switch (event.eventType) {
       case 'release.published': {
         const packageReleases =
-          this.eventReleases.get(event.release.id) ?? new Set<string>()
-        packageReleases.add(event.release.version)
+          this.eventReleases.get(event.release.id) ??
+          new Map<string, PackageStateRelease>()
+        packageReleases.set(event.release.version, {
+          createdAt: event.timestamp,
+          manifestDigest: event.release.manifestDigest,
+          version: event.release.version,
+        })
         this.eventReleases.set(event.release.id, packageReleases)
 
         const packageChannels =

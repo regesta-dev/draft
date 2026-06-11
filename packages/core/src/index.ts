@@ -45,6 +45,7 @@ export type {
 export type {
   ObjectDescriptorListOptions,
   ObjectStore,
+  PackageStateSnapshot,
   QueueAdapter,
   RegistryAdapters,
   RegistryDatabase,

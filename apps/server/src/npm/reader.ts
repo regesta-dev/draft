@@ -1,4 +1,4 @@
-import type { RegistryAdapters } from '@regesta/core'
+import type { PackageStateSnapshot, RegistryAdapters } from '@regesta/core'
 import type {
   PackageId,
   RegistryEvent,
@@ -10,6 +10,9 @@ export interface NpmRegistryReader {
     getPackageChannels: (
       packageId: PackageId,
     ) => Promise<Record<string, string>>
+    getPackageEventState: (
+      packageId: PackageId,
+    ) => Promise<PackageStateSnapshot>
     getRelease: (
       packageId: PackageId,
       version: string,
@@ -17,7 +20,6 @@ export interface NpmRegistryReader {
       { event: RegistryEvent; manifest: ReleaseManifest } | undefined
     >
     hasPackage: (packageId: PackageId) => Promise<boolean>
-    listPackageEvents: (packageId: PackageId) => Promise<RegistryEvent[]>
     listPackageReleases: (
       packageId: PackageId,
     ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
@@ -32,14 +34,14 @@ export function createNpmRegistryReader(
       getPackageChannels: (packageId) => {
         return adapters.database.getPackageChannels(packageId)
       },
+      getPackageEventState: (packageId) => {
+        return adapters.database.getPackageEventState(packageId)
+      },
       getRelease: (packageId, version) => {
         return adapters.database.getRelease(packageId, version)
       },
       hasPackage: (packageId) => {
         return adapters.database.hasPackage(packageId)
-      },
-      listPackageEvents: (packageId) => {
-        return adapters.database.listPackageEvents(packageId)
       },
       listPackageReleases: (packageId) => {
         return adapters.database.listPackageReleases(packageId)

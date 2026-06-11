@@ -3,6 +3,7 @@ import {
   registryEventDigest,
   sha256,
   type ChannelUpdatedEventPayload,
+  type PublishReleaseEvent,
   type PublishReleaseEventPayload,
   type RegistryEvent,
   type ReleaseManifest,
@@ -33,11 +34,36 @@ describe('local npm projection', () => {
       '2025-01-03T00:00:00.000Z',
       '1.0.0',
     )
-    const events = [firstPublished, secondPublished, latestUpdated]
     const projection = await readLocalNpmPackageProjection(
       {
         database: {
-          listPackageEvents: () => Promise.resolve(events),
+          getPackageEventState: () =>
+            Promise.resolve({
+              lastEventId: latestUpdated.id,
+              lastEventTimestamp: latestUpdated.timestamp,
+              state: {
+                channels: {
+                  latest: '2.0.0',
+                  next: '2.0.0',
+                },
+                ecosystem: 'npm',
+                id: packageId,
+                name: 'example.com/hello-regesta',
+                object: 'regesta.package-state',
+                releases: [
+                  {
+                    createdAt: firstPublished.timestamp,
+                    manifestDigest: firstPublished.release.manifestDigest,
+                    version: firstPublished.release.version,
+                  },
+                  {
+                    createdAt: secondPublished.timestamp,
+                    manifestDigest: secondPublished.release.manifestDigest,
+                    version: secondPublished.release.version,
+                  },
+                ],
+              },
+            }),
         },
       },
       packageId,
@@ -143,7 +169,7 @@ function publish(
   manifest: ReleaseManifest,
   channel: string,
   timestamp: string,
-): RegistryEvent {
+): PublishReleaseEvent {
   const payload = {
     artifactDigests: manifest.artifacts.map((artifact) => artifact.digest),
     channel,
