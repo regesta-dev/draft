@@ -271,13 +271,8 @@ function validatePublishArtifacts(artifacts: unknown): void {
       validatePublishArtifactCompatibility(artifact.compatibility)
     }
 
-    if (
-      artifact.ecosystemMetadata !== undefined &&
-      !isRecord(artifact.ecosystemMetadata)
-    ) {
-      throw new TypeError(
-        'Publish artifact ecosystemMetadata must be an object',
-      )
+    if (artifact.ecosystemMetadata !== undefined) {
+      validatePublishArtifactEcosystemMetadata(artifact.ecosystemMetadata)
     }
   }
 
@@ -419,6 +414,23 @@ function validatePublishArtifactCompatibility(compatibility: unknown): void {
         'Publish artifact runtime compatibility versions',
       )
     }
+  }
+}
+
+function validatePublishArtifactEcosystemMetadata(
+  ecosystemMetadata: unknown,
+): void {
+  if (!isRecord(ecosystemMetadata)) {
+    throw new TypeError('Publish artifact ecosystemMetadata must be an object')
+  }
+
+  try {
+    canonicalJson(ecosystemMetadata)
+  } catch (error) {
+    throw new TypeError(
+      `Publish artifact ecosystemMetadata must contain only canonical JSON values: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    )
   }
 }
 

@@ -76,6 +76,26 @@ describe('documentation references', () => {
     expect(member(openapi, 'openapi')).toBe('3.1.0')
   })
 
+  it('documents structured public error responses in OpenAPI', async () => {
+    const errorProperties = await openapiValueAtPointer(
+      '#/components/schemas/ErrorResponse/properties',
+    )
+    const required = await openapiValueAtPointer(
+      '#/components/schemas/ErrorResponse/required',
+    )
+
+    expect(errorProperties).toEqual({
+      code: { type: 'string' },
+      error: { type: 'string' },
+      issues: {
+        items: { type: 'string' },
+        type: 'array',
+      },
+      message: { type: 'string' },
+    })
+    expect(required).toEqual(['code', 'error', 'message'])
+  })
+
   it('keeps the package id schema aligned with domain-scoped ids', async () => {
     const packageId = new RegExp(await schemaDefPattern('packageId'), 'u')
 
@@ -364,11 +384,83 @@ describe('documentation references', () => {
         type: 'string',
       }),
     )
+    expect(tarballSchema).toEqual(
+      expect.objectContaining({
+        description: expect.stringContaining('without rewriting'),
+      }),
+    )
     expect(redirectDescription).toEqual(
-      expect.stringContaining('upstream npm registry tarball URL'),
+      expect.stringContaining('direct npm projection tarball requests'),
     )
     expect(redirectDescription).toEqual(
       expect.stringContaining('never serves or proxies tarball bytes'),
+    )
+  })
+
+  it('documents npm tarball routes as redirect-only endpoints', async () => {
+    for (const path of ['/{name}/-/{file}', '/{scope}/{name}/-/{file}']) {
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses`,
+          ),
+        ).resolves.toEqual({
+          '302': {
+            $ref: '#/components/responses/NpmTarballRedirect',
+          },
+        })
+      }
+    }
+  })
+
+  it('documents npm metadata routes as conditionally cacheable', async () => {
+    for (const path of [
+      '/-/package/{encoded}/dist-tags',
+      '/-/package/{scope}/{name}/dist-tags',
+      '/{encoded}',
+      '/{scope}/{name}',
+      '/{scope}/{name}/{tagOrVersion}',
+    ]) {
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/304`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/responses/NotModified',
+        })
+      }
+    }
+  })
+
+  it('documents npm metadata routes as upstream-fallback error surfaces', async () => {
+    for (const path of [
+      '/-/package/{encoded}/dist-tags',
+      '/-/package/{scope}/{name}/dist-tags',
+      '/{encoded}',
+      '/{scope}/{name}',
+      '/{scope}/{name}/{tagOrVersion}',
+    ]) {
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/502`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/responses/Error',
+        })
+      }
+    }
+  })
+
+  it('documents npm fallback failures as projection-only structured errors', async () => {
+    const api = await readText('api.md')
+    const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+
+    expect(normalizedApi).toContain('structured `502` error')
+    expect(normalizedApi).toContain('`upstream_npm_registry_unavailable`')
+    expect(normalizedApi).toContain(
+      'does not create Regesta core package state',
     )
   })
 
@@ -632,6 +724,10 @@ function normalizeApiProsePath(path: string): string {
     .replaceAll('/{scope}/name', '/{scope}/{name}')
     .replaceAll('{version-or-tag}', '{tagOrVersion}')
     .replaceAll('{tarball}', '{file}')
+}
+
+function escapeJsonPointer(segment: string): string {
+  return segment.replaceAll('~', '~0').replaceAll('/', '~1')
 }
 
 function collectReferences(value: unknown): Reference[] {

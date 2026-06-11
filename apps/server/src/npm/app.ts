@@ -3,27 +3,19 @@ import {
   createNpmPackument,
   npmInstallArtifact,
   npmPackageIdFromName,
-  tarballFileName,
   type NpmPackument,
 } from '@regesta/npm'
-import {
-  sha256,
-  type PackageId,
-  type RegistryEvent,
-  type ReleaseManifest,
-} from '@regesta/protocol'
 import { Hono, type Context } from 'hono'
 import { decodeRequestComponent, requiredParam } from '../request.ts'
 import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
+import type {
+  PackageId,
+  RegistryEvent,
+  ReleaseManifest,
+} from '@regesta/protocol'
 
 export interface NpmRegistryReader {
   database: {
-    getRelease: (
-      packageId: PackageId,
-      version: string,
-    ) => Promise<
-      { event: RegistryEvent; manifest: ReleaseManifest } | undefined
-    >
     listPackageReleases: (
       packageId: PackageId,
     ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
@@ -99,7 +91,6 @@ export function createNpmRegistryRoutes(
   app.get('/:scope/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
-      adapters,
       scopedNpmPackageName(
         context.req.param('scope'),
         context.req.param('name'),
@@ -110,7 +101,6 @@ export function createNpmRegistryRoutes(
   app.on('HEAD', '/:scope/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
-      adapters,
       scopedNpmPackageName(
         context.req.param('scope'),
         context.req.param('name'),
@@ -121,7 +111,6 @@ export function createNpmRegistryRoutes(
   app.get('/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
-      adapters,
       encodedNpmPackageName(context.req.param('name')),
     )
   })
@@ -129,7 +118,6 @@ export function createNpmRegistryRoutes(
   app.on('HEAD', '/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
-      adapters,
       encodedNpmPackageName(context.req.param('name')),
     )
   })
@@ -250,7 +238,7 @@ async function serveNpmDistTags(
     )
   }
 
-  return fetchUpstreamNpm(
+  return fetchUpstreamNpmDistTags(
     context,
     upstreamFetch,
     upstreamNpmDistTagsUrl(packageName),
@@ -310,11 +298,11 @@ async function serveNpmPackageManifest(
     )
   }
 
-  return fetchUpstreamNpmJsonWithTarballRedirects(
+  return fetchUpstreamNpmJson(
     context,
     upstreamFetch,
-    packageName,
     upstreamNpmPackageManifestUrl(packageName, tagOrVersion),
+    isNpmVersionManifestProjection,
   )
 }
 
@@ -352,15 +340,15 @@ function fetchUpstreamNpmPackument(
   upstreamFetch: typeof fetch,
   packageName: string,
 ): Promise<Response> {
-  return fetchUpstreamNpmJsonWithTarballRedirects(
+  return fetchUpstreamNpmJson(
     context,
     upstreamFetch,
-    packageName,
     upstreamNpmPackumentUrl(packageName),
+    isNpmPackumentProjection,
   )
 }
 
-async function fetchUpstreamNpm(
+async function fetchUpstreamNpmDistTags(
   context: Context,
   upstreamFetch: typeof fetch,
   url: string,
@@ -400,14 +388,36 @@ async function fetchUpstreamNpm(
     )
   }
 
-  return upstreamNpmResponse(context, response)
+  if (response.status >= 500) {
+    return unavailableUpstreamNpmResponse(context, url, response)
+  }
+
+  if (context.req.method === 'HEAD' || response.status !== 200) {
+    return upstreamNpmResponse(context, response)
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  const text = new TextDecoder().decode(bytes)
+  let body: unknown
+
+  try {
+    body = JSON.parse(text)
+  } catch (error) {
+    return invalidUpstreamNpmJsonResponse(context, url, error)
+  }
+
+  if (!isStringRecord(body)) {
+    return invalidUpstreamNpmMetadataResponse(context, url)
+  }
+
+  return serveValidatedUpstreamNpmMetadata(bytes, response)
 }
 
-async function fetchUpstreamNpmJsonWithTarballRedirects(
+async function fetchUpstreamNpmJson(
   context: Context,
   upstreamFetch: typeof fetch,
-  packageName: string,
   url: string,
+  isProjectedMetadata: (value: unknown) => boolean,
 ): Promise<Response> {
   let response: Response
 
@@ -418,6 +428,7 @@ async function fetchUpstreamNpmJsonWithTarballRedirects(
       context.req.header('accept') ?? 'application/json',
     )
     copyHeader(context.req.raw.headers, requestHeaders, 'if-modified-since')
+    copyHeader(context.req.raw.headers, requestHeaders, 'if-none-match')
 
     response = await upstreamFetch(url, {
       credentials: 'omit',
@@ -443,23 +454,99 @@ async function fetchUpstreamNpmJsonWithTarballRedirects(
     )
   }
 
-  if (context.req.method === 'HEAD' || response.status !== 200) {
-    return upstreamNpmResponse(context, response, false)
+  if (response.status >= 500) {
+    return unavailableUpstreamNpmResponse(context, url, response)
   }
 
-  const text = await response.text()
+  if (context.req.method === 'HEAD' || response.status !== 200) {
+    return upstreamNpmResponse(context, response)
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  const text = new TextDecoder().decode(bytes)
   let body: unknown
 
   try {
     body = JSON.parse(text)
-  } catch {
-    return upstreamNpmTextResponse(context, response, text, false)
+  } catch (error) {
+    return invalidUpstreamNpmJsonResponse(context, url, error)
   }
 
-  return serveTransformedUpstreamNpmJson(
-    context,
-    rewriteNpmTarballUrls(body, packageName, new URL(context.req.url).origin),
-    response,
+  if (!isProjectedMetadata(body)) {
+    return invalidUpstreamNpmMetadataResponse(context, url)
+  }
+
+  return serveValidatedUpstreamNpmMetadata(bytes, response)
+}
+
+function invalidUpstreamNpmJsonResponse(
+  context: Context,
+  url: string,
+  error: unknown,
+): Response {
+  const id = requestId(context)
+
+  console.error('Upstream npm registry response was not valid JSON', {
+    error,
+    kind: 'regesta.npm-upstream-invalid-json',
+    ...(id ? { requestId: id } : {}),
+    url,
+  })
+
+  return context.json(
+    errorResponse(
+      'upstream_npm_registry_unavailable',
+      'Upstream npm registry unavailable',
+    ),
+    502,
+  )
+}
+
+function unavailableUpstreamNpmResponse(
+  context: Context,
+  url: string,
+  response: Response,
+): Response {
+  const id = requestId(context)
+
+  console.error('Upstream npm registry returned an unavailable response', {
+    kind: 'regesta.npm-upstream-unavailable',
+    ...(id ? { requestId: id } : {}),
+    status: response.status,
+    statusText: response.statusText,
+    url,
+  })
+
+  return context.json(
+    errorResponse(
+      'upstream_npm_registry_unavailable',
+      'Upstream npm registry unavailable',
+    ),
+    502,
+  )
+}
+
+function invalidUpstreamNpmMetadataResponse(
+  context: Context,
+  url: string,
+): Response {
+  const id = requestId(context)
+
+  console.error(
+    'Upstream npm registry response did not match projection shape',
+    {
+      kind: 'regesta.npm-upstream-invalid-metadata',
+      ...(id ? { requestId: id } : {}),
+      url,
+    },
+  )
+
+  return context.json(
+    errorResponse(
+      'upstream_npm_registry_unavailable',
+      'Upstream npm registry unavailable',
+    ),
+    502,
   )
 }
 
@@ -502,23 +589,6 @@ function upstreamNpmResponse(
   const headers = upstreamNpmResponseHeaders(response, copyEtag)
 
   return new Response(context.req.method === 'HEAD' ? null : response.body, {
-    headers,
-    status: response.status,
-    statusText: response.statusText,
-  })
-}
-
-function upstreamNpmTextResponse(
-  context: Context,
-  response: Response,
-  text: string,
-  copyEtag = true,
-): Response {
-  const bytes = new TextEncoder().encode(text)
-  const headers = upstreamNpmResponseHeaders(response, copyEtag)
-  headers.set('content-length', String(bytes.byteLength))
-
-  return new Response(context.req.method === 'HEAD' ? null : bytes, {
     headers,
     status: response.status,
     statusText: response.statusText,
@@ -577,28 +647,12 @@ function serveNpmProjectionJson(
     : new Response(bytes, { headers })
 }
 
-function serveTransformedUpstreamNpmJson(
-  context: Context,
-  body: unknown,
+function serveValidatedUpstreamNpmMetadata(
+  bytes: Uint8Array,
   upstreamResponse: Response,
 ): Response {
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
-  const etag = `W/"regesta.npm-fallback:${sha256(bytes).slice(
-    'sha256:'.length,
-  )}"`
-  const headers = upstreamNpmResponseHeaders(upstreamResponse, false)
+  const headers = upstreamNpmResponseHeaders(upstreamResponse, true)
   headers.set('content-length', String(bytes.byteLength))
-  headers.set('content-type', 'application/json; charset=UTF-8')
-  headers.set('etag', etag)
-
-  if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
-    headers.delete('content-length')
-
-    return new Response(null, {
-      headers,
-      status: 304,
-    })
-  }
 
   return new Response(bytes, {
     headers,
@@ -611,39 +665,8 @@ function versionManifestEtag(releaseEventId: string): string {
   return `W/"regesta.npm-version:${releaseEventId}"`
 }
 
-async function serveNpmTarball(
-  context: Context,
-  adapters: NpmRegistryReader,
-  packageName: string,
-): Promise<Response> {
+function serveNpmTarball(context: Context, packageName: string): Response {
   const file = requiredParam(context.req.param('file'), 'file')
-  const packageId = localNpmPackageId(packageName)
-
-  if (!packageId) {
-    return redirectToTarball(upstreamNpmTarballUrl(packageName, file))
-  }
-
-  const releases = await adapters.database.listPackageReleases(packageId)
-  if (releases.length === 0) {
-    return redirectToTarball(upstreamNpmTarballUrl(packageName, file))
-  }
-
-  const version = versionFromTarballFile(file, packageId)
-
-  if (!version) {
-    return context.json(
-      errorResponse('invalid_tarball_path', 'Invalid tarball path'),
-      404,
-    )
-  }
-
-  const release = await adapters.database.getRelease(packageId, version)
-  if (!release) {
-    return context.json(
-      errorResponse('tarball_not_found', 'Tarball not found'),
-      404,
-    )
-  }
 
   return redirectToTarball(upstreamNpmTarballUrl(packageName, file))
 }
@@ -741,81 +764,37 @@ function coreRegistryHostname(hostname: string): string {
   return ['registry', ...labels.slice(1)].join('.')
 }
 
-function rewriteNpmTarballUrls(
-  value: unknown,
-  packageName: string,
-  registryBaseUrl: string,
-): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => {
-      return rewriteNpmTarballUrls(item, packageName, registryBaseUrl)
-    })
-  }
-
-  if (!isRecord(value)) {
-    return value
-  }
-
-  const result: Record<string, unknown> = {}
-  for (const [key, item] of Object.entries(value)) {
-    result[key] = rewriteNpmTarballUrls(item, packageName, registryBaseUrl)
-  }
-
-  if (isRecord(result.dist) && typeof result.dist.tarball === 'string') {
-    const tarballFile = npmTarballFileFromUrl(result.dist.tarball)
-    if (tarballFile) {
-      result.dist = {
-        ...result.dist,
-        tarball: npmProjectionTarballUrl(
-          packageName,
-          tarballFile,
-          registryBaseUrl,
-        ),
-      }
-    }
-  }
-
-  return result
-}
-
-function npmTarballFileFromUrl(value: string): string | undefined {
-  const marker = '/-/'
-  let path = value
-
-  try {
-    path = new URL(value).pathname
-  } catch {
-    // npm packuments normally use absolute tarball URLs, but custom upstream
-    // registries may return relative URLs with the same path shape.
-  }
-
-  const markerIndex = path.lastIndexOf(marker)
-  if (markerIndex === -1) {
-    return undefined
-  }
-
-  const encodedFile = path.slice(markerIndex + marker.length)
-  if (!encodedFile || encodedFile.includes('/')) {
-    return undefined
-  }
-
-  return decodeRequestComponent(encodedFile)
-}
-
-function npmProjectionTarballUrl(
-  packageName: string,
-  file: string,
-  registryBaseUrl: string,
-): string {
-  const baseUrl = registryBaseUrl.endsWith('/')
-    ? registryBaseUrl.slice(0, -1)
-    : registryBaseUrl
-
-  return `${baseUrl}/${packageName}/-/${encodeURIComponent(file)}`
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((item) => {
+      return typeof item === 'string'
+    })
+  )
+}
+
+function isNpmPackumentProjection(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    isStringRecord(value['dist-tags']) &&
+    isRecord(value.versions) &&
+    Object.values(value.versions).every(isNpmVersionManifestProjection)
+  )
+}
+
+function isNpmVersionManifestProjection(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    typeof value.version === 'string' &&
+    isRecord(value.dist) &&
+    typeof value.dist.tarball === 'string'
+  )
 }
 
 function scopedNpmPackageName(scope: string, name: string): string {
@@ -857,18 +836,4 @@ async function npmPackageProjectionState(
     modifiedAt:
       [...releaseTimestamps, ...eventTimestamps].toSorted().at(-1) ?? '',
   }
-}
-
-function versionFromTarballFile(
-  file: string,
-  packageId: PackageId,
-): string | undefined {
-  const prefix = tarballFileName(packageId, '')
-  const packageName = prefix.slice(0, -'.tgz'.length)
-
-  if (!file.startsWith(packageName) || !file.endsWith('.tgz')) {
-    return undefined
-  }
-
-  return file.slice(packageName.length, -'.tgz'.length)
 }

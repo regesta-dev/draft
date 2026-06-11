@@ -98,10 +98,10 @@ constraints, and description. The npm projection can then expose that data in
 npm-native packuments and version manifests.
 
 Regesta-hosted npm metadata should point `dist.tarball` at the core object URL,
-where the object layer serves the immutable artifact. npm projection tarball
-routes should redirect to the upstream npm tarball URL instead of serving or
-proxying artifact bytes. Byte serving, range handling, cache validators, and
-integrity checks remain object-layer responsibilities.
+where the object layer serves the immutable artifact. Fallback metadata should
+preserve the upstream npm metadata, including upstream `dist.tarball` URLs,
+instead of rewriting it to Regesta URLs. Byte serving, range handling, cache
+validators, and integrity checks remain object-layer responsibilities.
 
 Future PyPI, Cargo, Go, OCI, and other processors should follow the same
 pattern: understand their artifacts, write projection metadata to the artifact,
@@ -117,10 +117,10 @@ also implement the same policy outside the server by trying Regesta first and
 then resolving missing packages from the ecosystem's default registry.
 
 Fallback metadata should not be committed as Regesta package state. When the
-server projection handles fallback, upstream packument and version-manifest
-`dist.tarball` fields are rewritten to npm projection URLs. Those projection
-URLs redirect to upstream tarballs and the npm projection never proxies tarball
-bytes.
+server projection handles fallback, upstream packument, version-manifest, and
+dist-tag metadata are validated and returned without rewriting. Direct npm
+projection tarball routes still redirect to upstream tarballs and the npm
+projection never proxies tarball bytes.
 
 ## Future Projection Profiles
 

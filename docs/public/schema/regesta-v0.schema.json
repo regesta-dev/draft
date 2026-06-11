@@ -19,7 +19,7 @@
         "compatibility": { "$ref": "#/$defs/compatibility" },
         "digest": { "$ref": "#/$defs/sha256Digest" },
         "ecosystemMetadata": {
-          "additionalProperties": true,
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" },
           "type": "object"
         },
         "filename": { "$ref": "#/$defs/nonEmptyString" },

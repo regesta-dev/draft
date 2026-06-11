@@ -112,6 +112,30 @@ describe('parseReleaseManifest', () => {
       }),
     ).toThrow('Release manifest artifacts[0] must not include unknown field')
   })
+
+  it('rejects artifact ecosystem metadata outside canonical JSON', () => {
+    const manifest = releaseManifest()
+
+    expect(() =>
+      parseReleaseManifest({
+        ...manifest,
+        artifacts: [
+          {
+            ...manifest.artifacts[0],
+            ecosystemMetadata: {
+              npm: {
+                dependencies: {
+                  tinyexec: undefined,
+                },
+              },
+            },
+          },
+        ],
+      }),
+    ).toThrow(
+      'Release manifest artifacts[0] ecosystemMetadata must contain only canonical JSON values: Canonical JSON does not support undefined values',
+    )
+  })
 })
 
 function objectInventoryPage(): ObjectInventoryPage {
@@ -138,8 +162,10 @@ function releaseManifest(): ReleaseManifest {
         },
         digest: sha256(bytes('artifact')),
         ecosystemMetadata: {
-          dependencies: {
-            tinyexec: '^1.0.0',
+          npm: {
+            dependencies: {
+              tinyexec: '^1.0.0',
+            },
           },
         },
         filename: 'sdk-1.0.0.tgz',

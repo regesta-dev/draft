@@ -617,6 +617,7 @@
               }
             }
           },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -627,6 +628,7 @@
         "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
         "responses": {
           "200": { "description": "dist-tags exist." },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -649,6 +651,7 @@
               }
             }
           },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -662,6 +665,7 @@
         ],
         "responses": {
           "200": { "description": "dist-tags exist." },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -681,6 +685,7 @@
               }
             }
           },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -691,6 +696,7 @@
         "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
         "responses": {
           "200": { "description": "packument exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -714,6 +720,7 @@
               }
             }
           },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -728,6 +735,7 @@
         ],
         "responses": {
           "200": { "description": "npm projection resource exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -751,6 +759,7 @@
               }
             }
           },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -765,6 +774,7 @@
         ],
         "responses": {
           "200": { "description": "npm version manifest exists." },
+          "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
         }
@@ -779,8 +789,7 @@
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" }
         }
       },
       "head": {
@@ -791,8 +800,7 @@
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" }
         }
       }
     },
@@ -806,8 +814,7 @@
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" }
         }
       },
       "head": {
@@ -819,8 +826,7 @@
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" }
         }
       }
     }
@@ -948,7 +954,7 @@
         }
       },
       "NpmTarballRedirect": {
-        "description": "Redirect to the upstream npm registry tarball URL. The npm projection never serves or proxies tarball bytes.",
+        "description": "Redirect direct npm projection tarball requests to the upstream npm registry tarball URL. The npm projection never serves or proxies tarball bytes.",
         "headers": {
           "Location": {
             "description": "Tarball download URL.",
@@ -1033,9 +1039,13 @@
         "properties": {
           "code": { "type": "string" },
           "error": { "type": "string" },
+          "issues": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
           "message": { "type": "string" }
         },
-        "required": ["error"]
+        "required": ["code", "error", "message"]
       },
       "EventPage": {
         "type": "object",
@@ -1098,7 +1108,7 @@
               "tarball": {
                 "type": "string",
                 "format": "uri",
-                "description": "Tarball URL for npm-compatible clients. Regesta-hosted package metadata points to the core object URL where the object layer serves the immutable artifact; fallback metadata can point to an npm projection URL that redirects to the upstream npm registry tarball."
+                "description": "Tarball URL for npm-compatible clients. Regesta-hosted package metadata points to the core object URL where the object layer serves the immutable artifact; fallback metadata preserves the upstream npm tarball URL without rewriting."
               }
             },
             "required": ["tarball"]

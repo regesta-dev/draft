@@ -4779,38 +4779,21 @@ describe('createRegestaApp', () => {
     expect(objectDescriptorGetCalls).toBe(0)
   })
 
-  it('does not fallback missing tarball versions for local npm packages', async () => {
+  it('redirects local-looking npm tarball routes without checking release state', async () => {
     const adapters = createMemoryRegistryAdapters()
-    const upstreamCalls: string[] = []
-
-    await publishRelease(
-      {
-        artifacts: [
-          {
-            bytes: bytes('install artifact bytes'),
-            format: 'npm-tarball',
-            mediaType: 'application/gzip',
-            role: 'install',
-          },
-        ],
-        config: {
-          id: 'npm:example.com/descriptor-tarball',
-          source: {
-            include: ['regesta.json'],
-          },
-          version: '0.0.1',
-        },
-        createdAt: '2026-06-01T00:00:00.000Z',
-        source: bytes('source archive'),
-      },
-      adapters,
+    const listPackageReleases = adapters.database.listPackageReleases.bind(
+      adapters.database,
     )
+    let releaseListCalls = 0
+    adapters.database.listPackageReleases = (packageId) => {
+      releaseListCalls += 1
+
+      return listPackageReleases(packageId)
+    }
+    const upstreamFetch = vi.fn<typeof fetch>()
 
     const app = createRegestaApp(adapters, {
-      npmUpstreamFetch: (input) => {
-        upstreamCalls.push(String(input))
-        return Promise.resolve(Response.json({}))
-      },
+      npmUpstreamFetch: upstreamFetch,
     })
     const response = await app.request(
       'http://npm.registry.test/@example.com/descriptor-tarball/-/descriptor-tarball-9.9.9.tgz',
@@ -4822,14 +4805,18 @@ describe('createRegestaApp', () => {
       },
     )
 
-    expect(response.status).toBe(404)
-    expect(response.headers.get('location')).toBeNull()
-    await expect(response.json()).resolves.toMatchObject({
-      code: 'tarball_not_found',
-    })
-    expect(head.status).toBe(404)
-    expect(head.headers.get('location')).toBeNull()
-    expect(upstreamCalls).toEqual([])
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe(
+      'https://registry.npmjs.org/%40example.com%2Fdescriptor-tarball/-/descriptor-tarball-9.9.9.tgz',
+    )
+    expect(await response.text()).toBe('')
+    expect(head.status).toBe(302)
+    expect(head.headers.get('location')).toBe(
+      'https://registry.npmjs.org/%40example.com%2Fdescriptor-tarball/-/descriptor-tarball-9.9.9.tgz',
+    )
+    expect(await head.text()).toBe('')
+    expect(releaseListCalls).toBe(0)
+    expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
   it('redirects npm tarball reads without validating artifact bytes in the npm layer', async () => {
@@ -4969,7 +4956,7 @@ describe('createRegestaApp', () => {
     }
   })
 
-  it('falls back to npmjs packuments without proxying tarballs', async () => {
+  it('falls back to npmjs packuments without rewriting metadata or proxying tarballs', async () => {
     const fetchCalls: Array<{
       credentials?: string
       headers: Headers
@@ -4991,6 +4978,15 @@ describe('createRegestaApp', () => {
         url: String(input),
       }
       fetchCalls.push(request)
+
+      if (request.headers.get('if-none-match') === '"upstream-etag"') {
+        return Promise.resolve(
+          new Response(null, {
+            headers: upstreamHeaders,
+            status: 304,
+          }),
+        )
+      }
 
       if (
         request.url === 'https://registry.npmjs.org/%40upstream%2Fpkg/latest'
@@ -5051,6 +5047,22 @@ describe('createRegestaApp', () => {
         )
       }
 
+      if (
+        request.url ===
+        'https://registry.npmjs.org/-/package/%40upstream%2Fpkg/dist-tags'
+      ) {
+        return Promise.resolve(
+          Response.json(
+            {
+              latest: '1.0.0',
+            },
+            {
+              headers: upstreamHeaders,
+            },
+          ),
+        )
+      }
+
       return Promise.resolve(
         Response.json(
           {
@@ -5078,21 +5090,22 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(createMemoryRegistryAdapters(), {
       npmUpstreamFetch: fetchMock,
     })
+    const sensitiveRequestHeaders = {
+      authorization: 'Bearer regesta-local-token',
+      cookie: 'npm_token=secret',
+    }
 
     const packument = await app.request(
       'http://npm.registry.test/@upstream/pkg',
       {
-        headers: {
-          authorization: 'Bearer regesta-local-token',
-          cookie: 'npm_token=secret',
-        },
+        headers: sensitiveRequestHeaders,
       },
     )
 
     expect(packument.status).toBe(200)
     expect(packument.headers.get('cache-control')).toBe('public, max-age=300')
     const fallbackEtag = requiredHeader(packument, 'etag')
-    expect(fallbackEtag).toMatch(/^W\/"regesta\.npm-fallback:[a-f0-9]{64}"$/u)
+    expect(fallbackEtag).toBe('"upstream-etag"')
     expect(packument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
@@ -5110,7 +5123,7 @@ describe('createRegestaApp', () => {
       versions: {
         '1.0.0': {
           dist: {
-            tarball: 'http://npm.registry.test/@upstream/pkg/-/pkg-1.0.0.tgz',
+            tarball: 'https://registry.npmjs.org/@upstream/pkg/-/pkg-1.0.0.tgz',
           },
         },
       },
@@ -5137,7 +5150,7 @@ describe('createRegestaApp', () => {
     expect(fetchCalls.at(-1)?.headers.get('if-modified-since')).toBe(
       'Tue, 09 Jun 2026 00:00:00 GMT',
     )
-    expect(fetchCalls.at(-1)?.headers.get('if-none-match')).toBeNull()
+    expect(fetchCalls.at(-1)?.headers.get('if-none-match')).toBe(fallbackEtag)
 
     const headPackument = await app.request(
       'http://npm.registry.test/@upstream/pkg',
@@ -5147,7 +5160,7 @@ describe('createRegestaApp', () => {
     )
 
     expect(headPackument.status).toBe(200)
-    expect(headPackument.headers.get('etag')).toBeNull()
+    expect(headPackument.headers.get('etag')).toBe('"upstream-etag"')
     expect(headPackument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
@@ -5156,6 +5169,9 @@ describe('createRegestaApp', () => {
 
     const manifest = await app.request(
       'http://npm.registry.test/@upstream/pkg/latest',
+      {
+        headers: sensitiveRequestHeaders,
+      },
     )
 
     expect(manifest.status).toBe(200)
@@ -5164,9 +5180,31 @@ describe('createRegestaApp', () => {
     )
     await expect(manifest.json()).resolves.toMatchObject({
       dist: {
-        tarball: 'http://npm.registry.test/@upstream/pkg/-/pkg-1.0.0.tgz',
+        tarball: 'https://registry.npmjs.org/@upstream/pkg/-/pkg-1.0.0.tgz',
       },
     })
+
+    const headManifest = await app.request(
+      'http://npm.registry.test/@upstream/pkg/latest',
+      {
+        headers: sensitiveRequestHeaders,
+        method: 'HEAD',
+      },
+    )
+
+    expect(headManifest.status).toBe(200)
+    expect(headManifest.headers.get('cache-control')).toBe(
+      'public, max-age=300',
+    )
+    expect(headManifest.headers.get('etag')).toBe('"upstream-etag"')
+    expect(headManifest.headers.get('last-modified')).toBe(
+      'Wed, 10 Jun 2026 00:00:00 GMT',
+    )
+    expect(await headManifest.text()).toBe('')
+    expect(fetchCalls.at(-1)?.method).toBe('HEAD')
+    expect(fetchCalls.at(-1)?.url).toBe(
+      'https://registry.npmjs.org/%40upstream%2Fpkg/latest',
+    )
 
     const unscopedManifest = await app.request(
       'http://npm.registry.test/tinyexec/latest',
@@ -5178,7 +5216,7 @@ describe('createRegestaApp', () => {
     )
     await expect(unscopedManifest.json()).resolves.toMatchObject({
       dist: {
-        tarball: 'http://npm.registry.test/tinyexec/-/tinyexec-0.0.1.tgz',
+        tarball: 'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
       },
     })
 
@@ -5192,7 +5230,7 @@ describe('createRegestaApp', () => {
     )
     await expect(deployedUnscopedManifest.json()).resolves.toMatchObject({
       dist: {
-        tarball: 'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
+        tarball: 'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
       },
     })
 
@@ -5207,21 +5245,81 @@ describe('createRegestaApp', () => {
     await expect(domainScopedFallbackManifest.json()).resolves.toMatchObject({
       dist: {
         tarball:
-          'http://npm.registry.test/@example.com/fallback/-/fallback-2.0.0.tgz',
+          'https://registry.npmjs.org/@example.com/fallback/-/fallback-2.0.0.tgz',
       },
     })
 
     const distTags = await app.request(
       'http://npm.registry.test/-/package/@upstream/pkg/dist-tags',
+      {
+        headers: sensitiveRequestHeaders,
+      },
     )
 
     expect(distTags.status).toBe(200)
+    const distTagsEtag = requiredHeader(distTags, 'etag')
+    expect(distTags.headers.get('cache-control')).toBe('public, max-age=300')
+    expect(distTags.headers.get('last-modified')).toBe(
+      'Wed, 10 Jun 2026 00:00:00 GMT',
+    )
+    expect(distTagsEtag).toBe('"upstream-etag"')
+    expect(fetchCalls.at(-1)?.url).toBe(
+      'https://registry.npmjs.org/-/package/%40upstream%2Fpkg/dist-tags',
+    )
+    await expect(distTags.json()).resolves.toEqual({
+      latest: '1.0.0',
+    })
+
+    const conditionalDistTags = await app.request(
+      'http://npm.registry.test/-/package/@upstream/pkg/dist-tags',
+      {
+        headers: {
+          'if-modified-since': 'Tue, 09 Jun 2026 00:00:00 GMT',
+          'if-none-match': distTagsEtag,
+        },
+      },
+    )
+
+    expect(conditionalDistTags.status).toBe(304)
+    expect(conditionalDistTags.headers.get('content-length')).toBeNull()
+    expect(conditionalDistTags.headers.get('etag')).toBe(distTagsEtag)
+    expect(fetchCalls.at(-1)?.headers.get('if-modified-since')).toBe(
+      'Tue, 09 Jun 2026 00:00:00 GMT',
+    )
+    expect(fetchCalls.at(-1)?.headers.get('if-none-match')).toBe(distTagsEtag)
+
+    const headDistTags = await app.request(
+      'http://npm.registry.test/-/package/@upstream/pkg/dist-tags',
+      {
+        headers: sensitiveRequestHeaders,
+        method: 'HEAD',
+      },
+    )
+
+    expect(headDistTags.status).toBe(200)
+    expect(headDistTags.headers.get('cache-control')).toBe(
+      'public, max-age=300',
+    )
+    expect(headDistTags.headers.get('etag')).toBe('"upstream-etag"')
+    expect(headDistTags.headers.get('last-modified')).toBe(
+      'Wed, 10 Jun 2026 00:00:00 GMT',
+    )
+    expect(await headDistTags.text()).toBe('')
+    expect(fetchCalls.at(-1)?.method).toBe('HEAD')
     expect(fetchCalls.at(-1)?.url).toBe(
       'https://registry.npmjs.org/-/package/%40upstream%2Fpkg/dist-tags',
     )
     expect(
       fetchCalls.every((request) => {
         return request.credentials === 'omit' && request.redirect === 'error'
+      }),
+    ).toBe(true)
+    expect(
+      fetchCalls.every((request) => {
+        return (
+          request.headers.get('authorization') === null &&
+          request.headers.get('cookie') === null
+        )
       }),
     ).toBe(true)
 
@@ -5279,6 +5377,17 @@ describe('createRegestaApp', () => {
     )
     expect(await deployedUnscopedTarballHead.text()).toBe('')
     expect(fetchCalls).toHaveLength(fetchCallsBeforeTarballs)
+
+    const fallbackPackageState = await app.request(
+      `/packages/${encodeURIComponent('npm:example.com/fallback')}`,
+    )
+
+    expect(fallbackPackageState.status).toBe(404)
+    await expect(fallbackPackageState.json()).resolves.toMatchObject({
+      code: 'package_not_found',
+      error: 'Package not found',
+      message: 'Package not found',
+    })
   })
 
   it('logs upstream npm fallback failures while returning structured errors', async () => {
@@ -5313,6 +5422,296 @@ describe('createRegestaApp', () => {
           kind: 'regesta.npm-upstream-failure',
           requestId: 'upstream-fallback-001',
           url: 'https://registry.npmjs.org/%40upstream%2Fpkg',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('logs upstream npm fallback 5xx responses while returning structured errors', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock: typeof fetch = () => {
+      return Promise.resolve(
+        new Response('<h1>upstream unavailable</h1>', {
+          headers: {
+            'content-type': 'text/html',
+          },
+          status: 503,
+          statusText: 'Service Unavailable',
+        }),
+      )
+    }
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstreamFetch: fetchMock,
+    })
+
+    try {
+      const packument = await app.request('http://npm.registry.test/broken', {
+        headers: {
+          'x-request-id': 'upstream-5xx-packument',
+        },
+      })
+      const manifest = await app.request(
+        'http://npm.registry.test/broken/latest',
+        {
+          headers: {
+            'x-request-id': 'upstream-5xx-manifest',
+          },
+        },
+      )
+      const distTags = await app.request(
+        'http://npm.registry.test/-/package/broken/dist-tags',
+        {
+          headers: {
+            'x-request-id': 'upstream-5xx-dist-tags',
+          },
+        },
+      )
+
+      for (const response of [packument, manifest, distTags]) {
+        expect(response.status).toBe(502)
+        expect(response.headers.get('content-type')).toBe('application/json')
+        await expect(response.json()).resolves.toMatchObject({
+          code: 'upstream_npm_registry_unavailable',
+          error: 'Upstream npm registry unavailable',
+          message: 'Upstream npm registry unavailable',
+        })
+      }
+      expect(consoleError).toHaveBeenCalledTimes(3)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry returned an unavailable response',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-unavailable',
+          requestId: 'upstream-5xx-packument',
+          status: 503,
+          statusText: 'Service Unavailable',
+          url: 'https://registry.npmjs.org/broken',
+        }),
+      )
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry returned an unavailable response',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-unavailable',
+          requestId: 'upstream-5xx-manifest',
+          status: 503,
+          statusText: 'Service Unavailable',
+          url: 'https://registry.npmjs.org/broken/latest',
+        }),
+      )
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry returned an unavailable response',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-unavailable',
+          requestId: 'upstream-5xx-dist-tags',
+          status: 503,
+          statusText: 'Service Unavailable',
+          url: 'https://registry.npmjs.org/-/package/broken/dist-tags',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects unprojectable upstream npm metadata responses', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock: typeof fetch = () => {
+      return Promise.resolve(
+        new Response('not json', {
+          headers: {
+            'content-type': 'text/plain',
+          },
+        }),
+      )
+    }
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstreamFetch: fetchMock,
+    })
+
+    try {
+      const packument = await app.request('http://npm.registry.test/broken', {
+        headers: {
+          'x-request-id': 'upstream-invalid-json-packument',
+        },
+      })
+      const manifest = await app.request(
+        'http://npm.registry.test/broken/latest',
+        {
+          headers: {
+            'x-request-id': 'upstream-invalid-json-manifest',
+          },
+        },
+      )
+      const distTags = await app.request(
+        'http://npm.registry.test/-/package/broken/dist-tags',
+        {
+          headers: {
+            'x-request-id': 'upstream-invalid-json-dist-tags',
+          },
+        },
+      )
+
+      expect(packument.status).toBe(502)
+      expect(packument.headers.get('content-type')).toBe('application/json')
+      await expect(packument.json()).resolves.toMatchObject({
+        code: 'upstream_npm_registry_unavailable',
+        error: 'Upstream npm registry unavailable',
+        message: 'Upstream npm registry unavailable',
+      })
+      expect(manifest.status).toBe(502)
+      await expect(manifest.json()).resolves.toMatchObject({
+        code: 'upstream_npm_registry_unavailable',
+      })
+      expect(distTags.status).toBe(502)
+      await expect(distTags.json()).resolves.toMatchObject({
+        code: 'upstream_npm_registry_unavailable',
+      })
+      expect(consoleError).toHaveBeenCalledTimes(3)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry response was not valid JSON',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-invalid-json',
+          requestId: 'upstream-invalid-json-packument',
+          url: 'https://registry.npmjs.org/broken',
+        }),
+      )
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry response was not valid JSON',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-invalid-json',
+          requestId: 'upstream-invalid-json-manifest',
+          url: 'https://registry.npmjs.org/broken/latest',
+        }),
+      )
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry response was not valid JSON',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-invalid-json',
+          requestId: 'upstream-invalid-json-dist-tags',
+          url: 'https://registry.npmjs.org/-/package/broken/dist-tags',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects upstream npm dist-tags that do not match the projected shape', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock: typeof fetch = () => {
+      return Promise.resolve(
+        Response.json({
+          latest: 1,
+        }),
+      )
+    }
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstreamFetch: fetchMock,
+    })
+
+    try {
+      const response = await app.request(
+        'http://npm.registry.test/-/package/broken/dist-tags',
+        {
+          headers: {
+            'x-request-id': 'upstream-invalid-dist-tags',
+          },
+        },
+      )
+
+      expect(response.status).toBe(502)
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'upstream_npm_registry_unavailable',
+        error: 'Upstream npm registry unavailable',
+        message: 'Upstream npm registry unavailable',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry response did not match projection shape',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-invalid-metadata',
+          requestId: 'upstream-invalid-dist-tags',
+          url: 'https://registry.npmjs.org/-/package/broken/dist-tags',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects upstream npm package metadata that does not match projected shapes', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock: typeof fetch = (input) => {
+      const url = String(input)
+
+      if (url === 'https://registry.npmjs.org/broken/latest') {
+        return Promise.resolve(
+          Response.json({
+            dist: {},
+            name: 'broken',
+            version: '1.0.0',
+          }),
+        )
+      }
+
+      return Promise.resolve(
+        Response.json({
+          'dist-tags': {
+            latest: '1.0.0',
+          },
+          name: 'broken',
+          versions: {
+            '1.0.0': {
+              dist: {},
+              name: 'broken',
+              version: '1.0.0',
+            },
+          },
+        }),
+      )
+    }
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstreamFetch: fetchMock,
+    })
+
+    try {
+      const packument = await app.request('http://npm.registry.test/broken', {
+        headers: {
+          'x-request-id': 'upstream-invalid-packument-shape',
+        },
+      })
+      const manifest = await app.request(
+        'http://npm.registry.test/broken/latest',
+        {
+          headers: {
+            'x-request-id': 'upstream-invalid-version-shape',
+          },
+        },
+      )
+
+      expect(packument.status).toBe(502)
+      await expect(packument.json()).resolves.toMatchObject({
+        code: 'upstream_npm_registry_unavailable',
+      })
+      expect(manifest.status).toBe(502)
+      await expect(manifest.json()).resolves.toMatchObject({
+        code: 'upstream_npm_registry_unavailable',
+      })
+      expect(consoleError).toHaveBeenCalledTimes(2)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry response did not match projection shape',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-invalid-metadata',
+          requestId: 'upstream-invalid-packument-shape',
+          url: 'https://registry.npmjs.org/broken',
+        }),
+      )
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry response did not match projection shape',
+        expect.objectContaining({
+          kind: 'regesta.npm-upstream-invalid-metadata',
+          requestId: 'upstream-invalid-version-shape',
+          url: 'https://registry.npmjs.org/broken/latest',
         }),
       )
     } finally {

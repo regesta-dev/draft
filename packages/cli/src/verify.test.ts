@@ -2406,7 +2406,7 @@ function releaseFixture(): {
 
 function validNpmInstallArtifactBytes(): Uint8Array {
   return Buffer.from(
-    'H4sIAAAAAAAA/+3PywrCQAwF0K79iiFrnd5iVejKXwkl1Me8mGlFEP9dsCAI3bUgwpzNhWSRm8DtlTspw5j6krwrFgZgX9dqav52wPcOFXbYqgJLF5kypJ5jgdm3xlfUJ//EgxxboYaOcmcbjOjW2/IkxvhNlE5Sz7Smm8R09o4aqjQ06Ln6de8sy7JsnhdTD03dAAgAAA==',
+    'H4sIAAAAAAAAE+3SvQqDMBQFYOc+Rbiz1ZuoEZw69T2CvVjrTyRREUrfvVhLcehQqNAO+ZaTCwnkhHQqr1RBYbdkcLG69TaGiDKO2ZypTB6JYplnPELm8URwEcs0kdxDLkU079v6Iu8MtlfGQ6xoLL9pvnRhr/wD6zddr9eucCKbm7LrS91CBsdy6gdD7PkfwIdWNQQZHGhSTVdTkOsmPFNd672hgmyvwIeRjF3O8wADhNvuZ6Udx3Gcj9wB7R39EAAIAAA=',
     'base64',
   )
 }

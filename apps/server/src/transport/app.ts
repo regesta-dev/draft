@@ -90,7 +90,5 @@ function transportJson(
   headers.set('content-length', String(bytes.byteLength))
   headers.set('content-type', 'application/json; charset=UTF-8')
 
-  return method === 'HEAD'
-    ? new Response(null, { ...init, headers })
-    : new Response(bytes, { ...init, headers })
+  return new Response(method === 'HEAD' ? null : bytes, { ...init, headers })
 }

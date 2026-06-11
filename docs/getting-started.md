@@ -110,10 +110,10 @@ are served from Regesta, while missing packages can fall back to
 `registry.npmjs.org`. The same fallback policy can also be handled by a
 client/package manager instead of the server projection.
 
-Fallback packuments and version manifests expose tarball URLs on the npm
-projection host, such as
-`https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz`. Those URLs redirect to
-upstream npmjs.org tarballs; the npm projection does not proxy tarball bytes.
+Fallback packuments and version manifests preserve upstream npm metadata,
+including upstream `dist.tarball` URLs. The npm projection does not proxy
+tarball bytes; direct npm projection tarball routes redirect to npmjs.org when
+requested.
 
 ## Docker Smoke Test
 

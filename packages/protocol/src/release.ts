@@ -1,3 +1,4 @@
+import { canonicalJson } from './canonical-json.ts'
 import {
   assertCompatibilityString,
   type AbiCompatibility,
@@ -247,7 +248,7 @@ function parseReleaseArtifact(value: unknown, label: string): ReleaseArtifact {
     ...(record.ecosystemMetadata === undefined
       ? {}
       : {
-          ecosystemMetadata: readRecord(
+          ecosystemMetadata: parseArtifactEcosystemMetadata(
             record.ecosystemMetadata,
             `${label} ecosystemMetadata`,
           ),
@@ -270,6 +271,24 @@ function parseReleaseArtifact(value: unknown, label: string): ReleaseArtifact {
         }),
     role: assertArtifactDescriptorString(record.role, `${label} role`),
   }
+}
+
+function parseArtifactEcosystemMetadata(
+  value: unknown,
+  label: string,
+): ArtifactEcosystemMetadata {
+  const metadata = readRecord(value, label)
+
+  try {
+    canonicalJson(metadata)
+  } catch (error) {
+    throw new TypeError(
+      `${label} must contain only canonical JSON values: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    )
+  }
+
+  return metadata
 }
 
 function parseRegestaCompatibility(

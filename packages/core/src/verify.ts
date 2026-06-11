@@ -279,11 +279,31 @@ function collectReleaseArtifact(
     collectReleaseCompatibility(compatibility, problems)
   }
 
-  if (
-    artifact.ecosystemMetadata !== undefined &&
-    !isRecord(artifact.ecosystemMetadata)
-  ) {
+  if (artifact.ecosystemMetadata !== undefined) {
+    collectReleaseArtifactEcosystemMetadata(
+      artifact.ecosystemMetadata,
+      problems,
+    )
+  }
+}
+
+function collectReleaseArtifactEcosystemMetadata(
+  ecosystemMetadata: unknown,
+  problems: string[],
+): void {
+  if (!isRecord(ecosystemMetadata)) {
     problems.push('Release artifact ecosystemMetadata must be an object')
+    return
+  }
+
+  try {
+    canonicalJson(ecosystemMetadata)
+  } catch (error) {
+    problems.push(
+      `Release artifact ecosystemMetadata must contain only canonical JSON values: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
   }
 }
 

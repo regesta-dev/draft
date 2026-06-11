@@ -412,9 +412,9 @@ The npm projection derives:
 - tarball URLs for npm-compatible clients.
 
 Regesta-hosted npm metadata points `dist.tarball` at the core object URL, where
-the object layer serves the immutable artifact. npm projection tarball routes
-redirect to upstream npm registry tarball URLs instead of serving or proxying
-artifact bytes.
+the object layer serves the immutable artifact. Fallback metadata is returned
+from the upstream npm registry without rewriting `dist.tarball`; the npm
+projection never proxies artifact bytes.
 
 ### Progressive Migration And Fallback
 
@@ -427,11 +427,15 @@ Fallback is not part of the core package state. It can be implemented by the
 server projection, or by a client/package manager that tries Regesta first and
 then asks the ecosystem's default registry for missing packages.
 
-When the server projection handles fallback, packument and version-manifest
-`dist.tarball` fields are rewritten to npm projection URLs such as
-`https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz`. Those routes redirect
-to upstream npmjs.org tarballs and the npm projection never proxies tarball
-bytes.
+When the server projection handles fallback, packument, version-manifest, and
+dist-tag metadata are validated and then returned without rewriting. Upstream
+`dist.tarball` URLs remain upstream URLs. Direct npm projection tarball routes
+still redirect to upstream npmjs.org tarballs and never proxy tarball bytes.
+
+If the upstream npm registry is unavailable or returns metadata that cannot be
+projected safely, the npm projection returns a structured `502` error with code
+`upstream_npm_registry_unavailable`. That failure does not create Regesta core
+package state.
 
 ## Errors
 

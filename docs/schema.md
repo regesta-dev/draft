@@ -216,9 +216,9 @@ Artifacts are release-level objects with role and ecosystem metadata.
 ```
 
 `compatibility` is declared intent, not V0 proof. `ecosystemMetadata` is
-projection metadata extracted by artifact processors. For npm, it comes from
-`package/package.json` inside the install tarball, and verifiers can reproduce
-that extraction from the artifact bytes.
+JSON-compatible projection metadata extracted by artifact processors. For npm,
+it comes from `package/package.json` inside the install tarball, and verifiers
+can reproduce that extraction from the artifact bytes.
 
 ## Compatibility
 

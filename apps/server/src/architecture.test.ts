@@ -225,12 +225,22 @@ describe('server layer boundaries', () => {
 
   it('keeps npm projection tarball routes as redirects instead of byte proxies', async () => {
     const source = await readFile(join(serverSourceRoot, 'npm/app.ts'), 'utf8')
+    const tarballStart = source.indexOf('function serveNpmTarball')
+    const tarballEnd = source.indexOf('function redirectToTarball')
+    const tarballSource = source.slice(tarballStart, tarballEnd)
 
     expect(source).toContain('redirectToTarball')
     expect(source).not.toContain('getDescriptor')
     expect(source).not.toContain('objects.')
     expect(source).not.toContain('immutableBytesResponse')
     expect(source).not.toContain('assertObjectResponseIntegrity')
+    expect(tarballStart).toBeGreaterThanOrEqual(0)
+    expect(tarballEnd).toBeGreaterThan(tarballStart)
+    expect(tarballSource).toContain('upstreamNpmTarballUrl')
+    expect(tarballSource).not.toContain('adapters')
+    expect(tarballSource).not.toContain('database')
+    expect(tarballSource).not.toContain('fetch')
+    expect(tarballSource).not.toContain('localNpmPackageId')
   })
 
   it('mounts npm projection behind a narrow registry reader', async () => {
@@ -241,7 +251,7 @@ describe('server layer boundaries', () => {
     expect(source).toContain('createNpmRegistryReader(adapters)')
     expect(source).not.toContain('createNpmRegistryRoutes(adapters')
     expect(readerStart).toBeGreaterThanOrEqual(0)
-    expect(readerSource).toContain('getRelease')
+    expect(readerSource).not.toContain('getRelease')
     expect(readerSource).toContain('listPackageEvents')
     expect(readerSource).toContain('listPackageReleases')
     expect(readerSource).not.toContain('.objects')

@@ -13,7 +13,9 @@ describe('adapters package architecture', () => {
       { label: 'Hono route dependency', pattern: /\bhono\b/u },
       { label: 'Valibot HTTP validation dependency', pattern: /\bvalibot\b/u },
       { label: 'npm packument logic', pattern: /\bpackument\b/u },
+      { label: 'npm dist-tags logic', pattern: /dist-tags/u },
       { label: 'npm upstream registry', pattern: /registry\.npmjs\.org/u },
+      { label: 'npm media type', pattern: /application\/vnd\.npm/u },
       { label: 'package-manager process execution', pattern: /child_process/u },
     ]
     const violations: string[] = []

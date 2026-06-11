@@ -159,9 +159,6 @@ function createNpmRegistryReader(
 ): NpmRegistryReader {
   return {
     database: {
-      getRelease: (packageId, version) => {
-        return adapters.database.getRelease(packageId, version)
-      },
       listPackageEvents: (packageId) => {
         return adapters.database.listPackageEvents(packageId)
       },

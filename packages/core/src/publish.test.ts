@@ -356,28 +356,51 @@ describe('publishRelease', () => {
   })
 
   it('rejects invalid artifact ecosystem metadata before storing objects', async () => {
-    const adapters = createTestRegistryAdapters()
-
-    await expect(
-      publishRelease(
-        {
-          ...createPublishInput(),
-          artifacts: [
-            {
-              bytes: bytes('install artifact'),
-              // @ts-expect-error Runtime validation protects untyped clients.
-              ecosystemMetadata: 'npm',
-              mediaType: 'application/gzip',
-              role: 'install',
+    const cases: Array<{
+      ecosystemMetadata: unknown
+      message: string
+    }> = [
+      {
+        ecosystemMetadata: 'npm',
+        message: 'Publish artifact ecosystemMetadata must be an object',
+      },
+      {
+        ecosystemMetadata: {
+          npm: {
+            dependencies: {
+              tinyexec: undefined,
             },
-          ],
+          },
         },
-        adapters,
-      ),
-    ).rejects.toThrow('Publish artifact ecosystemMetadata must be an object')
-    await expect(adapters.objects.get(sha256('source archive'))).resolves.toBe(
-      undefined,
-    )
+        message:
+          'Publish artifact ecosystemMetadata must contain only canonical JSON values',
+      },
+    ]
+
+    for (const { ecosystemMetadata, message } of cases) {
+      const adapters = createTestRegistryAdapters()
+
+      await expect(
+        publishRelease(
+          {
+            ...createPublishInput(),
+            artifacts: [
+              {
+                bytes: bytes('install artifact'),
+                // @ts-expect-error Runtime validation protects untyped clients.
+                ecosystemMetadata,
+                mediaType: 'application/gzip',
+                role: 'install',
+              },
+            ],
+          },
+          adapters,
+        ),
+      ).rejects.toThrow(message)
+      await expect(
+        adapters.objects.get(sha256('source archive')),
+      ).resolves.toBe(undefined)
+    }
   })
 
   it('rejects invalid artifact compatibility before storing objects', async () => {
@@ -1482,6 +1505,45 @@ describe('publishRelease', () => {
     expect(verification.ok).toBe(false)
     expect(verification.problems).toContain(
       'Release metadata must be an object',
+    )
+  })
+
+  it('reports non-canonical artifact ecosystem metadata without throwing', async () => {
+    const adapters = createTestRegistryAdapters()
+    await publishRelease(
+      {
+        ...createPublishInput(),
+        createdAt: '2026-06-01T00:00:00.000Z',
+      },
+      adapters,
+    )
+
+    const release = await adapters.database.getRelease(
+      'npm:example.com/hello-regesta',
+      '0.0.1',
+    )
+    Object.assign(release!.manifest.artifacts[0]!, {
+      ecosystemMetadata: {
+        npm: {
+          dependencies: {
+            tinyexec: undefined,
+          },
+        },
+      },
+    })
+
+    const verification = await verifyRelease(
+      adapters,
+      'npm:example.com/hello-regesta',
+      '0.0.1',
+    )
+
+    expect(verification.ok).toBe(false)
+    expect(verification.problems).toContain(
+      'Release artifact ecosystemMetadata must contain only canonical JSON values: Canonical JSON does not support undefined values',
+    )
+    expect(verification.problems).toContain(
+      'Release manifest canonicalization failed: Canonical JSON does not support undefined values',
     )
   })
 
