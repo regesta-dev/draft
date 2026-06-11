@@ -214,6 +214,39 @@ Before checkpoints and witnesses exist, a V0 auditor can prove that two sampled
 views differ, or that they matched for the sampled range. It cannot prove that a
 registry never served a different view to another client.
 
+## Manual Fork Bootstrap
+
+V0 does not define a checkpoint-based fork procedure, but it does allow a
+replacement operator or community mirror to preserve the public facts it can
+observe.
+
+A conservative manual fork bootstrap should:
+
+1. Select the source registry URL and the event cursor range to preserve.
+2. Run the mirror helper until it reaches an empty event page, or record that
+   the mirror is intentionally partial.
+3. Fetch every mirrored event again from its immutable event endpoint.
+4. Verify release envelopes, manifest objects, source objects, and artifact
+   objects by digest.
+5. Replay package state from mirrored events and compare representative
+   packages with the source registry's `/packages/<id>` responses.
+6. Compare the resulting mirror with at least one independently fetched mirror
+   when possible.
+7. Publish the mirror inventory, source registry URL, fetch time, final event
+   cursor, and known gaps before asking users to trust the replacement view.
+
+This workflow is a recovery and accountability tool, not a global consistency
+proof. Without checkpoints and witnesses, different clients may have observed
+different event-log views. A fork operator should therefore disclose the exact
+public evidence used to build the replacement registry and keep the raw
+mirrored events and objects available for auditors.
+
+The current V0 CLI writes a mirror directory; it does not yet provide a
+general-purpose import command for a new registry operator. That import path
+should replay Regesta-native events and copy content-addressed objects through
+storage adapters instead of importing package-manager projection responses as
+the source of truth.
+
 ## Current Limits
 
 V0 does not yet provide:

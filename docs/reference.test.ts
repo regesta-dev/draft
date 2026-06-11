@@ -280,6 +280,18 @@ describe('documentation references', () => {
     ).resolves.toContain('tag or version')
   })
 
+  it('documents the manual fork bootstrap without claiming checkpointed forks', async () => {
+    await expect(readText('roadmap.md')).resolves.toContain(
+      'Document the V0 manual fork bootstrap workflow',
+    )
+    await expect(readText('mirroring.md')).resolves.toContain(
+      '## Manual Fork Bootstrap',
+    )
+    await expect(readText('mirroring.md')).resolves.toContain(
+      'V0 does not define a checkpoint-based fork procedure',
+    )
+  })
+
   it('documents npm metadata tarball URLs as projection redirects', async () => {
     const tarballSchema = await openapiValueAtPointer(
       '#/components/schemas/NpmVersionManifest/properties/dist/properties/tarball',

@@ -94,6 +94,8 @@ server behavior.
 - [x] Define the V0 mirror synchronization profile over public APIs.
 - [x] Provide V0 replay tooling that reconstructs package state from public
       event data.
+- [x] Document the V0 manual fork bootstrap workflow over existing public
+      mirror data.
 - [ ] Define checkpoint-based fork procedure.
 - [x] Define V0 auditor behavior for comparing sampled registry views.
 
