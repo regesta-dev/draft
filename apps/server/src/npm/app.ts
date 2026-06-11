@@ -16,7 +16,7 @@ import { Hono, type Context } from 'hono'
 import { decodeRequestComponent, requiredParam } from '../request.ts'
 import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
 
-interface NpmRegistryReader {
+export interface NpmRegistryReader {
   database: {
     getRelease: (
       packageId: PackageId,

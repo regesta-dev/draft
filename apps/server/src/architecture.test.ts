@@ -227,10 +227,26 @@ describe('server layer boundaries', () => {
     const source = await readFile(join(serverSourceRoot, 'npm/app.ts'), 'utf8')
 
     expect(source).toContain('redirectToTarball')
-    expect(source).toContain('getDescriptor')
-    expect(source).not.toContain('objects.get(')
+    expect(source).not.toContain('getDescriptor')
+    expect(source).not.toContain('objects.')
     expect(source).not.toContain('immutableBytesResponse')
     expect(source).not.toContain('assertObjectResponseIntegrity')
+  })
+
+  it('mounts npm projection behind a narrow registry reader', async () => {
+    const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
+    const readerStart = source.indexOf('function createNpmRegistryReader')
+    const readerSource = source.slice(readerStart)
+
+    expect(source).toContain('createNpmRegistryReader(adapters)')
+    expect(source).not.toContain('createNpmRegistryRoutes(adapters')
+    expect(readerStart).toBeGreaterThanOrEqual(0)
+    expect(readerSource).toContain('getRelease')
+    expect(readerSource).toContain('listPackageEvents')
+    expect(readerSource).toContain('listPackageReleases')
+    expect(readerSource).not.toContain('.objects')
+    expect(readerSource).not.toContain('.queue')
+    expect(readerSource).not.toContain('.signer')
   })
 
   it('keeps the server entrypoint wired to persistent local adapters', async () => {

@@ -18,7 +18,7 @@ import {
   type PublishUploadLimits,
 } from './core/app.ts'
 import { domainBindingFetchForRequest } from './dev/domain-binding.ts'
-import { createNpmRegistryRoutes } from './npm/app.ts'
+import { createNpmRegistryRoutes, type NpmRegistryReader } from './npm/app.ts'
 import { RequestValidationError } from './request.ts'
 import { createStorageReadinessCheck } from './storage/readiness.ts'
 import { createTransportRoutes } from './transport/app.ts'
@@ -140,7 +140,7 @@ export function createRegestaApp(
   )
   app.route(
     '/npm',
-    createNpmRegistryRoutes(adapters, {
+    createNpmRegistryRoutes(createNpmRegistryReader(adapters), {
       upstreamFetch: options.npmUpstreamFetch,
     }),
   )
@@ -152,4 +152,22 @@ export function createRegestaApp(
   }
 
   return app
+}
+
+function createNpmRegistryReader(
+  adapters: RegistryAdapters,
+): NpmRegistryReader {
+  return {
+    database: {
+      getRelease: (packageId, version) => {
+        return adapters.database.getRelease(packageId, version)
+      },
+      listPackageEvents: (packageId) => {
+        return adapters.database.listPackageEvents(packageId)
+      },
+      listPackageReleases: (packageId) => {
+        return adapters.database.listPackageReleases(packageId)
+      },
+    },
+  }
 }
