@@ -411,8 +411,9 @@ The npm projection derives:
 - dependency and resolver metadata from npm artifact `ecosystemMetadata`;
 - tarball URLs on the npm projection host.
 
-Tarball routes redirect instead of proxying bytes. For Regesta-hosted packages,
-the npm projection redirects tarball requests to the core object URL. For
+Tarball routes redirect instead of serving bytes from the npm projection. For
+Regesta-hosted packages, the npm projection redirects tarball requests to the
+core object URL, where the object layer serves the immutable artifact. For
 fallback packages, it redirects to the upstream npm registry tarball URL.
 
 ### Progressive Migration And Fallback
@@ -429,7 +430,8 @@ then asks the ecosystem's default registry for missing packages.
 When the server projection handles fallback, packument and version-manifest
 `dist.tarball` fields are rewritten to npm projection URLs such as
 `https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz`. Those routes redirect
-to upstream npmjs.org tarballs and never proxy tarball bytes.
+to upstream npmjs.org tarballs and the npm projection never proxies tarball
+bytes.
 
 ## Errors
 

@@ -113,7 +113,7 @@ client/package manager instead of the server projection.
 Fallback packuments and version manifests expose tarball URLs on the npm
 projection host, such as
 `https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz`. Those URLs redirect to
-upstream npmjs.org tarballs; Regesta does not proxy tarball bytes.
+upstream npmjs.org tarballs; the npm projection does not proxy tarball bytes.
 
 ## Docker Smoke Test
 

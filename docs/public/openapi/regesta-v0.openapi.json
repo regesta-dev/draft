@@ -948,7 +948,7 @@
         }
       },
       "NpmTarballRedirect": {
-        "description": "Redirect to a core object URL for Regesta-hosted packages or to the upstream npm registry tarball URL for fallback packages. The npm projection never proxies tarball bytes.",
+        "description": "Redirect to a core object URL for Regesta-hosted packages or to the upstream npm registry tarball URL for fallback packages. The npm projection never proxies tarball bytes; the object layer serves immutable Regesta-hosted artifacts.",
         "headers": {
           "Location": {
             "description": "Tarball download URL.",
@@ -1098,7 +1098,7 @@
               "tarball": {
                 "type": "string",
                 "format": "uri",
-                "description": "Tarball URL on the npm projection host. Requests to this URL redirect to a core object URL for Regesta-hosted packages or to the upstream npm registry tarball URL for fallback packages; the npm projection never proxies tarball bytes."
+                "description": "Tarball URL on the npm projection host. Requests to this URL redirect to a core object URL for Regesta-hosted packages or to the upstream npm registry tarball URL for fallback packages; the npm projection never proxies tarball bytes. The object layer serves immutable Regesta-hosted artifacts."
               }
             },
             "required": ["tarball"]

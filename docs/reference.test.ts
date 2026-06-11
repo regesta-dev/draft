@@ -367,6 +367,9 @@ describe('documentation references', () => {
     expect(redirectDescription).toEqual(
       expect.stringContaining('never proxies tarball bytes'),
     )
+    expect(redirectDescription).toEqual(
+      expect.stringContaining('object layer serves immutable'),
+    )
   })
 
   it('covers implemented OpenAPI methods for documented routes', async () => {
