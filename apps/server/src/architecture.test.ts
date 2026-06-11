@@ -188,6 +188,16 @@ describe('server layer boundaries', () => {
     expect(violations).toEqual([])
   })
 
+  it('keeps npm projection tarball routes as redirects instead of byte proxies', async () => {
+    const source = await readFile(join(serverSourceRoot, 'npm/app.ts'), 'utf8')
+
+    expect(source).toContain('redirectToTarball')
+    expect(source).toContain('getDescriptor')
+    expect(source).not.toContain('objects.get(')
+    expect(source).not.toContain('immutableBytesResponse')
+    expect(source).not.toContain('assertObjectResponseIntegrity')
+  })
+
   it('keeps the server entrypoint wired to persistent local adapters', async () => {
     const source = await readFile(
       join(workspaceRoot, 'apps/server/server.ts'),

@@ -771,78 +771,54 @@
     "/{name}/-/{file}": {
       "get": {
         "tags": ["npm Projection"],
-        "summary": "Read npm tarball for an unscoped package",
+        "summary": "Redirect npm tarball request for an unscoped package",
         "parameters": [
           { "$ref": "#/components/parameters/NpmName" },
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "200": {
-            "description": "npm install artifact bytes.",
-            "content": {
-              "application/gzip": {
-                "schema": { "type": "string", "format": "binary" }
-              }
-            }
-          },
-          "206": { "description": "npm tarball byte range." },
-          "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
+          "404": { "$ref": "#/components/responses/Error" }
         }
       },
       "head": {
         "tags": ["npm Projection"],
-        "summary": "Read npm tarball headers for an unscoped package",
+        "summary": "Redirect npm tarball HEAD request for an unscoped package",
         "parameters": [
           { "$ref": "#/components/parameters/NpmName" },
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "200": { "description": "npm tarball exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
+          "404": { "$ref": "#/components/responses/Error" }
         }
       }
     },
     "/{scope}/{name}/-/{file}": {
       "get": {
         "tags": ["npm Projection"],
-        "summary": "Read npm tarball for a scoped package",
+        "summary": "Redirect npm tarball request for a scoped package",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
           { "$ref": "#/components/parameters/NpmName" },
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "200": {
-            "description": "npm install artifact bytes.",
-            "content": {
-              "application/gzip": {
-                "schema": { "type": "string", "format": "binary" }
-              }
-            }
-          },
-          "206": { "description": "npm tarball byte range." },
-          "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
+          "404": { "$ref": "#/components/responses/Error" }
         }
       },
       "head": {
         "tags": ["npm Projection"],
-        "summary": "Read npm tarball headers for a scoped package",
+        "summary": "Redirect npm tarball HEAD request for a scoped package",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
           { "$ref": "#/components/parameters/NpmName" },
           { "$ref": "#/components/parameters/NpmTarballFile" }
         ],
         "responses": {
-          "200": { "description": "npm tarball exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "302": { "$ref": "#/components/responses/NpmTarballRedirect" },
+          "404": { "$ref": "#/components/responses/Error" }
         }
       }
     }
@@ -964,6 +940,15 @@
         "content": {
           "application/json": {
             "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "NpmTarballRedirect": {
+        "description": "Redirect to a core object URL for Regesta-hosted packages or to the upstream npm registry tarball URL for fallback packages. The npm projection never proxies tarball bytes.",
+        "headers": {
+          "Location": {
+            "description": "Tarball download URL.",
+            "schema": { "type": "string", "format": "uri" }
           }
         }
       },

@@ -399,6 +399,10 @@ The npm projection derives:
 - dependency and resolver metadata from npm artifact `ecosystemMetadata`;
 - tarball URLs from install artifact object descriptors.
 
+Tarball routes redirect instead of proxying bytes. For Regesta-hosted packages,
+the npm projection redirects tarball requests to the core object URL. For
+fallback packages, it redirects to the upstream npm registry tarball URL.
+
 ### Progressive Migration And Fallback
 
 The npm projection is also a compatibility layer for gradual migration. If a

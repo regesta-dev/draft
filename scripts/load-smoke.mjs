@@ -94,7 +94,7 @@ try {
   const publishDurationMs = elapsedMilliseconds(publishStartedAt)
   assertDuration('publish', publishDurationMs, maxPublishDurationMs)
 
-  const readRequests = readLoadRequests(published)
+  const readRequests = readLoadRequests(app, published)
   const readStartedAt = performance.now()
 
   for (let index = 0; index < readIterations; index += 1) {
@@ -231,7 +231,7 @@ function createSignedPublishForm(prepared, key) {
   return form
 }
 
-function readLoadRequests(published) {
+function readLoadRequests(app, published) {
   return published.flatMap(({ body, prepared }) => {
     const packageId = prepared.config.id
     const packagePath = encodeURIComponent(packageId)
@@ -240,6 +240,13 @@ function readLoadRequests(published) {
     const eventId = body.event.id
     const eventPath = eventId.replace('sha256:', 'sha256/')
     const manifestDigest = body.manifestDescriptor.digest
+    const installArtifact = prepared.artifacts.find((artifact) => {
+      return artifact.role === 'install'
+    })
+    if (!installArtifact) {
+      throw new Error(`Published package has no install artifact: ${packageId}`)
+    }
+    const installArtifactDigest = sha256(installArtifact.bytes)
     const npmBase = `http://npm.registry.test/@dev.localhost/${name}`
 
     return [
@@ -341,9 +348,20 @@ function readLoadRequests(published) {
       },
       {
         assert: async (response) => {
-          assertStatus(response, 200)
-          if ((await response.arrayBuffer()).byteLength === 0) {
-            throw new Error(`npm tarball response was empty: ${packageId}`)
+          assertStatus(response, 302)
+          const location = response.headers.get('location')
+          const expectedLocation = `http://registry.test/objects/${installArtifactDigest}`
+
+          if (location !== expectedLocation) {
+            throw new Error(
+              `Expected npm tarball redirect to ${expectedLocation}, got ${location}`,
+            )
+          }
+
+          const objectResponse = await app.request(location)
+          assertStatus(objectResponse, 200)
+          if ((await objectResponse.arrayBuffer()).byteLength === 0) {
+            throw new Error(`npm tarball object was empty: ${packageId}`)
           }
         },
         url: `${npmBase}/-/${name}-${version}.tgz`,

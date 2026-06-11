@@ -74,6 +74,12 @@ For npm, the npm artifact processor can extract package-manager metadata from
 constraints, and description. The npm projection can then expose that data in
 npm-native packuments and version manifests.
 
+npm tarball routes should redirect instead of proxying artifact bytes. For
+Regesta-hosted packages, the projection redirects to the core object URL. For
+fallback packages, it redirects to the upstream npm tarball URL. Byte serving,
+range handling, cache validators, and integrity checks remain object-layer
+responsibilities.
+
 Future PyPI, Cargo, Go, OCI, and other processors should follow the same
 pattern: understand their artifacts, write projection metadata to the artifact,
 and leave the core release model neutral.

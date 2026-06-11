@@ -120,9 +120,9 @@ The production adapter gate should publish its parameters with the result:
 
 As a minimum, a production adapter profile should cover the same behavioral
 surface as `pnpm smoke:load`: publish, package reads, release reads, event
-reads, object reads, npm packuments, npm version manifests, and npm tarballs.
-It should also include `/ready` and object inventory reads when those endpoints
-are used by mirrors.
+reads, object reads, npm packuments, npm version manifests, npm tarball
+redirects, and redirected object downloads. It should also include `/ready` and
+object inventory reads when those endpoints are used by mirrors.
 
 A production gate fails if:
 

@@ -3394,10 +3394,11 @@ describe('createRegestaApp', () => {
       },
       {
         assert: async (response: Response) => {
-          expect(response.status).toBe(200)
-          expect(new Uint8Array(await response.arrayBuffer())).toEqual(
-            artifactBytes,
+          expect(response.status).toBe(302)
+          expect(response.headers.get('location')).toBe(
+            `http://registry.test/objects/${sha256(artifactBytes)}`,
           )
+          expect(await response.text()).toBe('')
         },
         url: npmTarball,
       },
@@ -4290,37 +4291,55 @@ describe('createRegestaApp', () => {
       'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
     )
 
-    expect(subdomainTarball.status).toBe(200)
-    expect(subdomainTarball.headers.get('cache-control')).toBe(
-      'public, max-age=31536000, immutable',
-    )
-    expect(subdomainTarball.headers.get('accept-ranges')).toBe('bytes')
-    expect(subdomainTarball.headers.get('content-type')).toBe(
-      'application/gzip',
-    )
-    expect(subdomainTarball.headers.get('etag')).toBe(
-      `"${sha256(installArtifact.bytes)}"`,
-    )
-    const tarballBytes = new Uint8Array(await subdomainTarball.arrayBuffer())
-    expect(tarballBytes).toEqual(new Uint8Array(installArtifact.bytes))
-    expect(tarballBytes).not.toEqual(new Uint8Array(prepared.source))
+    const objectUrl = `http://registry.test/objects/${sha256(
+      installArtifact.bytes,
+    )}`
 
-    const rangeTarball = await app.request(
+    expect(subdomainTarball.status).toBe(302)
+    expect(subdomainTarball.headers.get('cache-control')).toBe('no-cache')
+    expect(subdomainTarball.headers.get('location')).toBe(objectUrl)
+    expect(await subdomainTarball.text()).toBe('')
+
+    const objectTarball = await app.request(objectUrl)
+
+    expect(objectTarball.status).toBe(200)
+    const objectTarballBytes = new Uint8Array(await objectTarball.arrayBuffer())
+    expect(objectTarballBytes).toEqual(new Uint8Array(installArtifact.bytes))
+    expect(objectTarballBytes).not.toEqual(new Uint8Array(prepared.source))
+
+    const rangeTarball = await app.request(objectUrl, {
+      headers: {
+        range: 'bytes=1-3',
+      },
+    })
+    const invalidRangeTarball = await app.request(objectUrl, {
+      headers: {
+        range: `bytes=${installArtifact.bytes.byteLength}-`,
+      },
+    })
+
+    const conditionalTarball = await app.request(
       'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
       {
         headers: {
-          range: 'bytes=1-3',
+          'if-none-match': `"${sha256(installArtifact.bytes)}"`,
         },
       },
     )
-    const invalidRangeTarball = await app.request(
+
+    expect(conditionalTarball.status).toBe(302)
+    expect(conditionalTarball.headers.get('location')).toBe(objectUrl)
+
+    const headTarball = await app.request(
       'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
       {
-        headers: {
-          range: `bytes=${installArtifact.bytes.byteLength}-`,
-        },
+        method: 'HEAD',
       },
     )
+
+    expect(headTarball.status).toBe(302)
+    expect(headTarball.headers.get('location')).toBe(objectUrl)
+    expect(await headTarball.text()).toBe('')
 
     expect(rangeTarball.status).toBe(206)
     expect(rangeTarball.headers.get('accept-ranges')).toBe('bytes')
@@ -4337,63 +4356,6 @@ describe('createRegestaApp', () => {
       `bytes */${installArtifact.bytes.byteLength}`,
     )
     expect(await invalidRangeTarball.text()).toBe('')
-
-    const conditionalTarball = await app.request(
-      'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
-      {
-        headers: {
-          'if-none-match': `"sha256:${'0'.repeat(64)}", W/"${sha256(
-            installArtifact.bytes,
-          )}"`,
-        },
-      },
-    )
-
-    expect(conditionalTarball.status).toBe(304)
-    expect(conditionalTarball.headers.get('cache-control')).toBe(
-      'public, max-age=31536000, immutable',
-    )
-    expect(conditionalTarball.headers.get('etag')).toBe(
-      `"${sha256(installArtifact.bytes)}"`,
-    )
-    expect(conditionalTarball.headers.get('content-length')).toBeNull()
-    expect(await conditionalTarball.text()).toBe('')
-
-    const headTarball = await app.request(
-      'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
-      {
-        method: 'HEAD',
-      },
-    )
-
-    expect(headTarball.status).toBe(200)
-    expect(headTarball.headers.get('content-length')).toBe(
-      String(installArtifact.bytes.byteLength),
-    )
-    expect(headTarball.headers.get('etag')).toBe(
-      `"${sha256(installArtifact.bytes)}"`,
-    )
-    expect(await headTarball.text()).toBe('')
-
-    const conditionalHeadTarball = await app.request(
-      'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
-      {
-        headers: {
-          'if-none-match': `"${sha256(installArtifact.bytes)}"`,
-        },
-        method: 'HEAD',
-      },
-    )
-
-    expect(conditionalHeadTarball.status).toBe(304)
-    expect(conditionalHeadTarball.headers.get('cache-control')).toBe(
-      'public, max-age=31536000, immutable',
-    )
-    expect(conditionalHeadTarball.headers.get('etag')).toBe(
-      `"${sha256(installArtifact.bytes)}"`,
-    )
-    expect(conditionalHeadTarball.headers.get('content-length')).toBeNull()
-    expect(await conditionalHeadTarball.text()).toBe('')
 
     const rootPathOnMainHost = await app.request(
       'http://registry.test/@example.com/hello-regesta',
@@ -4499,8 +4461,17 @@ describe('createRegestaApp', () => {
         'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
       )
 
-      expect(tarball.status).toBe(200)
-      expect(new Uint8Array(await tarball.arrayBuffer())).toEqual(
+      expect(tarball.status).toBe(302)
+      expect(tarball.headers.get('location')).toBe(
+        `http://registry.test/objects/${sha256(installArtifact.bytes)}`,
+      )
+
+      const object = await restartedApp.request(
+        requiredHeader(tarball, 'location'),
+      )
+
+      expect(object.status).toBe(200)
+      expect(new Uint8Array(await object.arrayBuffer())).toEqual(
         new Uint8Array(installArtifact.bytes),
       )
     } finally {
@@ -4509,7 +4480,7 @@ describe('createRegestaApp', () => {
     }
   })
 
-  it('serves npm tarball HEAD and conditional reads without loading artifact bytes', async () => {
+  it('redirects npm tarball reads without loading artifact bytes', async () => {
     const adapters = createMemoryRegistryAdapters()
     const artifactBytes = bytes('install artifact bytes')
     const artifactDigest = sha256(artifactBytes)
@@ -4546,6 +4517,7 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(adapters)
     const tarballUrl =
       'http://npm.registry.test/@example.com/descriptor-tarball/-/descriptor-tarball-0.0.1.tgz'
+    const objectUrl = `http://registry.test/objects/${artifactDigest}`
     const head = await app.request(tarballUrl, {
       method: 'HEAD',
     })
@@ -4571,42 +4543,30 @@ describe('createRegestaApp', () => {
         range: `bytes=${artifactBytes.byteLength}-`,
       },
     })
-
-    expect(head.status).toBe(200)
-    expect(head.headers.get('content-length')).toBe(
-      String(artifactBytes.byteLength),
-    )
-    expect(head.headers.get('etag')).toBe(`"${artifactDigest}"`)
-    expect(await head.text()).toBe('')
-    expect(rangeHead.status).toBe(206)
-    expect(rangeHead.headers.get('content-length')).toBe('7')
-    expect(rangeHead.headers.get('content-range')).toBe(
-      `bytes 1-7/${artifactBytes.byteLength}`,
-    )
-    expect(await rangeHead.text()).toBe('')
-    expect(invalidRangeHead.status).toBe(416)
-    expect(invalidRangeHead.headers.get('content-range')).toBe(
-      `bytes */${artifactBytes.byteLength}`,
-    )
-    expect(await invalidRangeHead.text()).toBe('')
-    expect(conditional.status).toBe(304)
-    expect(await conditional.text()).toBe('')
-    expect(invalidRangeGet.status).toBe(416)
-    expect(invalidRangeGet.headers.get('content-range')).toBe(
-      `bytes */${artifactBytes.byteLength}`,
-    )
-    expect(await invalidRangeGet.text()).toBe('')
-    expect(objectGetCalls).toBe(0)
-
     const get = await app.request(tarballUrl)
 
-    expect(get.status).toBe(200)
-    expect(await get.text()).toBe('install artifact bytes')
-    expect(objectGetCalls).toBe(1)
+    expect(head.status).toBe(302)
+    expect(head.headers.get('location')).toBe(objectUrl)
+    expect(await head.text()).toBe('')
+    expect(rangeHead.status).toBe(302)
+    expect(rangeHead.headers.get('location')).toBe(objectUrl)
+    expect(await rangeHead.text()).toBe('')
+    expect(invalidRangeHead.status).toBe(302)
+    expect(invalidRangeHead.headers.get('location')).toBe(objectUrl)
+    expect(await invalidRangeHead.text()).toBe('')
+    expect(conditional.status).toBe(302)
+    expect(conditional.headers.get('location')).toBe(objectUrl)
+    expect(await conditional.text()).toBe('')
+    expect(invalidRangeGet.status).toBe(302)
+    expect(invalidRangeGet.headers.get('location')).toBe(objectUrl)
+    expect(await invalidRangeGet.text()).toBe('')
+    expect(get.status).toBe(302)
+    expect(get.headers.get('location')).toBe(objectUrl)
+    expect(await get.text()).toBe('')
+    expect(objectGetCalls).toBe(0)
   })
 
-  it('rejects npm tarball reads when artifact descriptors disagree', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('redirects npm tarball reads without validating artifact bytes in the npm layer', async () => {
     const adapters = createMemoryRegistryAdapters()
     const artifactBytes = bytes('install artifact bytes')
     const artifactDigest = sha256(artifactBytes)
@@ -4635,83 +4595,9 @@ describe('createRegestaApp', () => {
     )
 
     const getObject = adapters.objects.get.bind(adapters.objects)
+    let objectGetCalls = 0
     adapters.objects.get = async (digest) => {
-      const object = await getObject(digest)
-
-      return object && digest === artifactDigest
-        ? {
-            ...object,
-            descriptor: {
-              ...object.descriptor,
-              mediaType: 'text/plain',
-            },
-          }
-        : object
-    }
-    const app = createRegestaApp(adapters)
-
-    try {
-      const response = await app.request(
-        'http://npm.registry.test/@example.com/mismatched-tarball-descriptor/-/mismatched-tarball-descriptor-0.0.1.tgz',
-        {
-          headers: {
-            'x-request-id': 'npm-tarball-descriptor-mismatch-001',
-          },
-        },
-      )
-
-      expect(response.status).toBe(500)
-      await expect(response.json()).resolves.toEqual({
-        code: 'internal_server_error',
-        error: 'Internal Server Error',
-        message: 'Internal Server Error',
-      })
-      expect(consoleError).toHaveBeenCalledWith(
-        'Unexpected transport error',
-        expect.objectContaining({
-          error: expect.objectContaining({
-            message: `npm tarball object descriptor changed while reading: ${artifactDigest}`,
-          }),
-          kind: 'regesta.unexpected-error',
-          requestId: 'npm-tarball-descriptor-mismatch-001',
-        }),
-      )
-    } finally {
-      consoleError.mockRestore()
-    }
-  })
-
-  it('rejects npm tarball reads when artifact bytes do not match their digest', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const adapters = createMemoryRegistryAdapters()
-    const artifactBytes = bytes('install artifact bytes')
-    const artifactDigest = sha256(artifactBytes)
-
-    await publishRelease(
-      {
-        artifacts: [
-          {
-            bytes: artifactBytes,
-            format: 'npm-tarball',
-            mediaType: 'application/gzip',
-            role: 'install',
-          },
-        ],
-        config: {
-          id: 'npm:example.com/mismatched-tarball-bytes',
-          source: {
-            include: ['regesta.json'],
-          },
-          version: '0.0.1',
-        },
-        createdAt: '2026-06-01T00:00:00.000Z',
-        source: bytes('source archive'),
-      },
-      adapters,
-    )
-
-    const getObject = adapters.objects.get.bind(adapters.objects)
-    adapters.objects.get = async (digest) => {
+      objectGetCalls += 1
       const object = await getObject(digest)
 
       return object && digest === artifactDigest
@@ -4723,35 +4609,15 @@ describe('createRegestaApp', () => {
     }
     const app = createRegestaApp(adapters)
 
-    try {
-      const response = await app.request(
-        'http://npm.registry.test/@example.com/mismatched-tarball-bytes/-/mismatched-tarball-bytes-0.0.1.tgz',
-        {
-          headers: {
-            'x-request-id': 'npm-tarball-bytes-mismatch-001',
-          },
-        },
-      )
+    const response = await app.request(
+      'http://npm.registry.test/@example.com/mismatched-tarball-descriptor/-/mismatched-tarball-descriptor-0.0.1.tgz',
+    )
 
-      expect(response.status).toBe(500)
-      await expect(response.json()).resolves.toEqual({
-        code: 'internal_server_error',
-        error: 'Internal Server Error',
-        message: 'Internal Server Error',
-      })
-      expect(consoleError).toHaveBeenCalledWith(
-        'Unexpected transport error',
-        expect.objectContaining({
-          error: expect.objectContaining({
-            message: `npm tarball object bytes digest mismatch while reading: ${artifactDigest}`,
-          }),
-          kind: 'regesta.unexpected-error',
-          requestId: 'npm-tarball-bytes-mismatch-001',
-        }),
-      )
-    } finally {
-      consoleError.mockRestore()
-    }
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe(
+      `http://registry.test/objects/${artifactDigest}`,
+    )
+    expect(objectGetCalls).toBe(0)
   })
 
   it('supports real npm installs through the npm projection host', async () => {
@@ -4998,12 +4864,20 @@ describe('createRegestaApp', () => {
       'http://npm.registry.test/@upstream/pkg/-/pkg-1.0.0.tgz',
     )
 
-    expect(tarball.status).toBe(404)
-    await expect(tarball.json()).resolves.toMatchObject({
-      code: 'tarball_not_found',
-      error: 'Tarball not found',
-      message: 'Tarball not found',
-    })
+    expect(tarball.status).toBe(302)
+    expect(tarball.headers.get('location')).toBe(
+      'https://registry.npmjs.org/%40upstream%2Fpkg/-/pkg-1.0.0.tgz',
+    )
+    expect(await tarball.text()).toBe('')
+    const unscopedTarball = await app.request(
+      'http://npm.registry.test/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+
+    expect(unscopedTarball.status).toBe(302)
+    expect(unscopedTarball.headers.get('location')).toBe(
+      'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    expect(await unscopedTarball.text()).toBe('')
     expect(fetchCalls).toHaveLength(6)
   })
 
@@ -5505,6 +5379,16 @@ function nodeRequestHeaders(headers: IncomingHttpHeaders): Headers {
   }
 
   return output
+}
+
+function requiredHeader(response: Response, name: string): string {
+  const value = response.headers.get(name)
+
+  if (!value) {
+    throw new Error(`Expected response header: ${name}`)
+  }
+
+  return value
 }
 
 async function prepareFixtureNpmPublish(projectDir: string): Promise<{

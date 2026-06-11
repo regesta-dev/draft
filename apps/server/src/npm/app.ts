@@ -6,18 +6,9 @@ import {
   tarballFileName,
 } from '@regesta/npm'
 import { Hono, type Context } from 'hono'
-import { assertObjectResponseIntegrity } from '../object-integrity.ts'
 import { decodeRequestComponent, requiredParam } from '../request.ts'
-import {
-  errorResponse,
-  immutableBytesResponse,
-  immutableDescriptorHeaders,
-  immutableDescriptorResponse,
-  matchesIfNoneMatch,
-  parseSingleByteRange,
-} from '../responses.ts'
+import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
 import type {
-  ObjectDescriptor,
   PackageId,
   RegistryEvent,
   ReleaseManifest,
@@ -38,16 +29,9 @@ interface NpmRegistryReader {
     listPackageEvents: (packageId: PackageId) => Promise<RegistryEvent[]>
   }
   objects: {
-    get: (digest: Sha256Digest) => Promise<
-      | {
-          bytes: Uint8Array
-          descriptor: ObjectDescriptor
-        }
-      | undefined
-    >
     getDescriptor: (
       digest: Sha256Digest,
-    ) => Promise<ObjectDescriptor | undefined>
+    ) => Promise<{ digest: Sha256Digest } | undefined>
   }
 }
 
@@ -449,6 +433,10 @@ function upstreamNpmDistTagsUrl(packageName: string): string {
   )}/dist-tags`
 }
 
+function upstreamNpmTarballUrl(packageName: string, file: string): string {
+  return `${upstreamNpmPackumentUrl(packageName)}/-/${encodeURIComponent(file)}`
+}
+
 function copyHeader(source: Headers, target: Headers, name: string): void {
   const value = source.get(name)
 
@@ -502,19 +490,14 @@ async function serveNpmTarball(
   adapters: NpmRegistryReader,
   packageName: string,
 ): Promise<Response> {
+  const file = requiredParam(context.req.param('file'), 'file')
   const packageId = localNpmPackageId(packageName)
 
   if (!packageId) {
-    return context.json(
-      errorResponse('tarball_not_found', 'Tarball not found'),
-      404,
-    )
+    return redirectToTarball(upstreamNpmTarballUrl(packageName, file))
   }
 
-  const version = versionFromTarballFile(
-    requiredParam(context.req.param('file'), 'file'),
-    packageId,
-  )
+  const version = versionFromTarballFile(file, packageId)
 
   if (!version) {
     return context.json(
@@ -538,81 +521,45 @@ async function serveNpmTarball(
     )
   }
 
-  const etag = `"${descriptor.digest}"`
-  const headers = tarballDescriptorHeaders(descriptor, etag)
+  return redirectToTarball(coreObjectUrl(context, descriptor.digest))
+}
 
-  if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
-    headers.delete('content-length')
-
-    return new Response(null, {
-      headers,
-      status: 304,
-    })
-  }
-
-  if (context.req.method === 'HEAD') {
-    return tarballDescriptorResponse(
-      descriptor,
-      etag,
-      context.req.header('range'),
-    )
-  }
-
-  const rangeHeader = context.req.header('range')
-  if (rangeHeader && !parseSingleByteRange(rangeHeader, descriptor.size)) {
-    return tarballDescriptorResponse(descriptor, etag, rangeHeader)
-  }
-
-  const object = await adapters.objects.get(descriptor.digest)
-
-  if (!object) {
-    return context.json(
-      errorResponse('tarball_not_found', 'Tarball not found'),
-      404,
-    )
-  }
-
-  assertObjectResponseIntegrity({
-    actual: object,
-    digest: descriptor.digest,
-    expected: descriptor,
-    label: 'npm tarball object',
-  })
-
-  return immutableBytesResponse({
-    bytes: object.bytes,
-    cacheControl: 'public, max-age=31536000, immutable',
-    contentType: object.descriptor.mediaType,
-    etag,
-    includeBody: context.req.method !== 'HEAD',
-    rangeHeader,
+function redirectToTarball(location: string): Response {
+  return new Response(null, {
+    headers: {
+      'cache-control': 'no-cache',
+      location,
+    },
+    status: 302,
   })
 }
 
-function tarballDescriptorHeaders(
-  descriptor: ObjectDescriptor,
-  etag: string,
-): Headers {
-  return immutableDescriptorHeaders({
-    cacheControl: 'public, max-age=31536000, immutable',
-    contentLength: descriptor.size,
-    contentType: descriptor.mediaType,
-    etag,
-  })
+function coreObjectUrl(context: Context, digest: Sha256Digest): string {
+  const url = new URL(context.req.url)
+  url.hostname = coreRegistryHostname(url.hostname)
+  url.pathname = `/objects/${digest}`
+  url.search = ''
+  url.hash = ''
+
+  return url.toString()
 }
 
-function tarballDescriptorResponse(
-  descriptor: ObjectDescriptor,
-  etag: string,
-  rangeHeader: string | undefined,
-): Response {
-  return immutableDescriptorResponse({
-    cacheControl: 'public, max-age=31536000, immutable',
-    contentLength: descriptor.size,
-    contentType: descriptor.mediaType,
-    etag,
-    rangeHeader,
-  })
+function coreRegistryHostname(hostname: string): string {
+  const labels = hostname.split('.')
+
+  if (labels[0] !== 'npm') {
+    return hostname
+  }
+
+  if (labels.length === 2 && labels[1] === 'localhost') {
+    return 'localhost'
+  }
+
+  if (labels[1] === 'registry') {
+    return labels.slice(1).join('.')
+  }
+
+  return ['registry', ...labels.slice(1)].join('.')
 }
 
 function scopedNpmPackageName(scope: string, name: string): string {
