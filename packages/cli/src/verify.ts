@@ -269,13 +269,23 @@ async function verifyEcosystemMetadataFromArtifacts(
     )
     const actualNpmMetadata = installArtifact.ecosystemMetadata?.npm
     const expectedNpmMetadata = processed?.ecosystemMetadata?.npm
+    const problems: string[] = []
 
-    return sameCanonicalJson(
-      actualNpmMetadata ?? null,
-      expectedNpmMetadata ?? null,
-    )
-      ? []
-      : ['npm artifact ecosystemMetadata does not match install artifact']
+    if (manifest.metadata?.description !== processed?.description) {
+      problems.push(
+        'npm release metadata.description does not match install artifact',
+      )
+    }
+
+    if (
+      !sameCanonicalJson(actualNpmMetadata ?? null, expectedNpmMetadata ?? null)
+    ) {
+      problems.push(
+        'npm artifact ecosystemMetadata does not match install artifact',
+      )
+    }
+
+    return problems
   } catch (error) {
     return [`npm install artifact verification failed: ${errorMessage(error)}`]
   }

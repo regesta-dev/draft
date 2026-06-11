@@ -995,6 +995,7 @@ describe('verifyReleaseFromRegistry', () => {
         dependencies: {
           '@example.com/base': '^1.0.0',
         },
+        description: 'Fixture package',
         name: '@example.com/hello-regesta',
         version: '1.0.0',
       }),
@@ -1018,6 +1019,35 @@ describe('verifyReleaseFromRegistry', () => {
       ok: false,
       problems: [
         'npm artifact ecosystemMetadata does not match install artifact',
+      ],
+    })
+  })
+
+  it('reports release descriptions that cannot be reproduced from npm install artifacts', async () => {
+    const fixture = releaseFixture()
+    replaceInstallArtifact(fixture, {
+      bytes: await npmPackageTarball({
+        description: 'Artifact description',
+        name: '@example.com/hello-regesta',
+        version: '1.0.0',
+      }),
+    })
+    fixture.release.manifest.metadata = {
+      description: 'Tampered release metadata',
+    }
+    refreshReleaseFixtureDerivedObjects(fixture)
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: publicRegistryFetch(fixture),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      problems: [
+        'npm release metadata.description does not match install artifact',
       ],
     })
   })
