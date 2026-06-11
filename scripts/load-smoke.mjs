@@ -282,7 +282,9 @@ function readLoadRequests(app, published) {
         )
       }
       const installArtifactDigest = sha256(installArtifact.bytes)
+      const installArtifactObjectUrl = `http://registry.test/objects/${installArtifactDigest}`
       const npmBase = `http://npm.registry.test/@dev.localhost/${name}`
+      const upstreamNpmTarballUrl = `https://registry.npmjs.org/%40dev.localhost%2F${name}/-/${name}-${version}.tgz`
 
       return [
         {
@@ -367,6 +369,13 @@ function readLoadRequests(app, published) {
                 latest: version,
               },
               name: `@dev.localhost/${name}`,
+              versions: {
+                [version]: {
+                  dist: {
+                    tarball: installArtifactObjectUrl,
+                  },
+                },
+              },
             })
           },
           url: npmBase,
@@ -374,29 +383,34 @@ function readLoadRequests(app, published) {
         {
           assert: async (response) => {
             assertStatus(response, 200)
-            assertObjectMatch(await response.json(), {
+            const manifest = await response.json()
+            assertObjectMatch(manifest, {
+              dist: {
+                tarball: installArtifactObjectUrl,
+              },
               name: `@dev.localhost/${name}`,
               version,
             })
+
+            const objectResponse = await app.request(installArtifactObjectUrl)
+            assertStatus(objectResponse, 200)
+            if ((await objectResponse.arrayBuffer()).byteLength === 0) {
+              throw new Error(
+                `npm install artifact object was empty: ${packageId}`,
+              )
+            }
           },
           url: `${npmBase}/latest`,
         },
         {
-          assert: async (response) => {
+          assert: (response) => {
             assertStatus(response, 302)
             const location = response.headers.get('location')
-            const expectedLocation = `http://registry.test/objects/${installArtifactDigest}`
 
-            if (location !== expectedLocation) {
+            if (location !== upstreamNpmTarballUrl) {
               throw new Error(
-                `Expected npm tarball redirect to ${expectedLocation}, got ${location}`,
+                `Expected npm tarball redirect to ${upstreamNpmTarballUrl}, got ${location}`,
               )
-            }
-
-            const objectResponse = await app.request(location)
-            assertStatus(objectResponse, 200)
-            if ((await objectResponse.arrayBuffer()).byteLength === 0) {
-              throw new Error(`npm tarball object was empty: ${packageId}`)
             }
           },
           url: `${npmBase}/-/${name}-${version}.tgz`,
