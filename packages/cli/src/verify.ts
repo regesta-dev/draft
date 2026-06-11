@@ -1416,12 +1416,15 @@ function objectDescriptorFromHeadResponse(
     throw new TypeError(`Missing object Content-Type header: ${url}`)
   }
 
+  const size = parseContentLength(sizeHeader, url)
+
   validateObjectCacheControl(url, response)
+  validateObjectAcceptRanges(url, response)
 
   return {
     digest,
     mediaType,
-    size: parseContentLength(sizeHeader, url),
+    size,
   }
 }
 
@@ -1467,6 +1470,7 @@ function validateObjectGetResponse(
   }
 
   validateObjectCacheControl(url, response)
+  validateObjectAcceptRanges(url, response)
 }
 
 function validateObjectCacheControl(url: string, response: Response): void {
@@ -1478,6 +1482,18 @@ function validateObjectCacheControl(url: string, response: Response): void {
 
   if (!cacheControlHas(cacheControl, 'immutable')) {
     throw new TypeError(`Object Cache-Control must include immutable: ${url}`)
+  }
+}
+
+function validateObjectAcceptRanges(url: string, response: Response): void {
+  const acceptRanges = response.headers.get('accept-ranges')
+
+  if (!acceptRanges) {
+    throw new TypeError(`Missing object Accept-Ranges header: ${url}`)
+  }
+
+  if (acceptRanges.trim().toLowerCase() !== 'bytes') {
+    throw new TypeError(`Object Accept-Ranges must be bytes: ${url}`)
   }
 }
 

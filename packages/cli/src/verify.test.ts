@@ -656,6 +656,98 @@ describe('verifyReleaseFromRegistry', () => {
     )
   })
 
+  it('reports public object HEAD responses without Accept-Ranges headers as verification problems', async () => {
+    const fixture = releaseFixture()
+    const sourceDigest = fixture.release.manifest.source.digest
+    const fetch = publicRegistryFetch(fixture)
+    const missingObjectAcceptRangesFetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+        if (
+          init?.method === 'HEAD' &&
+          url.endsWith(sourceDigest.slice('sha256:'.length))
+        ) {
+          fetch.requests.push(url)
+          fetch.headRequests.push(url)
+          const source = fixture.objects.get(sourceDigest)
+
+          return Promise.resolve(
+            new Response(null, {
+              headers: {
+                'cache-control': 'public, max-age=31536000, immutable',
+                'content-length': String(source?.descriptor.size),
+                'content-type':
+                  source?.descriptor.mediaType ?? 'application/octet-stream',
+                etag: `"${sourceDigest}"`,
+              },
+            }),
+          )
+        }
+
+        return fetch(input, init)
+      },
+      { headRequests: fetch.headRequests, requests: fetch.requests },
+    )
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: missingObjectAcceptRangesFetch,
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain(
+      `Source object descriptor read failed: Missing object Accept-Ranges header: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+    )
+  })
+
+  it('reports public object GET responses with non-byte Accept-Ranges headers as verification problems', async () => {
+    const fixture = releaseFixture()
+    const sourceDigest = fixture.release.manifest.source.digest
+    const fetch = publicRegistryFetch(fixture)
+    const invalidObjectAcceptRangesFetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+        if (
+          init?.method !== 'HEAD' &&
+          url.endsWith(sourceDigest.slice('sha256:'.length))
+        ) {
+          fetch.requests.push(url)
+          const source = fixture.objects.get(sourceDigest)
+
+          return Promise.resolve(
+            new Response(source?.bytes, {
+              headers: {
+                'accept-ranges': 'none',
+                'cache-control': 'public, max-age=31536000, immutable',
+                'content-length': String(source?.descriptor.size),
+                'content-type':
+                  source?.descriptor.mediaType ?? 'application/octet-stream',
+                etag: `"${sourceDigest}"`,
+              },
+            }),
+          )
+        }
+
+        return fetch(input, init)
+      },
+      { headRequests: fetch.headRequests, requests: fetch.requests },
+    )
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: invalidObjectAcceptRangesFetch,
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain(
+      `Source object read failed: Object Accept-Ranges must be bytes: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+    )
+  })
+
   it('reports malformed public release envelopes as verification problems', async () => {
     const result = await verifyReleaseFromRegistry({
       fetch: jsonFetch({
@@ -2492,6 +2584,7 @@ function publicRegistryFetch(fixture: {
       return Promise.resolve(
         new Response(init?.method === 'HEAD' ? null : object.bytes, {
           headers: {
+            'accept-ranges': 'bytes',
             'cache-control': 'public, max-age=31536000, immutable',
             'content-length': String(object.descriptor.size),
             'content-type': object.descriptor.mediaType,
