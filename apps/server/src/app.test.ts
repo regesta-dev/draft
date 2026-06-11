@@ -5069,6 +5069,9 @@ describe('createRegestaApp', () => {
     expect(subdomainPackument.status).toBe(200)
     expect(subdomainPackument.headers.get('cache-control')).toBe('no-cache')
     expect(subdomainPackument.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(subdomainPackument.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
+    )
     const subdomainPackumentText = await subdomainPackument.clone().text()
     expect(subdomainPackument.headers.get('content-length')).toBe(
       String(Buffer.byteLength(subdomainPackumentText)),
@@ -5109,6 +5112,9 @@ describe('createRegestaApp', () => {
     expect(conditionalPackument.status).toBe(304)
     expect(conditionalPackument.headers.get('cache-control')).toBe('no-cache')
     expect(conditionalPackument.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalPackument.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
+    )
     expect(conditionalPackument.headers.get('content-length')).toBeNull()
     expect(await conditionalPackument.text()).toBe('')
 
@@ -5128,6 +5134,9 @@ describe('createRegestaApp', () => {
       String(Buffer.byteLength(subdomainPackumentText)),
     )
     expect(headPackument.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(headPackument.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
+    )
     expect(await headPackument.text()).toBe('')
 
     const conditionalHeadPackument = await app.request(
@@ -5145,6 +5154,9 @@ describe('createRegestaApp', () => {
       'no-cache',
     )
     expect(conditionalHeadPackument.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalHeadPackument.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
+    )
     expect(conditionalHeadPackument.headers.get('content-length')).toBeNull()
     expect(await conditionalHeadPackument.text()).toBe('')
 
@@ -5159,6 +5171,7 @@ describe('createRegestaApp', () => {
     expect(subdomainLatestManifest.headers.get('etag')).toBe(
       npmVersionManifestEtag,
     )
+    expect(subdomainLatestManifest.headers.get('last-modified')).toBeNull()
     const subdomainLatestManifestText = await subdomainLatestManifest
       .clone()
       .text()
@@ -5188,6 +5201,9 @@ describe('createRegestaApp', () => {
     expect(subdomainVersionManifest.headers.get('etag')).toBe(
       npmVersionManifestEtag,
     )
+    expect(subdomainVersionManifest.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
+    )
     const subdomainVersionManifestText = await subdomainVersionManifest
       .clone()
       .text()
@@ -5215,6 +5231,9 @@ describe('createRegestaApp', () => {
     expect(conditionalVersionManifest.headers.get('etag')).toBe(
       npmVersionManifestEtag,
     )
+    expect(conditionalVersionManifest.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
+    )
     expect(conditionalVersionManifest.headers.get('content-length')).toBeNull()
     expect(await conditionalVersionManifest.text()).toBe('')
 
@@ -5230,6 +5249,9 @@ describe('createRegestaApp', () => {
       'public, max-age=31536000, immutable',
     )
     expect(headVersionManifest.headers.get('etag')).toBe(npmVersionManifestEtag)
+    expect(headVersionManifest.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
+    )
     expect(headVersionManifest.headers.get('content-length')).toBe(
       String(Buffer.byteLength(subdomainVersionManifestText)),
     )
@@ -5251,6 +5273,9 @@ describe('createRegestaApp', () => {
     )
     expect(conditionalHeadVersionManifest.headers.get('etag')).toBe(
       npmVersionManifestEtag,
+    )
+    expect(conditionalHeadVersionManifest.headers.get('last-modified')).toBe(
+      new Date(publishTimestamp).toUTCString(),
     )
     expect(
       conditionalHeadVersionManifest.headers.get('content-length'),
@@ -5323,6 +5348,8 @@ describe('createRegestaApp', () => {
     const subdomainRoot = await app.request('http://npm.registry.test/')
 
     expect(subdomainRoot.status).toBe(200)
+    expect(subdomainRoot.headers.get('cache-control')).toBe('no-cache')
+    expect(subdomainRoot.headers.get('content-length')).toBe('2')
     await expect(subdomainRoot.json()).resolves.toEqual({})
 
     const headRoot = await app.request('http://npm.registry.test/', {
@@ -5330,12 +5357,18 @@ describe('createRegestaApp', () => {
     })
 
     expect(headRoot.status).toBe(200)
-    expect(headRoot.headers.get('content-type')).toBe('application/json')
+    expect(headRoot.headers.get('cache-control')).toBe('no-cache')
+    expect(headRoot.headers.get('content-length')).toBe('2')
+    expect(headRoot.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
     expect(await headRoot.text()).toBe('')
 
     const subdomainPing = await app.request('http://npm.registry.test/-/ping')
 
     expect(subdomainPing.status).toBe(200)
+    expect(subdomainPing.headers.get('cache-control')).toBe('no-cache')
+    expect(subdomainPing.headers.get('content-length')).toBe('15')
     await expect(subdomainPing.json()).resolves.toEqual({ ping: 'pong' })
 
     const headPing = await app.request('http://npm.registry.test/-/ping', {
@@ -5343,6 +5376,8 @@ describe('createRegestaApp', () => {
     })
 
     expect(headPing.status).toBe(200)
+    expect(headPing.headers.get('cache-control')).toBe('no-cache')
+    expect(headPing.headers.get('content-length')).toBe('15')
     expect(await headPing.text()).toBe('')
 
     const subdomainTarball = await app.request(

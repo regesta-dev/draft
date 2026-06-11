@@ -756,6 +756,11 @@
         "responses": {
           "200": {
             "description": "npm-compatible ping response.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -775,7 +780,14 @@
         "tags": ["npm Projection"],
         "summary": "npm ping headers",
         "responses": {
-          "200": { "description": "npm projection is reachable." }
+          "200": {
+            "description": "npm projection is reachable.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              }
+            }
+          }
         }
       }
     },
@@ -787,6 +799,15 @@
         "responses": {
           "200": {
             "description": "npm dist-tags object.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/NpmDistTags" }
@@ -803,7 +824,18 @@
         "summary": "Read npm dist-tags headers for an encoded package name",
         "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
         "responses": {
-          "200": { "description": "dist-tags exist." },
+          "200": {
+            "description": "dist-tags exist.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            }
+          },
           "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
@@ -821,6 +853,15 @@
         "responses": {
           "200": {
             "description": "npm dist-tags object.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/NpmDistTags" }
@@ -840,7 +881,18 @@
           { "$ref": "#/components/parameters/NpmName" }
         ],
         "responses": {
-          "200": { "description": "dist-tags exist." },
+          "200": {
+            "description": "dist-tags exist.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            }
+          },
           "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
@@ -855,6 +907,15 @@
         "responses": {
           "200": {
             "description": "npm packument.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/NpmPackument" }
@@ -871,7 +932,18 @@
         "summary": "Read npm packument headers for an encoded package name",
         "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
         "responses": {
-          "200": { "description": "packument exists." },
+          "200": {
+            "description": "packument exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            }
+          },
           "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
@@ -890,6 +962,15 @@
         "responses": {
           "200": {
             "description": "npm packument or version manifest.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "type": "object", "additionalProperties": true }
@@ -910,7 +991,18 @@
           { "$ref": "#/components/parameters/NpmName" }
         ],
         "responses": {
-          "200": { "description": "npm projection resource exists." },
+          "200": {
+            "description": "npm projection resource exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            }
+          },
           "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
@@ -929,6 +1021,15 @@
         "responses": {
           "200": {
             "description": "npm version manifest.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/NpmVersionManifest" }
@@ -949,7 +1050,18 @@
           { "$ref": "#/components/parameters/NpmTagOrVersion" }
         ],
         "responses": {
-          "200": { "description": "npm version manifest exists." },
+          "200": {
+            "description": "npm version manifest exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+              "Last-Modified": {
+                "$ref": "#/components/headers/NpmMetadataLastModified"
+              }
+            }
+          },
           "304": { "$ref": "#/components/responses/NotModified" },
           "404": { "$ref": "#/components/responses/Error" },
           "502": { "$ref": "#/components/responses/Error" }
@@ -1028,6 +1140,18 @@
       "NoStoreCacheControl": {
         "description": "Response must not be stored by caches.",
         "schema": { "const": "no-store" }
+      },
+      "NpmMetadataCacheControl": {
+        "description": "Cache policy for npm metadata. Local mutable projections use no-cache, local immutable version responses can be cached long-term, and upstream fallback metadata preserves upstream cache policy.",
+        "schema": { "type": "string" }
+      },
+      "NpmMetadataEtag": {
+        "description": "Validator for npm metadata. Local projections derive this from Regesta state; upstream fallback metadata preserves upstream validators.",
+        "schema": { "type": "string" }
+      },
+      "NpmMetadataLastModified": {
+        "description": "HTTP date validator for npm metadata when available, especially from upstream fallback metadata.",
+        "schema": { "type": "string" }
       },
       "StrongDigestEtag": {
         "description": "Strong digest-based validator.",
@@ -1152,6 +1276,9 @@
       "NpmTarballRedirect": {
         "description": "Redirect direct npm projection tarball requests to the upstream npm registry tarball URL. The npm projection never serves or proxies tarball bytes.",
         "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoCacheControl"
+          },
           "Location": {
             "description": "Tarball download URL.",
             "schema": { "type": "string", "format": "uri" }
@@ -1203,7 +1330,16 @@
         }
       },
       "NotModified": {
-        "description": "Client validator still matches current representation."
+        "description": "Client validator still matches current representation.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NpmMetadataCacheControl"
+          },
+          "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
+          "Last-Modified": {
+            "$ref": "#/components/headers/NpmMetadataLastModified"
+          }
+        }
       }
     },
     "schemas": {

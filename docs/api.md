@@ -421,7 +421,8 @@ HEAD /-/ping
 ```
 
 On npm projection hosts, the root path returns an empty JSON object for npm
-client compatibility.
+client compatibility. Root and ping utility responses include
+`Cache-Control: no-cache`.
 
 The `GET /@scope/name` and `HEAD /@scope/name` entries above use the same
 physical path shape as npm-compatible unscoped version or tag reads, such as
@@ -457,6 +458,9 @@ When the server projection handles fallback, packument, version-manifest, and
 dist-tag metadata are validated and then returned without rewriting. Upstream
 `dist.tarball` URLs remain upstream URLs. Direct npm projection tarball routes
 still redirect to upstream npmjs.org tarballs and never proxy tarball bytes.
+Client metadata validators such as `If-None-Match` and `If-Modified-Since` are
+forwarded to the upstream npm registry; upstream `304` responses preserve
+upstream cache headers and do not include a response body.
 
 If the upstream npm registry is unavailable or returns metadata that cannot be
 projected safely, the npm projection returns a structured `502` error with code
@@ -483,8 +487,16 @@ with `console.error`.
 
 - Immutable objects use long-lived immutable caching.
 - Individual event reads use digest validators.
-- Package state, channel reads, event pages, and npm projection reads are
-  mutable views and use weak validators.
+- Package state, channel reads, and event pages are mutable views and use weak
+  validators.
+- npm projection metadata uses projection-specific validators. Local mutable
+  projections use weak `ETag` values and may include `Last-Modified` when the
+  projection has a reliable timestamp. Local immutable version responses can
+  use long-lived caching, and upstream fallback metadata preserves upstream
+  `ETag`, `Last-Modified`, and cache policy headers when present.
+- For local npm metadata with `Last-Modified`, `If-Modified-Since` can produce
+  a `304` response when no `If-None-Match` header is present. `If-None-Match`
+  takes precedence when both validators are sent.
 - `HEAD` responses return the same validators as `GET` without the body.
 
 ## Verification Notes

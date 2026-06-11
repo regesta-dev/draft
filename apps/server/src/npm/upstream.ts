@@ -370,11 +370,16 @@ function upstreamNpmResponse(
 ): Response {
   const headers = upstreamNpmResponseHeaders(response, copyEtag)
 
-  return new Response(context.req.method === 'HEAD' ? null : response.body, {
-    headers,
-    status: response.status,
-    statusText: response.statusText,
-  })
+  return new Response(
+    context.req.method === 'HEAD' || response.status === 304
+      ? null
+      : response.body,
+    {
+      headers,
+      status: response.status,
+      statusText: response.statusText,
+    },
+  )
 }
 
 function upstreamNpmResponseHeaders(

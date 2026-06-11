@@ -25,15 +25,11 @@ export function createNpmRegistryRoutes(
   const upstream = createNpmUpstreamFallback(options)
 
   app.get('/-/ping', (context) => {
-    return context.json({ ping: 'pong' })
+    return serveNpmUtilityJson(context, { ping: 'pong' })
   })
 
-  app.on('HEAD', '/-/ping', () => {
-    return new Response(null, {
-      headers: {
-        'content-type': 'application/json; charset=UTF-8',
-      },
-    })
+  app.on('HEAD', '/-/ping', (context) => {
+    return serveNpmUtilityJson(context, { ping: 'pong' })
   })
 
   app.get('/-/package/:scope/:name/dist-tags', (context) => {
@@ -205,15 +201,11 @@ export function createNpmRegistryRoutes(
   })
 
   app.get('/', (context) => {
-    return context.json({})
+    return serveNpmUtilityJson(context, {})
   })
 
-  app.on('HEAD', '/', () => {
-    return new Response(null, {
-      headers: {
-        'content-type': 'application/json; charset=UTF-8',
-      },
-    })
+  app.on('HEAD', '/', (context) => {
+    return serveNpmUtilityJson(context, {})
   })
 
   return app
@@ -262,15 +254,22 @@ async function serveNpmPackageManifest(
     const release = await adapters.database.getRelease(packageId, version)
 
     if (release) {
+      const cacheControl =
+        taggedVersion === undefined
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache'
       return serveNpmProjectionJson(
         context,
         createLocalNpmVersionManifest(new URL(context.req.url), packageId, {
           manifest: release.manifest,
         }),
         npmVersionManifestEtag(release.event.id),
-        taggedVersion === undefined
-          ? 'public, max-age=31536000, immutable'
-          : 'no-cache',
+        {
+          cacheControl,
+          ...(taggedVersion === undefined
+            ? { lastModified: release.manifest.createdAt }
+            : {}),
+        },
       )
     }
 
@@ -310,6 +309,9 @@ async function serveNpmPackument(
       context,
       projection.packument,
       projection.etag,
+      {
+        lastModified: projection.modifiedAt,
+      },
     )
   }
 
@@ -320,17 +322,28 @@ function serveNpmProjectionJson(
   context: Context,
   body: unknown,
   etag: string,
-  cacheControl = 'no-cache',
+  options: NpmProjectionJsonOptions = {},
 ): Response {
   const bytes = new TextEncoder().encode(JSON.stringify(body))
-  const headers = {
-    'cache-control': cacheControl,
+  const headers: Record<string, string> = {
+    'cache-control': options.cacheControl ?? 'no-cache',
     'content-length': String(bytes.byteLength),
     'content-type': 'application/json; charset=UTF-8',
     etag,
   }
+  if (options.lastModified) {
+    headers['last-modified'] = httpDate(options.lastModified)
+  }
 
-  if (matchesIfNoneMatch(context.req.header('if-none-match'), etag)) {
+  const ifNoneMatch = context.req.header('if-none-match')
+  if (
+    matchesIfNoneMatch(ifNoneMatch, etag) ||
+    (!ifNoneMatch &&
+      matchesIfModifiedSince(
+        context.req.header('if-modified-since'),
+        headers['last-modified'],
+      ))
+  ) {
     const conditionalHeaders = new Headers(headers)
     conditionalHeaders.delete('content-length')
 
@@ -338,6 +351,52 @@ function serveNpmProjectionJson(
       headers: conditionalHeaders,
       status: 304,
     })
+  }
+
+  return context.req.method === 'HEAD'
+    ? new Response(null, { headers })
+    : new Response(bytes, { headers })
+}
+
+interface NpmProjectionJsonOptions {
+  cacheControl?: string
+  lastModified?: string
+}
+
+function httpDate(timestamp: string): string {
+  const time = Date.parse(timestamp)
+
+  if (!Number.isFinite(time)) {
+    throw new TypeError('npm projection timestamp must be valid')
+  }
+
+  return new Date(time).toUTCString()
+}
+
+function matchesIfModifiedSince(
+  header: string | undefined,
+  lastModified: string | undefined,
+): boolean {
+  if (!header || !lastModified) {
+    return false
+  }
+
+  const since = Date.parse(header)
+  const modified = Date.parse(lastModified)
+
+  if (!Number.isFinite(since) || !Number.isFinite(modified)) {
+    return false
+  }
+
+  return modified <= since
+}
+
+function serveNpmUtilityJson(context: Context, body: unknown): Response {
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  const headers = {
+    'cache-control': 'no-cache',
+    'content-length': String(bytes.byteLength),
+    'content-type': 'application/json; charset=UTF-8',
   }
 
   return context.req.method === 'HEAD'

@@ -508,6 +508,14 @@ describe('documentation references', () => {
   })
 
   it('documents npm tarball routes as redirect-only endpoints', async () => {
+    await expect(
+      openapiValueAtPointer(
+        '#/components/responses/NpmTarballRedirect/headers/Cache-Control',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/NoCacheControl',
+    })
+
     for (const path of ['/{name}/-/{file}', '/{scope}/{name}/-/{file}']) {
       for (const method of ['get', 'head']) {
         await expect(
@@ -524,6 +532,52 @@ describe('documentation references', () => {
   })
 
   it('documents npm metadata routes as conditionally cacheable', async () => {
+    await expect(
+      openapiValueAtPointer(
+        '#/components/headers/NpmMetadataCacheControl/description',
+      ),
+    ).resolves.toContain('Local mutable projections use no-cache')
+    await expect(
+      openapiValueAtPointer('#/components/headers/NpmMetadataEtag/description'),
+    ).resolves.toContain('Local projections derive this from Regesta state')
+    await expect(
+      openapiValueAtPointer(
+        '#/components/headers/NpmMetadataLastModified/description',
+      ),
+    ).resolves.toContain('upstream fallback metadata')
+    await expect(
+      openapiValueAtPointer(
+        '#/components/responses/NotModified/headers/Cache-Control',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/NpmMetadataCacheControl',
+    })
+    await expect(
+      openapiValueAtPointer('#/components/responses/NotModified/headers/ETag'),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/NpmMetadataEtag',
+    })
+    await expect(
+      openapiValueAtPointer(
+        '#/components/responses/NotModified/headers/Last-Modified',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/NpmMetadataLastModified',
+    })
+
+    const api = await readText('api.md')
+    const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+    expect(api).toContain('npm projection metadata uses projection-specific')
+    expect(api).toContain('may include `Last-Modified`')
+    expect(api).toContain('`If-Modified-Since` can produce')
+    expect(normalizedApi).toContain('`If-None-Match` takes precedence')
+    expect(api).toContain('upstream fallback metadata preserves upstream')
+    expect(api).toContain('`ETag`, `Last-Modified`, and cache policy headers')
+    expect(api).toContain(
+      'Client metadata validators such as `If-None-Match` and `If-Modified-Since`',
+    )
+    expect(api).toContain('upstream `304` responses preserve')
+
     for (const path of [
       '/-/package/{encoded}/dist-tags',
       '/-/package/{scope}/{name}/dist-tags',
@@ -534,6 +588,27 @@ describe('documentation references', () => {
       for (const method of ['get', 'head']) {
         await expect(
           openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Cache-Control`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/NpmMetadataCacheControl',
+        })
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/ETag`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/NpmMetadataEtag',
+        })
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Last-Modified`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/NpmMetadataLastModified',
+        })
+        await expect(
+          openapiValueAtPointer(
             `#/paths/${escapeJsonPointer(path)}/${method}/responses/304`,
           ),
         ).resolves.toEqual({
@@ -541,6 +616,24 @@ describe('documentation references', () => {
         })
       }
     }
+  })
+
+  it('documents npm utility routes as explicit no-cache JSON responses', async () => {
+    for (const method of ['get', 'head']) {
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/~1-~1ping/${method}/responses/200/headers/Cache-Control`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/NoCacheControl',
+      })
+    }
+
+    const api = await readText('api.md')
+
+    expect(api).toContain('the root path returns an empty JSON object')
+    expect(api).toContain('Root and ping utility responses include')
+    expect(api).toContain('`Cache-Control: no-cache`')
   })
 
   it('documents npm metadata routes as upstream-fallback error surfaces', async () => {

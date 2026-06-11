@@ -31,7 +31,9 @@ describe('createNpmUpstreamFallback', () => {
           },
           {
             headers: {
+              'cache-control': 'public, max-age=300',
               etag: '"upstream-packument"',
+              'last-modified': 'Mon, 01 Jun 2026 00:00:00 GMT',
             },
           },
         ),
@@ -53,7 +55,11 @@ describe('createNpmUpstreamFallback', () => {
     })
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('public, max-age=300')
     expect(response.headers.get('etag')).toBe('"upstream-packument"')
+    expect(response.headers.get('last-modified')).toBe(
+      'Mon, 01 Jun 2026 00:00:00 GMT',
+    )
     await expect(response.json()).resolves.toMatchObject({
       'dist-tags': {
         latest: '1.0.0',
@@ -65,6 +71,58 @@ describe('createNpmUpstreamFallback', () => {
     if (!(requestHeaders instanceof Headers)) {
       throw new TypeError('Expected upstream request headers')
     }
+    expect(requestHeaders.get('if-none-match')).toBe('"client-etag"')
+  })
+
+  it('passes through upstream npm not-modified metadata responses without bodies', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>((input, init) => {
+      expect(input).toBe('https://registry.npmjs.org/%40upstream%2Fpkg')
+      expect(init?.method).toBe('GET')
+
+      return Promise.resolve(
+        new Response(null, {
+          headers: {
+            'cache-control': 'public, max-age=300',
+            etag: '"upstream-packument"',
+            'last-modified': 'Mon, 01 Jun 2026 00:00:00 GMT',
+          },
+          status: 304,
+          statusText: 'Not Modified',
+        }),
+      )
+    })
+    const upstream = createNpmUpstreamFallback({
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+    const app = new Hono()
+    app.get('/packument', (context) => {
+      return upstream.packument(context, '@upstream/pkg')
+    })
+
+    const response = await app.request('/packument', {
+      headers: {
+        'if-modified-since': 'Mon, 01 Jun 2026 00:00:00 GMT',
+        'if-none-match': '"client-etag"',
+      },
+    })
+
+    expect(response.status).toBe(304)
+    expect(response.statusText).toBe('Not Modified')
+    expect(response.headers.get('cache-control')).toBe('public, max-age=300')
+    expect(response.headers.get('etag')).toBe('"upstream-packument"')
+    expect(response.headers.get('last-modified')).toBe(
+      'Mon, 01 Jun 2026 00:00:00 GMT',
+    )
+    await expect(response.text()).resolves.toBe('')
+    const requestHeaders = upstreamFetch.mock.calls[0]?.[1]?.headers
+    expect(requestHeaders).toBeInstanceOf(Headers)
+    if (!(requestHeaders instanceof Headers)) {
+      throw new TypeError('Expected upstream request headers')
+    }
+    expect(requestHeaders.get('if-modified-since')).toBe(
+      'Mon, 01 Jun 2026 00:00:00 GMT',
+    )
     expect(requestHeaders.get('if-none-match')).toBe('"client-etag"')
   })
 
