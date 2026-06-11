@@ -4644,10 +4644,18 @@ describe('createRegestaApp', () => {
     )
 
     const getObject = adapters.objects.get.bind(adapters.objects)
+    const getObjectDescriptor = adapters.objects.getDescriptor.bind(
+      adapters.objects,
+    )
     let objectGetCalls = 0
+    let objectDescriptorGetCalls = 0
     adapters.objects.get = (digest) => {
       objectGetCalls += 1
       return getObject(digest)
+    }
+    adapters.objects.getDescriptor = (digest) => {
+      objectDescriptorGetCalls += 1
+      return getObjectDescriptor(digest)
     }
     const app = createRegestaApp(adapters)
     const tarballUrl =
@@ -4699,6 +4707,7 @@ describe('createRegestaApp', () => {
     expect(get.headers.get('location')).toBe(objectUrl)
     expect(await get.text()).toBe('')
     expect(objectGetCalls).toBe(0)
+    expect(objectDescriptorGetCalls).toBe(0)
   })
 
   it('does not fallback missing tarball versions for local npm packages', async () => {

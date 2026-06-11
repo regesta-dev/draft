@@ -29,11 +29,6 @@ interface NpmRegistryReader {
     ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
     listPackageEvents: (packageId: PackageId) => Promise<RegistryEvent[]>
   }
-  objects: {
-    getDescriptor: (
-      digest: Sha256Digest,
-    ) => Promise<{ digest: Sha256Digest } | undefined>
-  }
 }
 
 export interface NpmRegistryRouteOptions {
@@ -647,16 +642,7 @@ async function serveNpmTarball(
   }
 
   const digest = npmInstallArtifact(release.manifest).digest
-  const descriptor = await adapters.objects.getDescriptor(digest)
-
-  if (!descriptor) {
-    return context.json(
-      errorResponse('tarball_not_found', 'Tarball not found'),
-      404,
-    )
-  }
-
-  return redirectToTarball(coreObjectUrl(context, descriptor.digest))
+  return redirectToTarball(coreObjectUrl(context, digest))
 }
 
 function redirectToTarball(location: string): Response {
