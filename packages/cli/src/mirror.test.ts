@@ -329,6 +329,37 @@ describe('compareMirrorDirectories', () => {
       await rm(rightDir, { force: true, recursive: true })
     }
   })
+
+  it('reports local release files that no longer match mirrored events', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      await writeFile(
+        releasePath(rightDir, fixture.manifest.id, fixture.manifest.version),
+        `${canonicalJson({
+          ...fixture.releaseEnvelope,
+          manifest: {
+            ...fixture.manifest,
+            metadata: {
+              description: 'Locally tampered description.',
+            },
+          },
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Right mirror release file is inconsistent with event: ${fixture.manifest.id}@${fixture.manifest.version}: Mirror release manifest digest does not match manifestDescriptor`,
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
 })
 
 function releaseFixture() {
@@ -642,6 +673,15 @@ function eventPath(outputDir: string, digest: string): string {
 function objectPath(outputDir: string, digest: string): string {
   const [algorithm, hex] = digest.split(':')
   return join(outputDir, 'objects', algorithm!, hex!)
+}
+
+function releasePath(outputDir: string, packageId: string, version: string) {
+  return join(
+    outputDir,
+    'releases',
+    encodeURIComponent(packageId),
+    `${encodeURIComponent(version)}.json`,
+  )
 }
 
 function bytes(value: string): Uint8Array {

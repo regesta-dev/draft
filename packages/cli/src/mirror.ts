@@ -84,8 +84,10 @@ interface LocalMirrorInventory {
 }
 
 interface MirrorFileSet {
+  eventValues: Map<Sha256Digest, RegistryEvent>
   events: Map<Sha256Digest, string>
   objects: Set<Sha256Digest>
+  releaseEnvelopes: Map<string, PublicReleaseEnvelope>
   releases: Map<string, string>
 }
 
@@ -542,6 +544,7 @@ async function readMirrorFiles(
       if (`${canonicalJson(event)}\n` !== text) {
         problems.push(`${label} event file is not canonical JSON: ${eventId}`)
       }
+      files.eventValues.set(eventId, event)
       files.events.set(eventId, text)
     } catch (error) {
       problems.push(
@@ -569,6 +572,7 @@ async function readMirrorFiles(
       if (`${canonicalJson(envelope)}\n` !== text) {
         problems.push(`${label} release file is not canonical JSON: ${key}`)
       }
+      files.releaseEnvelopes.set(key, envelope)
       files.releases.set(key, text)
     } catch (error) {
       problems.push(
@@ -593,7 +597,49 @@ async function readMirrorFiles(
     }
   }
 
+  problems.push(...localMirrorConsistencyProblems(label, inventory, files))
+
   return { files, problems }
+}
+
+function localMirrorConsistencyProblems(
+  label: string,
+  inventory: LocalMirrorInventory,
+  files: MirrorFileSet,
+): string[] {
+  const problems: string[] = []
+
+  for (const release of inventory.releases) {
+    const key = releaseKey(release)
+    const envelope = files.releaseEnvelopes.get(key)
+    if (!envelope) {
+      continue
+    }
+
+    const event = files.eventValues.get(envelope.event.id)
+    if (event) {
+      for (const problem of releaseEnvelopeConsistencyProblems(
+        envelope,
+        event,
+      )) {
+        problems.push(
+          `${label} release file is inconsistent with event: ${key}: ${problem}`,
+        )
+      }
+    } else {
+      problems.push(`${label} release event is missing from mirror: ${key}`)
+    }
+
+    for (const descriptor of releaseObjectDescriptors(envelope)) {
+      if (!files.objects.has(descriptor.digest)) {
+        problems.push(
+          `${label} release object is missing from mirror: ${key}: ${descriptor.digest}`,
+        )
+      }
+    }
+  }
+
+  return problems
 }
 
 function releaseEnvelopeConsistencyProblems(
@@ -1045,8 +1091,10 @@ function mirrorDirectoryComparisonSide(
 
 function emptyMirrorFileSet(): MirrorFileSet {
   return {
+    eventValues: new Map(),
     events: new Map(),
     objects: new Set(),
+    releaseEnvelopes: new Map(),
     releases: new Map(),
   }
 }
