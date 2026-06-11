@@ -473,6 +473,12 @@ async function mirrorObjectInventory(input: {
       break
     }
 
+    const orderProblem = objectInventoryOrderProblem(after, page.value.objects)
+    if (orderProblem) {
+      problems.push(orderProblem)
+      break
+    }
+
     for (const descriptor of page.value.objects) {
       const descriptorProblem = objectDescriptorConflict(
         input.objectDescriptors,
@@ -516,6 +522,23 @@ async function mirrorObjectInventory(input: {
   }
 
   return { problems }
+}
+
+function objectInventoryOrderProblem(
+  after: Sha256Digest | undefined,
+  descriptors: ObjectDescriptor[],
+): string | undefined {
+  let previous = after
+
+  for (const descriptor of descriptors) {
+    if (previous && descriptor.digest <= previous) {
+      return 'Mirror object inventory page must be strictly ordered by digest'
+    }
+
+    previous = descriptor.digest
+  }
+
+  return undefined
 }
 
 async function readLocalMirrorInventory(

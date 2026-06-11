@@ -171,6 +171,28 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects object inventory pages that are not digest ordered', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          reverseObjectInventory: true,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror object inventory page must be strictly ordered by digest',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects release envelopes that do not match their manifest descriptor', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -513,6 +535,7 @@ function mirrorFetch(
     objectOverrides?: ReadonlyMap<string, Uint8Array>
     releaseEnvelope?: unknown
     releaseEnvelopeText?: string
+    reverseObjectInventory?: boolean
   } = {},
 ): typeof fetch {
   const objects = new Map<
@@ -605,7 +628,14 @@ function mirrorFetch(
     }
 
     if (url.pathname === '/objects') {
-      return Promise.resolve(objectInventoryResponse(descriptors, url))
+      return Promise.resolve(
+        objectInventoryResponse(
+          options.reverseObjectInventory
+            ? descriptors.toReversed()
+            : descriptors,
+          url,
+        ),
+      )
     }
 
     const object = objects.get(digestFromObjectRoute(url.pathname))
