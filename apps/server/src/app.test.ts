@@ -4701,6 +4701,51 @@ describe('createRegestaApp', () => {
     expect(objectGetCalls).toBe(0)
   })
 
+  it('does not fallback missing tarball versions for local npm packages', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const upstreamCalls: string[] = []
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact bytes'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: 'npm:example.com/descriptor-tarball',
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    const app = createRegestaApp(adapters, {
+      npmUpstreamFetch: (input) => {
+        upstreamCalls.push(String(input))
+        return Promise.resolve(Response.json({}))
+      },
+    })
+    const response = await app.request(
+      'http://npm.registry.test/@example.com/descriptor-tarball/-/descriptor-tarball-9.9.9.tgz',
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('location')).toBeNull()
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'tarball_not_found',
+    })
+    expect(upstreamCalls).toEqual([])
+  })
+
   it('redirects npm tarball reads without validating artifact bytes in the npm layer', async () => {
     const adapters = createMemoryRegistryAdapters()
     const artifactBytes = bytes('install artifact bytes')
