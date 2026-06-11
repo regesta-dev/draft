@@ -2496,6 +2496,14 @@ describe('createRegestaApp', () => {
         method: 'HEAD',
       },
     )
+    const conditionalChannel = await app.request(
+      `/packages/${encodedPackageId}/channels/latest`,
+      {
+        headers: {
+          'if-none-match': `"${published.event.id}"`,
+        },
+      },
+    )
     const verification = await app.request(
       `/packages/${encodedPackageId}/releases/0.0.1/verification`,
     )
@@ -2592,7 +2600,14 @@ describe('createRegestaApp', () => {
     expect(await conditionalRelease.text()).toBe('')
     expect(channel.status).toBe(200)
     expect(channel.headers.get('cache-control')).toBe('no-cache')
+    expect(channel.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
     expect(channel.headers.get('etag')).toBe(`W/"${published.event.id}"`)
+    const channelText = await channel.clone().text()
+    expect(channel.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(channelText)),
+    )
     await expect(channel.json()).resolves.toMatchObject({
       manifest: {
         id: packageId,
@@ -2601,8 +2616,21 @@ describe('createRegestaApp', () => {
     })
     expect(channelHead.status).toBe(200)
     expect(channelHead.headers.get('cache-control')).toBe('no-cache')
+    expect(channelHead.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(channelHead.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(channelText)),
+    )
     expect(channelHead.headers.get('etag')).toBe(`W/"${published.event.id}"`)
     expect(await channelHead.text()).toBe('')
+    expect(conditionalChannel.status).toBe(304)
+    expect(conditionalChannel.headers.get('cache-control')).toBe('no-cache')
+    expect(conditionalChannel.headers.get('etag')).toBe(
+      `W/"${published.event.id}"`,
+    )
+    expect(conditionalChannel.headers.get('content-length')).toBeNull()
+    expect(await conditionalChannel.text()).toBe('')
     expect(verification.status).toBe(200)
     await expect(verification.json()).resolves.toMatchObject({
       manifest: {
