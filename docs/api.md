@@ -5,7 +5,7 @@ and the intended boundary between core APIs and ecosystem projections.
 
 A machine-readable OpenAPI reference is available at
 [`/openapi/regesta-v0.openapi.json`](/openapi/regesta-v0.openapi.json). It
-describes implemented HTTP routes and references the V0 JSON Schema definitions
+describes implemented HTTP routes and references the JSON Schema definitions
 for Regesta-native objects.
 
 Public demo hosts:
@@ -48,15 +48,17 @@ HEAD /ready
 ```
 
 The root route returns deployment information: service name, package version,
-API version, runtime, build time, git sha, dirty state, and registry statistics
-such as the current package count. It is meant for operators and debugging.
+runtime, build time, git sha, dirty state, and registry statistics such as the
+current package count. It is meant for operators and debugging.
 
 `/health` is a lightweight liveness check and returns `{ "ok": true }` when
 the process can answer requests.
 
 `/ready` checks storage dependencies and returns `200` when database, object
 storage, queue, and signer are ready. It returns `503` when any dependency is
-not ready. Readiness responses use `Cache-Control: no-store`.
+not ready.
+
+Transport status responses use `Cache-Control: no-store`.
 
 ## Publish Release
 

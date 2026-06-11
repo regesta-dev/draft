@@ -39,11 +39,11 @@ export function createTransportRoutes(
   })
 
   app.get('/health', (context) => {
-    return transportJson(context.req.method, { ok: true })
+    return healthResponse(context.req.method)
   })
 
   app.on('HEAD', '/health', (context) => {
-    return transportJson(context.req.method, { ok: true })
+    return healthResponse(context.req.method)
   })
 
   app.get('/ready', (context) => {
@@ -75,7 +75,16 @@ async function deploymentInfoResponse(
     createDeploymentInfo({
       ...(statistics ? { statistics: await statistics() } : {}),
     }),
+    {
+      headers: {
+        'cache-control': 'no-store',
+      },
+    },
   )
+}
+
+function healthResponse(method: string): Response {
+  return transportJson(method, { ok: true }, { headers: noStoreHeaders() })
 }
 
 async function readinessResponse(
@@ -85,11 +94,15 @@ async function readinessResponse(
   const status = readiness ? await readiness() : readinessStatus(true)
 
   return transportJson(method, status, {
-    headers: {
-      'cache-control': 'no-store',
-    },
+    headers: noStoreHeaders(),
     status: status.ok ? 200 : 503,
   })
+}
+
+function noStoreHeaders(): Record<string, string> {
+  return {
+    'cache-control': 'no-store',
+  }
 }
 
 function readinessStatus(ok: boolean): ReadinessStatus {

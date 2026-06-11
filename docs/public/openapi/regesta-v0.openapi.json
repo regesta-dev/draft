@@ -1,10 +1,10 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Regesta V0 HTTP API",
+    "title": "Regesta HTTP API",
     "version": "0.0.0",
-    "summary": "Machine-readable reference for the current Regesta V0 HTTP API surface.",
-    "description": "This document describes implemented core registry routes and the current npm projection routes. Regesta-native object shapes are referenced from the V0 JSON Schema reference. Protocol semantics remain defined by the TypeScript protocol and core validation code."
+    "summary": "Machine-readable reference for the current Regesta HTTP surface.",
+    "description": "This document describes implemented core registry routes and the current npm projection routes. Regesta-native object shapes are referenced from the JSON Schema reference. Protocol semantics remain defined by the TypeScript protocol and core validation code."
   },
   "servers": [
     {
@@ -38,6 +38,11 @@
         "responses": {
           "200": {
             "description": "Deployment information for this registry instance.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/DeploymentInfo" }
@@ -50,7 +55,14 @@
         "tags": ["Transport"],
         "summary": "Read deployment information headers",
         "responses": {
-          "200": { "description": "Deployment information is available." }
+          "200": {
+            "description": "Deployment information is available.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            }
+          }
         }
       }
     },
@@ -61,6 +73,11 @@
         "responses": {
           "200": {
             "description": "Process is alive.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/HealthStatus" }
@@ -73,7 +90,14 @@
         "tags": ["Transport"],
         "summary": "Read liveness headers",
         "responses": {
-          "200": { "description": "Process is alive." }
+          "200": {
+            "description": "Process is alive.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            }
+          }
         }
       }
     },
@@ -84,6 +108,11 @@
         "responses": {
           "200": {
             "description": "Storage dependencies are ready.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ReadinessStatus" }
@@ -92,6 +121,11 @@
           },
           "503": {
             "description": "At least one storage dependency is not ready.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ReadinessStatus" }
@@ -104,9 +138,21 @@
         "tags": ["Transport"],
         "summary": "Read storage readiness headers",
         "responses": {
-          "200": { "description": "Storage dependencies are ready." },
+          "200": {
+            "description": "Storage dependencies are ready.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            }
+          },
           "503": {
-            "description": "At least one storage dependency is not ready."
+            "description": "At least one storage dependency is not ready.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStoreCacheControl"
+              }
+            }
           }
         }
       }
@@ -833,6 +879,10 @@
   },
   "components": {
     "headers": {
+      "NoStoreCacheControl": {
+        "description": "Response must not be stored by caches.",
+        "schema": { "const": "no-store" }
+      },
       "StrongDigestEtag": {
         "description": "Strong digest-based validator.",
         "schema": { "type": "string" }
@@ -983,14 +1033,6 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "api": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "version": { "type": "string" }
-            },
-            "required": ["version"]
-          },
           "build": {
             "type": "object",
             "additionalProperties": false,
@@ -1027,6 +1069,7 @@
             "properties": {
               "packages": {
                 "type": "integer",
+                "maximum": 9007199254740991,
                 "minimum": 0
               }
             },
@@ -1035,7 +1078,6 @@
           "version": { "type": "string" }
         },
         "required": [
-          "api",
           "build",
           "git",
           "object",

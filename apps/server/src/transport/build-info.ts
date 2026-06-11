@@ -14,10 +14,11 @@ export interface DeploymentInfoOptions {
 }
 
 export function createDeploymentInfo(options: DeploymentInfoOptions = {}) {
+  const statistics = normalizeDeploymentStatistics(
+    options.statistics ?? { packages: 0 },
+  )
+
   return {
-    api: {
-      version: 'v0',
-    },
     build: {
       time: buildTime(),
     },
@@ -31,7 +32,7 @@ export function createDeploymentInfo(options: DeploymentInfoOptions = {}) {
       version: process.versions.node,
     },
     service: serverPackageJson.name,
-    ...(options.statistics ? { statistics: options.statistics } : {}),
+    statistics,
     version: serverPackageJson.version,
   }
 }
@@ -78,4 +79,18 @@ function envBoolean(value: string | undefined): boolean | undefined {
 
 function nonEmptyString(value: string | undefined): string | undefined {
   return value && value.length > 0 ? value : undefined
+}
+
+function normalizeDeploymentStatistics(
+  statistics: DeploymentStatistics,
+): DeploymentStatistics {
+  if (!Number.isSafeInteger(statistics.packages) || statistics.packages < 0) {
+    throw new TypeError(
+      'Deployment package statistics must be a non-negative safe integer',
+    )
+  }
+
+  return {
+    packages: statistics.packages,
+  }
 }

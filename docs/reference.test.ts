@@ -539,6 +539,86 @@ describe('documentation references', () => {
     }
   })
 
+  it('keeps deployment info free of HTTP API version metadata', async () => {
+    const openapi = await readJson(openapiPath)
+    const info = member(openapi, 'info')
+    const properties = await openapiValueAtPointer(
+      '#/components/schemas/DeploymentInfo/properties',
+    )
+    const required = await openapiValueAtPointer(
+      '#/components/schemas/DeploymentInfo/required',
+    )
+    const packageStatistics = await openapiValueAtPointer(
+      '#/components/schemas/DeploymentInfo/properties/statistics/properties/packages',
+    )
+
+    if (!isRecord(properties)) {
+      throw new TypeError('DeploymentInfo properties must be an object')
+    }
+
+    if (!Array.isArray(required)) {
+      throw new TypeError('DeploymentInfo required fields must be an array')
+    }
+
+    if (!isRecord(info)) {
+      throw new TypeError('OpenAPI info must be an object')
+    }
+
+    if (!isRecord(packageStatistics)) {
+      throw new TypeError('DeploymentInfo package statistics must be an object')
+    }
+
+    const deploymentInfoFields = [
+      'build',
+      'git',
+      'object',
+      'runtime',
+      'service',
+      'statistics',
+      'version',
+    ]
+
+    expect(properties).not.toHaveProperty('api')
+    expect(Object.keys(properties).toSorted()).toEqual(deploymentInfoFields)
+    expect(required).not.toContain('api')
+    expect(required.toSorted()).toEqual(deploymentInfoFields)
+    expect(packageStatistics).toMatchObject({
+      maximum: Number.MAX_SAFE_INTEGER,
+      minimum: 0,
+      type: 'integer',
+    })
+
+    for (const key of ['title', 'summary', 'description']) {
+      const value = member(info, key)
+      if (typeof value === 'string') {
+        expect(value).not.toContain('V0 HTTP API')
+      }
+    }
+
+    await expect(readText('api.md')).resolves.not.toContain('API version')
+  })
+
+  it('documents no-store caching for transport status routes', async () => {
+    await expect(
+      openapiValueAtPointer('#/components/headers/NoStoreCacheControl/schema'),
+    ).resolves.toEqual({ const: 'no-store' })
+
+    for (const pointer of [
+      '#/paths/~1/get/responses/200/headers/Cache-Control',
+      '#/paths/~1/head/responses/200/headers/Cache-Control',
+      '#/paths/~1health/get/responses/200/headers/Cache-Control',
+      '#/paths/~1health/head/responses/200/headers/Cache-Control',
+      '#/paths/~1ready/get/responses/200/headers/Cache-Control',
+      '#/paths/~1ready/get/responses/503/headers/Cache-Control',
+      '#/paths/~1ready/head/responses/200/headers/Cache-Control',
+      '#/paths/~1ready/head/responses/503/headers/Cache-Control',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toEqual({
+        $ref: '#/components/headers/NoStoreCacheControl',
+      })
+    }
+  })
+
   it('keeps the machine-readable core schema free of ecosystem projection terms', async () => {
     const schema = await readText(schemaPath)
 

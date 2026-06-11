@@ -79,10 +79,10 @@ describe('createRegestaApp', () => {
     expect(response.headers.get('content-length')).toBe(
       String(Buffer.byteLength(deploymentInfoText)),
     )
-    await expect(response.json()).resolves.toMatchObject({
-      api: {
-        version: 'v0',
-      },
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    const deploymentInfo = await response.json()
+    expect(deploymentInfo).not.toHaveProperty('api')
+    expect(deploymentInfo).toEqual({
       build: {
         time: '2026-06-08T00:00:00.000Z',
       },
@@ -108,9 +108,11 @@ describe('createRegestaApp', () => {
     expect(head.headers.get('content-length')).toBe(
       String(Buffer.byteLength(deploymentInfoText)),
     )
+    expect(head.headers.get('cache-control')).toBe('no-store')
     expect(await head.text()).toBe('')
     expect(health.status).toBe(200)
     expect(health.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/u)
+    expect(health.headers.get('cache-control')).toBe('no-store')
     expect(health.headers.get('content-length')).toBe(
       String(Buffer.byteLength(healthText)),
     )
@@ -122,6 +124,7 @@ describe('createRegestaApp', () => {
     expect(healthHead.headers.get('content-length')).toBe(
       String(Buffer.byteLength(healthText)),
     )
+    expect(healthHead.headers.get('cache-control')).toBe('no-store')
     expect(await healthHead.text()).toBe('')
     expect(ready.status).toBe(200)
     expect(ready.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/u)
@@ -172,6 +175,44 @@ describe('createRegestaApp', () => {
       },
     })
     expect(countPackages).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs schema-invalid deployment statistics at the transport boundary', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    adapters.database.countPackages = () => Promise.resolve(-1)
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request('http://registry.test/', {
+        headers: {
+          'x-request-id': 'invalid-deployment-statistics-001',
+        },
+      })
+
+      expect(response.status).toBe(500)
+      expect(response.headers.get('x-request-id')).toBe(
+        'invalid-deployment-statistics-001',
+      )
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              'Deployment package statistics must be a non-negative safe integer',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-deployment-statistics-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('returns 503 when persistent storage is not ready', async () => {
