@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 import { randomBytes } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import process from 'node:process'
 import {
   createReleasePublishIntent,
-  createWriteAuthorization,
   releasePublishArtifactDescriptorDigest,
-  type Ed25519PrivateKeyJwk,
 } from '@regesta/auth'
 import { configDigest } from '@regesta/core'
 import { parsePackageId, parsePackageVersion, sha256 } from '@regesta/protocol'
@@ -17,6 +14,7 @@ import { compareMirrorDirectories, mirrorRegistry } from './mirror.ts'
 import { prepareNpmPublish } from './npm-publish.ts'
 import { releasePublishArtifactDescriptors } from './publish-intent.ts'
 import { normalizeRegistryUrl } from './registry-url.ts'
+import { createConfiguredWriteAuthorization } from './signing.ts'
 import {
   compareEventLogsFromRegistries,
   verifyEventLogFromRegistry,
@@ -54,38 +52,63 @@ cli
   .option('--auth-key <path>', 'Ed25519 private JWK auth key file')
   .option('--kid <kid>', 'Domain binding key id')
   .option('--registry <url>', 'Registry base URL', { default: defaultRegistry })
+  .option('--signing-format <format>', 'Signing format: ed25519 or ssh')
+  .option('--ssh-signing-key <key>', 'SSH signing key path or public key')
+  .option(
+    '--ssh-signing-program <path>',
+    'OpenSSH-compatible signing program; defaults to ssh-keygen',
+  )
   .action(
     async (
       cwd: string | undefined,
-      options: { authKey?: string; kid?: string; registry: string },
+      options: {
+        authKey?: string
+        kid?: string
+        registry: string
+        signingFormat?: string
+        sshSigningKey?: string
+        sshSigningProgram?: string
+      },
     ) => {
       const registry = normalizeRegistryUrl(options.registry)
       const projectDir = cwd ?? process.cwd()
       const prepared = await prepareNpmPublish(projectDir)
-      const key = await readAuthKey(options.authKey, options.kid)
+      const intent = createReleasePublishIntent({
+        artifactDescriptorDigest: releasePublishArtifactDescriptorDigest(
+          releasePublishArtifactDescriptors(prepared.artifacts),
+        ),
+        artifactDigests: prepared.artifacts.map((artifact) =>
+          sha256(artifact.bytes),
+        ),
+        configDigest: configDigest(prepared.config),
+        nonce: randomBytes(16).toString('base64url'),
+        packageId: prepared.config.id,
+        sourceDigest: sha256(prepared.source),
+        timestamp: new Date().toISOString(),
+        version: prepared.config.version,
+      })
       const form = new FormData()
 
       form.set('config', JSON.stringify(prepared.config))
       form.set(
         'authorization',
         JSON.stringify(
-          createWriteAuthorization(
-            createReleasePublishIntent({
-              artifactDescriptorDigest: releasePublishArtifactDescriptorDigest(
-                releasePublishArtifactDescriptors(prepared.artifacts),
-              ),
-              artifactDigests: prepared.artifacts.map((artifact) =>
-                sha256(artifact.bytes),
-              ),
-              configDigest: configDigest(prepared.config),
-              nonce: randomBytes(16).toString('base64url'),
-              packageId: prepared.config.id,
-              sourceDigest: sha256(prepared.source),
-              timestamp: new Date().toISOString(),
-              version: prepared.config.version,
-            }),
-            key,
-          ),
+          await createConfiguredWriteAuthorization(intent, {
+            ...(options.authKey === undefined
+              ? {}
+              : { authKey: options.authKey }),
+            cwd: projectDir,
+            ...(options.kid === undefined ? {} : { kid: options.kid }),
+            ...(options.signingFormat === undefined
+              ? {}
+              : { signingFormat: options.signingFormat }),
+            ...(options.sshSigningKey === undefined
+              ? {}
+              : { sshSigningKey: options.sshSigningKey }),
+            ...(options.sshSigningProgram === undefined
+              ? {}
+              : { sshSigningProgram: options.sshSigningProgram }),
+          }),
         ),
       )
       form.set(
@@ -332,68 +355,4 @@ function parseOptionalPositiveInteger(
   }
 
   return parsed
-}
-
-async function readAuthKey(
-  path: string | undefined,
-  kid: string | undefined,
-): Promise<{ kid: string; privateKeyJwk: Ed25519PrivateKeyJwk }> {
-  if (!path) {
-    throw new Error('Missing --auth-key for signed publish')
-  }
-
-  const value: unknown = JSON.parse(await readFile(path, 'utf8'))
-  const keyFile = normalizeAuthKeyFile(value)
-  const resolvedKid = kid ?? keyFile.kid
-
-  if (!resolvedKid) {
-    throw new Error('Missing --kid or kid in auth key file')
-  }
-
-  return {
-    kid: resolvedKid,
-    privateKeyJwk: keyFile.privateKeyJwk,
-  }
-}
-
-function normalizeAuthKeyFile(value: unknown): {
-  kid?: string
-  privateKeyJwk: Ed25519PrivateKeyJwk
-} {
-  if (!isRecord(value)) {
-    throw new Error('Auth key file must be a JSON object')
-  }
-
-  const privateKeyJwk =
-    value.privateKeyJwk === undefined ? value : value.privateKeyJwk
-
-  return {
-    ...(typeof value.kid === 'string' ? { kid: value.kid } : {}),
-    privateKeyJwk: normalizePrivateKeyJwk(privateKeyJwk),
-  }
-}
-
-function normalizePrivateKeyJwk(value: unknown): Ed25519PrivateKeyJwk {
-  if (!isRecord(value)) {
-    throw new TypeError('privateKeyJwk must be an object')
-  }
-
-  if (value.kty !== 'OKP' || value.crv !== 'Ed25519') {
-    throw new Error('privateKeyJwk must be an Ed25519 OKP JWK')
-  }
-
-  if (typeof value.x !== 'string' || typeof value.d !== 'string') {
-    throw new TypeError('privateKeyJwk must include x and d')
-  }
-
-  return {
-    crv: value.crv,
-    d: value.d,
-    kty: value.kty,
-    x: value.x,
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }

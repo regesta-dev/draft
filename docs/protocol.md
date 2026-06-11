@@ -122,7 +122,8 @@ Storage adapters must reject:
 
 ## Write Authorization
 
-V0 write requests carry a signed authorization object:
+V0 write requests carry a signed authorization object. The default key format is
+Ed25519 JWK:
 
 ```json
 {
@@ -146,9 +147,36 @@ V0 write requests carry a signed authorization object:
 }
 ```
 
-The signature is an Ed25519 signature over the canonical JSON form of
-`payload`. The owner domain comes from the package id, and the server verifies
-the signature against the current domain binding at write time.
+The signature is over the canonical JSON form of `payload`. The owner domain
+comes from the package id, and the server verifies the signature against the
+current domain binding at write time.
+
+V0 also accepts `ssh-ed25519` authorization using OpenSSH `SSHSIG` signatures:
+
+```json
+{
+  "alg": "ssh-ed25519",
+  "kid": "ssh-ed25519:...",
+  "payload": {
+    "object": "regesta.write-intent",
+    "operation": "release.publish",
+    "package": "npm:some.dev/sdk",
+    "domain": "some.dev",
+    "version": "1.2.3",
+    "channel": "latest",
+    "configDigest": "sha256:...",
+    "sourceDigest": "sha256:...",
+    "artifactDigests": ["sha256:..."],
+    "artifactDescriptorDigest": "sha256:...",
+    "timestamp": "2026-06-03T00:00:00.000Z",
+    "nonce": "..."
+  },
+  "signature": "-----BEGIN SSH SIGNATURE-----\n...\n-----END SSH SIGNATURE-----"
+}
+```
+
+SSH signatures use the `regesta` namespace so signatures cannot be replayed as
+Git signatures or another protocol's authorization.
 
 Current write intent operations are:
 

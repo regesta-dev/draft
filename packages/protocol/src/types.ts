@@ -1,5 +1,10 @@
 export { defaultPackageChannel } from './package.ts'
-export type { Ed25519PublicKeyJwk, WriteAuthorizationProof } from './auth.ts'
+export type {
+  Ed25519PublicKeyJwk,
+  Ed25519WriteAuthorizationProof,
+  SshEd25519WriteAuthorizationProof,
+  WriteAuthorizationProof,
+} from './auth.ts'
 export type {
   AbiCompatibility,
   PlatformCompatibility,

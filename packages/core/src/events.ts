@@ -93,21 +93,33 @@ function assertAuthorizationProof(event: RegistryEvent): void {
   }
 
   const { authorization } = event
-  assertKnownFields(
-    authorization,
-    [
-      'alg',
-      'domain',
-      'kid',
-      'object',
-      'payloadDigest',
-      'publicKeyJwk',
-      'signature',
-      'signedAt',
-      'wellKnownDigest',
-    ],
-    { label: 'Registry event authorization' },
-  )
+  const authorizationKnownFields =
+    authorization.alg === 'ssh-ed25519'
+      ? [
+          'alg',
+          'domain',
+          'kid',
+          'object',
+          'payloadDigest',
+          'publicKey',
+          'signature',
+          'signedAt',
+          'wellKnownDigest',
+        ]
+      : [
+          'alg',
+          'domain',
+          'kid',
+          'object',
+          'payloadDigest',
+          'publicKeyJwk',
+          'signature',
+          'signedAt',
+          'wellKnownDigest',
+        ]
+  assertKnownFields(authorization, authorizationKnownFields, {
+    label: 'Registry event authorization',
+  })
 
   if (authorization.object !== 'regesta.authorization-proof') {
     throw new TypeError(
@@ -115,8 +127,10 @@ function assertAuthorizationProof(event: RegistryEvent): void {
     )
   }
 
-  if (authorization.alg !== 'EdDSA') {
-    throw new TypeError('Registry event authorization alg must be EdDSA')
+  if (authorization.alg !== 'EdDSA' && authorization.alg !== 'ssh-ed25519') {
+    throw new TypeError(
+      'Registry event authorization alg must be EdDSA or ssh-ed25519',
+    )
   }
 
   if (authorization.domain !== eventOwnerDomain(event)) {
@@ -126,10 +140,17 @@ function assertAuthorizationProof(event: RegistryEvent): void {
   }
 
   assertNonEmptyString(authorization.kid, 'Registry event authorization kid')
-  assertEd25519Signature(
-    authorization.signature,
-    'Registry event authorization signature',
-  )
+  if (authorization.alg === 'EdDSA') {
+    assertEd25519Signature(
+      authorization.signature,
+      'Registry event authorization signature',
+    )
+  } else {
+    assertOpenSshSignature(
+      authorization.signature,
+      'Registry event authorization signature',
+    )
+  }
   assertSha256Digest(authorization.payloadDigest)
   assertSha256Digest(authorization.wellKnownDigest)
   assertCanonicalTimestamp(
@@ -143,7 +164,11 @@ function assertAuthorizationProof(event: RegistryEvent): void {
     )
   }
 
-  assertEd25519PublicKeyJwk(authorization.publicKeyJwk)
+  if (authorization.alg === 'EdDSA') {
+    assertEd25519PublicKeyJwk(authorization.publicKeyJwk)
+  } else {
+    assertSshEd25519PublicKey(authorization.publicKey)
+  }
 }
 
 function assertEd25519PublicKeyJwk(publicKeyJwk: Ed25519PublicKeyJwk): void {
@@ -171,6 +196,28 @@ function assertEd25519PublicKeyJwk(publicKeyJwk: Ed25519PublicKeyJwk): void {
     publicKeyJwk.x,
     'Registry event authorization publicKeyJwk.x',
   )
+}
+
+function assertOpenSshSignature(value: string, label: string): void {
+  assertNonEmptyString(value, label)
+
+  if (
+    !/^-----BEGIN SSH SIGNATURE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END SSH SIGNATURE-----$/u.test(
+      value.trim(),
+    )
+  ) {
+    throw new TypeError(`${label} must be an OpenSSH signature`)
+  }
+}
+
+function assertSshEd25519PublicKey(value: string): void {
+  assertNonEmptyString(value, 'Registry event authorization publicKey')
+
+  if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?:\s.*)?$/u.test(value)) {
+    throw new TypeError(
+      'Registry event authorization publicKey must be an ssh-ed25519 key',
+    )
+  }
 }
 
 function assertRegistryEventKnownFields(event: RegistryEvent): void {

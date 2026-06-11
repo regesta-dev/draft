@@ -35,6 +35,12 @@
       "type": "object"
     },
     "authorizationProof": {
+      "oneOf": [
+        { "$ref": "#/$defs/ed25519AuthorizationProof" },
+        { "$ref": "#/$defs/sshEd25519AuthorizationProof" }
+      ]
+    },
+    "ed25519AuthorizationProof": {
       "additionalProperties": false,
       "properties": {
         "alg": { "const": "EdDSA" },
@@ -171,17 +177,10 @@
         "domain": { "$ref": "#/$defs/ownerDomain" },
         "keys": {
           "items": {
-            "additionalProperties": false,
-            "properties": {
-              "alg": { "const": "EdDSA" },
-              "createdAt": { "$ref": "#/$defs/canonicalTimestamp" },
-              "expiresAt": { "$ref": "#/$defs/canonicalTimestamp" },
-              "kid": { "$ref": "#/$defs/nonEmptyString" },
-              "publicKeyJwk": { "$ref": "#/$defs/ed25519PublicKeyJwk" },
-              "use": { "const": "regesta-write" }
-            },
-            "required": ["alg", "kid", "publicKeyJwk", "use"],
-            "type": "object"
+            "oneOf": [
+              { "$ref": "#/$defs/ed25519DomainBindingKey" },
+              { "$ref": "#/$defs/sshEd25519DomainBindingKey" }
+            ]
           },
           "minItems": 1,
           "type": "array"
@@ -189,6 +188,19 @@
         "object": { "const": "regesta.domain-binding" }
       },
       "required": ["domain", "keys", "object"],
+      "type": "object"
+    },
+    "ed25519DomainBindingKey": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "EdDSA" },
+        "createdAt": { "$ref": "#/$defs/canonicalTimestamp" },
+        "expiresAt": { "$ref": "#/$defs/canonicalTimestamp" },
+        "kid": { "$ref": "#/$defs/nonEmptyString" },
+        "publicKeyJwk": { "$ref": "#/$defs/ed25519PublicKeyJwk" },
+        "use": { "const": "regesta-write" }
+      },
+      "required": ["alg", "kid", "publicKeyJwk", "use"],
       "type": "object"
     },
     "ed25519PublicKeyJwk": {
@@ -429,18 +441,84 @@
       "items": { "$ref": "#/$defs/nonEmptyString" },
       "type": "array"
     },
+    "sshEd25519AuthorizationProof": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "ssh-ed25519" },
+        "domain": { "$ref": "#/$defs/ownerDomain" },
+        "kid": { "$ref": "#/$defs/nonEmptyString" },
+        "object": { "const": "regesta.authorization-proof" },
+        "payloadDigest": { "$ref": "#/$defs/sha256Digest" },
+        "publicKey": { "$ref": "#/$defs/sshEd25519PublicKey" },
+        "signature": { "$ref": "#/$defs/openSshSignature" },
+        "signedAt": { "$ref": "#/$defs/canonicalTimestamp" },
+        "wellKnownDigest": { "$ref": "#/$defs/sha256Digest" }
+      },
+      "required": [
+        "alg",
+        "domain",
+        "kid",
+        "object",
+        "payloadDigest",
+        "publicKey",
+        "signature",
+        "signedAt",
+        "wellKnownDigest"
+      ],
+      "type": "object"
+    },
+    "sshEd25519DomainBindingKey": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "ssh-ed25519" },
+        "createdAt": { "$ref": "#/$defs/canonicalTimestamp" },
+        "expiresAt": { "$ref": "#/$defs/canonicalTimestamp" },
+        "kid": { "$ref": "#/$defs/nonEmptyString" },
+        "publicKey": { "$ref": "#/$defs/sshEd25519PublicKey" },
+        "use": { "const": "regesta-write" }
+      },
+      "required": ["alg", "kid", "publicKey", "use"],
+      "type": "object"
+    },
+    "sshEd25519PublicKey": {
+      "description": "OpenSSH ssh-ed25519 public key line without relying on the trailing comment.",
+      "pattern": "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?:\\s.*)?$",
+      "type": "string"
+    },
+    "openSshSignature": {
+      "description": "Armored OpenSSH SSHSIG signature.",
+      "pattern": "^-----BEGIN SSH SIGNATURE-----\\r?\\n[A-Za-z0-9+/=\\r\\n]+-----END SSH SIGNATURE-----$",
+      "type": "string"
+    },
     "tokenString": {
       "minLength": 1,
       "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
       "type": "string"
     },
     "writeAuthorization": {
+      "oneOf": [
+        { "$ref": "#/$defs/ed25519WriteAuthorization" },
+        { "$ref": "#/$defs/sshEd25519WriteAuthorization" }
+      ]
+    },
+    "ed25519WriteAuthorization": {
       "additionalProperties": false,
       "properties": {
         "alg": { "const": "EdDSA" },
         "kid": { "$ref": "#/$defs/tokenString" },
         "payload": { "$ref": "#/$defs/writeIntent" },
         "signature": { "$ref": "#/$defs/ed25519Signature" }
+      },
+      "required": ["alg", "kid", "payload", "signature"],
+      "type": "object"
+    },
+    "sshEd25519WriteAuthorization": {
+      "additionalProperties": false,
+      "properties": {
+        "alg": { "const": "ssh-ed25519" },
+        "kid": { "$ref": "#/$defs/tokenString" },
+        "payload": { "$ref": "#/$defs/writeIntent" },
+        "signature": { "$ref": "#/$defs/openSshSignature" }
       },
       "required": ["alg", "kid", "payload", "signature"],
       "type": "object"

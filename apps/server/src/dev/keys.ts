@@ -4,6 +4,7 @@ import publicKeyJson from './public-key.json' with { type: 'json' }
 import type {
   DomainBinding,
   DomainBindingKey,
+  Ed25519DomainBindingKey,
   Ed25519PrivateKeyJwk,
   Ed25519PublicKeyJwk,
 } from '@regesta/auth'
@@ -175,11 +176,15 @@ function normalizePublicKeyJwk(value: unknown): Ed25519PublicKeyJwk {
   }
 }
 
-function primaryWriteKey(binding: DomainBinding): DomainBindingKey {
+function primaryWriteKey(binding: DomainBinding): Ed25519DomainBindingKey {
   const key = binding.keys[0]
 
   if (!key) {
     throw new Error('dev domain binding must include a write key')
+  }
+
+  if (key.alg !== 'EdDSA') {
+    throw new Error('dev domain binding primary key must be EdDSA')
   }
 
   return key

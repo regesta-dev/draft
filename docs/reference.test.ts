@@ -135,14 +135,23 @@ describe('documentation references', () => {
   })
 
   it('documents domain binding key validity windows in the JSON Schema', async () => {
-    const keyProperties = await schemaPropertiesAtPointer(
-      '#/$defs/domainBinding/properties/keys/items/properties',
+    const ed25519KeyProperties = await schemaPropertiesAtPointer(
+      '#/$defs/ed25519DomainBindingKey/properties',
+    )
+    const sshKeyProperties = await schemaPropertiesAtPointer(
+      '#/$defs/sshEd25519DomainBindingKey/properties',
     )
 
-    expect(keyProperties.createdAt).toEqual({
+    expect(ed25519KeyProperties.createdAt).toEqual({
       $ref: '#/$defs/canonicalTimestamp',
     })
-    expect(keyProperties.expiresAt).toEqual({
+    expect(ed25519KeyProperties.expiresAt).toEqual({
+      $ref: '#/$defs/canonicalTimestamp',
+    })
+    expect(sshKeyProperties.createdAt).toEqual({
+      $ref: '#/$defs/canonicalTimestamp',
+    })
+    expect(sshKeyProperties.expiresAt).toEqual({
       $ref: '#/$defs/canonicalTimestamp',
     })
   })
@@ -165,7 +174,7 @@ describe('documentation references', () => {
     expect(signature.test(`${'A'.repeat(86)}=`)).toBe(false)
 
     const authProperties = await schemaPropertiesAtPointer(
-      '#/$defs/authorizationProof/properties',
+      '#/$defs/ed25519AuthorizationProof/properties',
     )
     expect(authProperties.signature).toEqual({
       $ref: '#/$defs/ed25519Signature',
@@ -180,12 +189,28 @@ describe('documentation references', () => {
   })
 
   it('documents current signed write authorization shapes', async () => {
-    const authorizationProperties = await schemaPropertiesAtPointer(
-      '#/$defs/writeAuthorization/properties',
+    await expect(
+      schemaValueAtPointer('#/$defs/writeAuthorization/oneOf'),
+    ).resolves.toEqual([
+      { $ref: '#/$defs/ed25519WriteAuthorization' },
+      { $ref: '#/$defs/sshEd25519WriteAuthorization' },
+    ])
+
+    const ed25519AuthorizationProperties = await schemaPropertiesAtPointer(
+      '#/$defs/ed25519WriteAuthorization/properties',
+    )
+    const sshAuthorizationProperties = await schemaPropertiesAtPointer(
+      '#/$defs/sshEd25519WriteAuthorization/properties',
     )
 
-    expect(authorizationProperties.payload).toEqual({
+    expect(ed25519AuthorizationProperties.payload).toEqual({
       $ref: '#/$defs/writeIntent',
+    })
+    expect(sshAuthorizationProperties.payload).toEqual({
+      $ref: '#/$defs/writeIntent',
+    })
+    expect(sshAuthorizationProperties.signature).toEqual({
+      $ref: '#/$defs/openSshSignature',
     })
     await expect(
       schemaValueAtPointer('#/$defs/writeIntent/oneOf'),

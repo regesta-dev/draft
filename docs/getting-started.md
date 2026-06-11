@@ -47,6 +47,101 @@ curl http://localhost:4321/ready
 adapters: SQLite, filesystem object storage, derived queue storage, and local
 signing readiness.
 
+## Configure A Domain Binding
+
+Regesta publish authority is bound to the owner domain in the package id. For a
+package id such as `npm:some.dev/sdk`, the owner domain is `some.dev`, and the
+registry fetches:
+
+```text
+https://some.dev/.well-known/regesta.json
+```
+
+The file must be served as JSON, and its `domain` value must match the owner
+domain exactly. A new user can start with either the built-in Ed25519 key file
+format or an existing `ssh-ed25519` signing key.
+
+### Ed25519 Key File
+
+Generate Regesta key material:
+
+```sh
+node --conditions=regesta-source packages/cli/src/index.ts keygen ./regesta-keys \
+  --domain some.dev \
+  --kid ed25519:release
+```
+
+Publish the generated `domain-binding.json` at:
+
+```text
+https://some.dev/.well-known/regesta.json
+```
+
+The file has this shape:
+
+```json
+{
+  "object": "regesta.domain-binding",
+  "domain": "some.dev",
+  "keys": [
+    {
+      "kid": "ed25519:release",
+      "use": "regesta-write",
+      "alg": "EdDSA",
+      "publicKeyJwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "..."
+      }
+    }
+  ]
+}
+```
+
+Keep `private-key.json` local and private. Use it when publishing:
+
+```sh
+node --conditions=regesta-source packages/cli/src/index.ts publish . \
+  --registry https://registry.regesta.dev \
+  --auth-key ./regesta-keys/private-key.json
+```
+
+### SSH Signing Key
+
+If you already sign Git commits with `ssh-ed25519`, publish the public key in
+the same well-known file:
+
+```json
+{
+  "object": "regesta.domain-binding",
+  "domain": "some.dev",
+  "keys": [
+    {
+      "kid": "ssh-ed25519:release",
+      "use": "regesta-write",
+      "alg": "ssh-ed25519",
+      "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+    }
+  ]
+}
+```
+
+Then publish with the matching key id, public key, and signing program:
+
+```sh
+node --conditions=regesta-source packages/cli/src/index.ts publish . \
+  --registry https://registry.regesta.dev \
+  --signing-format ssh \
+  --kid ssh-ed25519:release \
+  --ssh-signing-key "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..." \
+  --ssh-signing-program /Applications/1Password.app/Contents/MacOS/op-ssh-sign
+```
+
+If `--ssh-signing-program` is omitted, the CLI uses `ssh-keygen`. If `--kid` is
+omitted for SSH signing, the CLI derives one from the public key; the
+well-known file must use the same derived id, so an explicit `--kid` is simpler
+for first-time setup.
+
 ## Publish The Example Package
 
 The development server exposes a fixed `dev.localhost` binding for local

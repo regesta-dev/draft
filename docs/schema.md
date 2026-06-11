@@ -257,7 +257,8 @@ claim is true.
 ## Write Authorization
 
 Authenticated writes carry a `writeAuthorization` object. The object wraps a
-canonical write intent payload plus an Ed25519 signature:
+canonical write intent payload plus a domain-bound signature. Ed25519 JWK keys
+use the default `EdDSA` shape:
 
 ```json
 {
@@ -278,6 +279,30 @@ canonical write intent payload plus an Ed25519 signature:
     "nonce": "..."
   },
   "signature": "..."
+}
+```
+
+SSH signing uses the same payload but stores an OpenSSH `SSHSIG` signature:
+
+```json
+{
+  "alg": "ssh-ed25519",
+  "kid": "ssh-ed25519:...",
+  "payload": {
+    "object": "regesta.write-intent",
+    "operation": "release.publish",
+    "package": "npm:some.dev/sdk",
+    "domain": "some.dev",
+    "version": "1.2.3",
+    "channel": "latest",
+    "configDigest": "sha256:...",
+    "sourceDigest": "sha256:...",
+    "artifactDigests": ["sha256:..."],
+    "artifactDescriptorDigest": "sha256:...",
+    "timestamp": "2026-06-03T00:00:00.000Z",
+    "nonce": "..."
+  },
+  "signature": "-----BEGIN SSH SIGNATURE-----\n...\n-----END SSH SIGNATURE-----"
 }
 ```
 
@@ -380,6 +405,17 @@ adapters must reject events whose id does not match their canonical payload.
 V0 domain binding is fetched directly as JSON from a well-known endpoint
 controlled by the owner domain.
 
+For package id `npm:some.dev/sdk`, the binding URL is:
+
+```text
+https://some.dev/.well-known/regesta.json
+```
+
+The response must be UTF-8 JSON with an `application/json` or `+json` content
+type. The registry does not follow redirects for this fetch. The `domain` field
+must match the owner domain, and the authorization `kid` must match one active
+key in `keys`.
+
 ```json
 {
   "object": "regesta.domain-binding",
@@ -396,6 +432,14 @@ controlled by the owner domain.
         "crv": "Ed25519",
         "x": "..."
       }
+    },
+    {
+      "kid": "ssh-ed25519:...",
+      "use": "regesta-write",
+      "alg": "ssh-ed25519",
+      "createdAt": "2026-06-01T00:00:00.000Z",
+      "expiresAt": "2026-09-01T00:00:00.000Z",
+      "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
     }
   ]
 }

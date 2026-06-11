@@ -26,7 +26,12 @@ export {
   parseReleaseManifest,
 } from './release.ts'
 export { assertCanonicalTimestamp } from './timestamp.ts'
-export type { Ed25519PublicKeyJwk, WriteAuthorizationProof } from './auth.ts'
+export type {
+  Ed25519PublicKeyJwk,
+  Ed25519WriteAuthorizationProof,
+  SshEd25519WriteAuthorizationProof,
+  WriteAuthorizationProof,
+} from './auth.ts'
 export type {
   CanonicalJsonCodec,
   CanonicalJsonValue,

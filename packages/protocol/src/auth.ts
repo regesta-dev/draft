@@ -6,14 +6,26 @@ export interface Ed25519PublicKeyJwk {
   x: string
 }
 
-export interface WriteAuthorizationProof {
-  alg: 'EdDSA'
+export type WriteAuthorizationProof =
+  | Ed25519WriteAuthorizationProof
+  | SshEd25519WriteAuthorizationProof
+
+export interface WriteAuthorizationProofBase {
   domain: string
   kid: string
   object: 'regesta.authorization-proof'
   payloadDigest: Sha256Digest
-  publicKeyJwk: Ed25519PublicKeyJwk
   signature: string
   signedAt: string
   wellKnownDigest: Sha256Digest
+}
+
+export interface Ed25519WriteAuthorizationProof extends WriteAuthorizationProofBase {
+  alg: 'EdDSA'
+  publicKeyJwk: Ed25519PublicKeyJwk
+}
+
+export interface SshEd25519WriteAuthorizationProof extends WriteAuthorizationProofBase {
+  alg: 'ssh-ed25519'
+  publicKey: string
 }

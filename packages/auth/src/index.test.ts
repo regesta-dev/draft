@@ -1,18 +1,26 @@
 import { Buffer } from 'node:buffer'
-import { generateKeyPairSync } from 'node:crypto'
+import {
+  createHash,
+  generateKeyPairSync,
+  sign,
+  type KeyObject,
+} from 'node:crypto'
 import { canonicalJson, sha256 } from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createChannelDeleteIntent,
   createChannelUpdateIntent,
   createReleasePublishIntent,
+  createSshWriteAuthorization,
   createWriteAuthorization,
   domainBindingUrl,
   ownerDomainFromPackageId,
+  regestaSshSignatureNamespace,
   releasePublishArtifactDescriptorDigest,
   verifyPublishAuthorization,
   verifyWriteAuthorization,
   WriteAuthorizationError,
+  writeIntentPayloadBytes,
   type DomainBinding,
   type Ed25519PrivateKeyJwk,
   type Ed25519PublicKeyJwk,
@@ -49,6 +57,59 @@ describe('verifyWriteAuthorization', () => {
       signature: fixture.authorization.signature,
       signedAt: fixture.authorization.payload.timestamp,
       wellKnownDigest: sha256(bindingBytes),
+    })
+  })
+
+  it('returns an auditable authorization proof for valid ssh-ed25519 write signatures', async () => {
+    const fixture = createSshAuthorizationFixture()
+    const bindingText = JSON.stringify(fixture.binding)
+    const bindingBytes = bytes(bindingText)
+    const key = fixture.binding.keys[0]
+
+    if (!key || key.alg !== 'ssh-ed25519') {
+      throw new Error('SSH fixture key missing')
+    }
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        fetchBinding: () =>
+          Promise.resolve(
+            new Response(bindingBytes, {
+              headers: {
+                'content-type': 'application/json',
+              },
+            }),
+          ),
+        now: fixture.now,
+      }),
+    ).resolves.toEqual({
+      alg: 'ssh-ed25519',
+      domain: 'example.com',
+      kid: 'ssh-ed25519:test',
+      object: 'regesta.authorization-proof',
+      payloadDigest: sha256(canonicalJson(fixture.authorization.payload)),
+      publicKey: key.publicKey,
+      signature: fixture.authorization.signature,
+      signedAt: fixture.authorization.payload.timestamp,
+      wellKnownDigest: sha256(bindingBytes),
+    })
+  })
+
+  it('rejects ssh-ed25519 signatures from another namespace', async () => {
+    const fixture = createSshAuthorizationFixture({ namespace: 'git' })
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        fetchBinding: bindingFetch(fixture.binding),
+        now: fixture.now,
+      }),
+    ).rejects.toMatchObject({
+      message: `OpenSSH signature namespace must be ${regestaSshSignatureNamespace}`,
+      name: WriteAuthorizationError.name,
     })
   })
 
@@ -1169,6 +1230,64 @@ function createAuthorizationFixture(
   }
 }
 
+function createSshAuthorizationFixture(
+  input: {
+    namespace?: string
+    now?: Date
+    timestamp?: string
+  } = {},
+): {
+  authorization: WriteAuthorization
+  binding: DomainBinding
+  intent: ReturnType<typeof createReleasePublishIntent>
+  now: Date
+} {
+  const now = input.now ?? new Date('2026-06-01T00:00:00.000Z')
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  const publicKeyJwk = normalizePublicKeyJwk(
+    publicKey.export({ format: 'jwk' }),
+  )
+  const publicKeyBytes = Buffer.from(publicKeyJwk.x, 'base64url')
+  const publicKeyText = sshEd25519PublicKeyText(publicKeyBytes)
+  const intent = createReleasePublishIntent({
+    artifactDescriptorDigest: testArtifactDescriptorDigest(),
+    artifactDigests: [sha256(bytes('artifact'))],
+    configDigest: sha256(bytes('config')),
+    nonce: 'auth-test-nonce',
+    packageId: 'npm:example.com/auth-test',
+    sourceDigest: sha256(bytes('source')),
+    timestamp: input.timestamp ?? now.toISOString(),
+    version: '0.0.1',
+  })
+  const binding: DomainBinding = {
+    domain: 'example.com',
+    keys: [
+      {
+        alg: 'ssh-ed25519',
+        kid: 'ssh-ed25519:test',
+        publicKey: publicKeyText,
+        use: 'regesta-write',
+      },
+    ],
+    object: 'regesta.domain-binding',
+  }
+
+  return {
+    authorization: createSshWriteAuthorization(intent, {
+      kid: 'ssh-ed25519:test',
+      signature: openSshSignature({
+        namespace: input.namespace ?? regestaSshSignatureNamespace,
+        payload: writeIntentPayloadBytes(intent),
+        privateKey,
+        publicKey: publicKeyBytes,
+      }),
+    }),
+    binding,
+    intent,
+    now,
+  }
+}
+
 function testArtifactDescriptorDigest() {
   return releasePublishArtifactDescriptorDigest([
     {
@@ -1197,6 +1316,77 @@ function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
   const output = new Uint8Array(left.byteLength + right.byteLength)
   output.set(left)
   output.set(right, left.byteLength)
+  return output
+}
+
+function concatManyBytes(...chunks: Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(
+    chunks.reduce((total, chunk) => total + chunk.byteLength, 0),
+  )
+  let offset = 0
+
+  for (const chunk of chunks) {
+    output.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return output
+}
+
+function openSshSignature(input: {
+  namespace: string
+  payload: Uint8Array
+  privateKey: KeyObject
+  publicKey: Uint8Array
+}): string {
+  const hashAlgorithm = 'sha512'
+  const digest = createHash(hashAlgorithm).update(input.payload).digest()
+  const signedData = concatManyBytes(
+    bytes('SSHSIG'),
+    sshString(bytes(input.namespace)),
+    sshString(new Uint8Array()),
+    sshString(bytes(hashAlgorithm)),
+    sshString(digest),
+  )
+  const signature = sign(null, signedData, input.privateKey)
+  const body = concatManyBytes(
+    bytes('SSHSIG'),
+    uint32(1),
+    sshString(sshEd25519PublicKeyBlob(input.publicKey)),
+    sshString(bytes(input.namespace)),
+    sshString(new Uint8Array()),
+    sshString(bytes(hashAlgorithm)),
+    sshString(
+      concatManyBytes(
+        sshString(bytes('ssh-ed25519')),
+        sshString(new Uint8Array(signature)),
+      ),
+    ),
+  )
+  const encoded = Buffer.from(body).toString('base64')
+  const lines = encoded.match(/.{1,70}/gu) ?? [encoded]
+
+  return `-----BEGIN SSH SIGNATURE-----\n${lines.join('\n')}\n-----END SSH SIGNATURE-----`
+}
+
+function sshEd25519PublicKeyText(publicKey: Uint8Array): string {
+  return `ssh-ed25519 ${Buffer.from(sshEd25519PublicKeyBlob(publicKey)).toString('base64')}`
+}
+
+function sshEd25519PublicKeyBlob(publicKey: Uint8Array): Uint8Array {
+  return concatManyBytes(sshString(bytes('ssh-ed25519')), sshString(publicKey))
+}
+
+function sshString(value: Uint8Array): Uint8Array {
+  return concatManyBytes(uint32(value.byteLength), value)
+}
+
+function uint32(value: number): Uint8Array {
+  const output = new Uint8Array(4)
+  const view = new DataView(output.buffer)
+
+  view.setUint32(0, value, false)
+
   return output
 }
 

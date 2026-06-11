@@ -1,5 +1,11 @@
 import { Buffer } from 'node:buffer'
-import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  sign,
+  verify,
+} from 'node:crypto'
 import {
   assertArtifactDescriptorString,
   assertCanonicalTimestamp,
@@ -39,17 +45,40 @@ export interface DomainBinding {
   object: 'regesta.domain-binding'
 }
 
-export interface DomainBindingKey {
-  alg: 'EdDSA'
+export type DomainBindingKey =
+  | Ed25519DomainBindingKey
+  | SshEd25519DomainBindingKey
+
+export interface DomainBindingKeyBase {
   createdAt?: string
-  expiresAt?: string
   kid: string
-  publicKeyJwk: Ed25519PublicKeyJwk
+  expiresAt?: string
   use: 'regesta-write'
 }
 
-export interface WriteAuthorization {
+export interface Ed25519DomainBindingKey extends DomainBindingKeyBase {
   alg: 'EdDSA'
+  publicKeyJwk: Ed25519PublicKeyJwk
+}
+
+export interface SshEd25519DomainBindingKey extends DomainBindingKeyBase {
+  alg: 'ssh-ed25519'
+  publicKey: string
+}
+
+export type WriteAuthorization =
+  | Ed25519WriteAuthorization
+  | SshEd25519WriteAuthorization
+
+export interface Ed25519WriteAuthorization {
+  alg: 'EdDSA'
+  kid: string
+  payload: WriteIntent
+  signature: string
+}
+
+export interface SshEd25519WriteAuthorization {
+  alg: 'ssh-ed25519'
   kid: string
   payload: WriteIntent
   signature: string
@@ -125,6 +154,11 @@ export interface CreateWriteAuthorizationInput {
   privateKeyJwk: Ed25519PrivateKeyJwk
 }
 
+export interface CreateSshWriteAuthorizationInput {
+  kid: string
+  signature: string
+}
+
 export interface VerifyWriteAuthorizationInput {
   authorization: unknown
   expectedIntent: WriteIntent
@@ -189,6 +223,7 @@ export interface ReleasePublishArtifactDescriptorInput {
 const defaultTimestampToleranceMs = 10 * 60 * 1000
 const defaultDomainBindingFetchTimeoutMs = 10 * 1000
 const maxDomainBindingBytes = 64 * 1024
+export const regestaSshSignatureNamespace = 'regesta'
 
 export function createReleasePublishIntent(
   input: CreateReleasePublishIntentInput,
@@ -266,7 +301,7 @@ export function createChannelDeleteIntent(
 export function createWriteAuthorization(
   intent: WriteIntent,
   input: CreateWriteAuthorizationInput,
-): WriteAuthorization {
+): Ed25519WriteAuthorization {
   const payload = canonicalIntent(intent)
   const signature = sign(
     null,
@@ -283,6 +318,38 @@ export function createWriteAuthorization(
     payload,
     signature: base64UrlEncode(signature),
   }
+}
+
+export function createSshWriteAuthorization(
+  intent: WriteIntent,
+  input: CreateSshWriteAuthorizationInput,
+): SshEd25519WriteAuthorization {
+  return {
+    alg: 'ssh-ed25519',
+    kid: normalizeTokenString(input.kid, 'kid'),
+    payload: canonicalIntent(intent),
+    signature: normalizeSshSignature(input.signature),
+  }
+}
+
+export function writeIntentPayloadBytes(intent: WriteIntent): Uint8Array {
+  return payloadBytes(canonicalIntent(intent))
+}
+
+export function sshEd25519PublicKeyId(publicKey: string): string {
+  const parsed = parseSshEd25519PublicKey(publicKey, 'publicKey')
+  const digest = createHash('sha256').update(parsed.blob).digest('base64url')
+
+  return `ssh-ed25519:${digest}`
+}
+
+export function normalizeSshEd25519PublicKey(publicKey: unknown): string {
+  const parsed = parseSshEd25519PublicKey(
+    normalizeString(publicKey, 'publicKey'),
+    'publicKey',
+  )
+
+  return `ssh-ed25519 ${Buffer.from(parsed.blob).toString('base64')}`
 }
 
 export function readWriteAuthorization(value: unknown): WriteAuthorization {
@@ -426,10 +493,51 @@ export async function verifyWriteAuthorization(
     )
   }
 
-  if (authorization.alg !== key.alg) {
+  if (authorization.alg === 'EdDSA') {
+    if (key.alg !== 'EdDSA') {
+      throw new WriteAuthorizationError(
+        'Write authorization algorithm mismatch',
+      )
+    }
+
+    verifyEd25519AuthorizationSignature(authorization, key)
+
+    return {
+      alg: authorization.alg,
+      domain: authorization.payload.domain,
+      kid: authorization.kid,
+      object: 'regesta.authorization-proof',
+      payloadDigest: sha256(canonicalJsonIntent(authorization.payload)),
+      publicKeyJwk: key.publicKeyJwk,
+      signature: authorization.signature,
+      signedAt: authorization.payload.timestamp,
+      wellKnownDigest: bindingResponse.digest,
+    }
+  }
+
+  if (key.alg !== 'ssh-ed25519') {
     throw new WriteAuthorizationError('Write authorization algorithm mismatch')
   }
 
+  verifySshEd25519AuthorizationSignature(authorization, key)
+
+  return {
+    alg: authorization.alg,
+    domain: authorization.payload.domain,
+    kid: authorization.kid,
+    object: 'regesta.authorization-proof',
+    payloadDigest: sha256(canonicalJsonIntent(authorization.payload)),
+    publicKey: key.publicKey,
+    signature: authorization.signature,
+    signedAt: authorization.payload.timestamp,
+    wellKnownDigest: bindingResponse.digest,
+  }
+}
+
+function verifyEd25519AuthorizationSignature(
+  authorization: Ed25519WriteAuthorization,
+  key: Ed25519DomainBindingKey,
+): void {
   let publicKey: ReturnType<typeof createPublicKey>
 
   try {
@@ -453,17 +561,58 @@ export async function verifyWriteAuthorization(
   if (!ok) {
     throw new WriteAuthorizationError('Invalid write authorization signature')
   }
+}
 
-  return {
-    alg: authorization.alg,
-    domain: authorization.payload.domain,
-    kid: authorization.kid,
-    object: 'regesta.authorization-proof',
-    payloadDigest: sha256(canonicalJsonIntent(authorization.payload)),
-    publicKeyJwk: key.publicKeyJwk,
-    signature: authorization.signature,
-    signedAt: authorization.payload.timestamp,
-    wellKnownDigest: bindingResponse.digest,
+function verifySshEd25519AuthorizationSignature(
+  authorization: SshEd25519WriteAuthorization,
+  key: SshEd25519DomainBindingKey,
+): void {
+  const publicKey = parseSshEd25519PublicKey(key.publicKey, 'publicKey')
+  const signature = parseOpenSshSignature(authorization.signature)
+
+  if (!bytesEqual(signature.publicKey.key, publicKey.key)) {
+    throw new WriteAuthorizationError(
+      'OpenSSH signature public key does not match domain binding key',
+    )
+  }
+
+  if (signature.namespace !== regestaSshSignatureNamespace) {
+    throw new WriteAuthorizationError(
+      `OpenSSH signature namespace must be ${regestaSshSignatureNamespace}`,
+    )
+  }
+
+  if (signature.reserved.byteLength !== 0) {
+    throw new WriteAuthorizationError('OpenSSH signature reserved field is set')
+  }
+
+  if (signature.algorithm !== 'ssh-ed25519') {
+    throw new WriteAuthorizationError(
+      'OpenSSH signature algorithm must be ssh-ed25519',
+    )
+  }
+
+  const digest = hashSshSignedPayload(
+    signature.hashAlgorithm,
+    payloadBytes(authorization.payload),
+  )
+  const signedData = sshSignatureSignedData({
+    digest,
+    hashAlgorithm: signature.hashAlgorithm,
+    namespace: signature.namespace,
+    reserved: signature.reserved,
+  })
+  const publicKeyObject = createEd25519PublicKeyFromRaw(publicKey.key)
+  let ok: boolean
+
+  try {
+    ok = verify(null, signedData, publicKeyObject, signature.signature)
+  } catch {
+    throw new WriteAuthorizationError('Invalid write authorization signature')
+  }
+
+  if (!ok) {
+    throw new WriteAuthorizationError('Invalid write authorization signature')
   }
 }
 
@@ -667,8 +816,10 @@ function normalizeWriteAuthorization(value: unknown): WriteAuthorization {
     'Write authorization',
   )
 
-  if (value.alg !== 'EdDSA') {
-    throw new WriteAuthorizationError('Write authorization alg must be EdDSA')
+  if (value.alg !== 'EdDSA' && value.alg !== 'ssh-ed25519') {
+    throw new WriteAuthorizationError(
+      'Write authorization alg must be EdDSA or ssh-ed25519',
+    )
   }
 
   if (typeof value.signature !== 'string' || value.signature.length === 0) {
@@ -681,7 +832,10 @@ function normalizeWriteAuthorization(value: unknown): WriteAuthorization {
     alg: value.alg,
     kid: normalizeTokenString(value.kid, 'kid'),
     payload: normalizeWriteIntent(value.payload),
-    signature: value.signature,
+    signature:
+      value.alg === 'ssh-ed25519'
+        ? normalizeSshSignature(value.signature)
+        : value.signature,
   }
 }
 
@@ -892,12 +1046,22 @@ function normalizeDomainBindingKey(value: unknown): DomainBindingKey {
 
   assertKnownFields(
     value,
-    ['alg', 'createdAt', 'expiresAt', 'kid', 'publicKeyJwk', 'use'],
+    [
+      'alg',
+      'createdAt',
+      'expiresAt',
+      'kid',
+      'publicKey',
+      'publicKeyJwk',
+      'use',
+    ],
     'Domain binding key',
   )
 
-  if (value.alg !== 'EdDSA') {
-    throw new WriteAuthorizationError('Domain binding key alg must be EdDSA')
+  if (value.alg !== 'EdDSA' && value.alg !== 'ssh-ed25519') {
+    throw new WriteAuthorizationError(
+      'Domain binding key alg must be EdDSA or ssh-ed25519',
+    )
   }
 
   if (value.use !== 'regesta-write') {
@@ -925,13 +1089,37 @@ function normalizeDomainBindingKey(value: unknown): DomainBindingKey {
     )
   }
 
-  return {
-    alg: value.alg,
+  const base = {
     ...(createdAt === undefined ? {} : { createdAt }),
     ...(expiresAt === undefined ? {} : { expiresAt }),
     kid: normalizeTokenString(value.kid, 'kid'),
-    publicKeyJwk: normalizePublicKeyJwk(value.publicKeyJwk),
-    use: value.use,
+    use: 'regesta-write' as const,
+  }
+
+  if (value.alg === 'EdDSA') {
+    if (value.publicKey !== undefined) {
+      throw new WriteAuthorizationError(
+        'Domain binding EdDSA key must not include publicKey',
+      )
+    }
+
+    return {
+      ...base,
+      alg: value.alg,
+      publicKeyJwk: normalizePublicKeyJwk(value.publicKeyJwk),
+    }
+  }
+
+  if (value.publicKeyJwk !== undefined) {
+    throw new WriteAuthorizationError(
+      'Domain binding ssh-ed25519 key must not include publicKeyJwk',
+    )
+  }
+
+  return {
+    ...base,
+    alg: value.alg,
+    publicKey: normalizeSshEd25519PublicKey(value.publicKey),
   }
 }
 
@@ -1277,6 +1465,282 @@ function assertKnownFields(
 
 function base64UrlEncode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url')
+}
+
+interface SshEd25519PublicKey {
+  blob: Uint8Array
+  key: Uint8Array
+}
+
+interface OpenSshSignature {
+  algorithm: string
+  hashAlgorithm: 'sha256' | 'sha512'
+  namespace: string
+  publicKey: SshEd25519PublicKey
+  reserved: Uint8Array
+  signature: Uint8Array
+}
+
+function parseSshEd25519PublicKey(
+  value: string,
+  field: string,
+): SshEd25519PublicKey {
+  const parts = value.trim().split(/\s+/u)
+
+  if (parts[0] !== 'ssh-ed25519' || typeof parts[1] !== 'string') {
+    throw new WriteAuthorizationError(`${field} must be an ssh-ed25519 key`)
+  }
+
+  const blob = base64Bytes(parts[1], field)
+  const reader = new SshBinaryReader(blob, field)
+  const algorithm = reader.readStringText('algorithm')
+
+  if (algorithm !== 'ssh-ed25519') {
+    throw new WriteAuthorizationError(`${field} algorithm must be ssh-ed25519`)
+  }
+
+  const key = reader.readStringBytes('key')
+  reader.assertDone()
+
+  if (key.byteLength !== 32) {
+    throw new WriteAuthorizationError(`${field} must be an Ed25519 public key`)
+  }
+
+  return { blob, key }
+}
+
+function parseOpenSshSignature(value: string): OpenSshSignature {
+  const armor = normalizeSshSignature(value)
+  const base64 = armor
+    .replaceAll('-----BEGIN SSH SIGNATURE-----', '')
+    .replaceAll('-----END SSH SIGNATURE-----', '')
+    .replaceAll(/\s+/gu, '')
+  const bytes = base64Bytes(base64, 'OpenSSH signature')
+  const reader = new SshBinaryReader(bytes, 'OpenSSH signature')
+
+  reader.readRawMagic(sshSignatureMagic)
+
+  const version = reader.readUint32('version')
+  if (version !== 1) {
+    throw new WriteAuthorizationError('OpenSSH signature version must be 1')
+  }
+
+  const publicKey = parseSshEd25519PublicKeyBlob(
+    reader.readStringBytes('public key'),
+  )
+  const namespace = reader.readStringText('namespace')
+  const reserved = reader.readStringBytes('reserved')
+  const hashAlgorithm = reader.readStringText('hash algorithm')
+
+  if (hashAlgorithm !== 'sha256' && hashAlgorithm !== 'sha512') {
+    throw new WriteAuthorizationError(
+      'OpenSSH signature hash algorithm must be sha256 or sha512',
+    )
+  }
+
+  const signatureBlob = reader.readStringBytes('signature')
+  reader.assertDone()
+
+  const signatureReader = new SshBinaryReader(
+    signatureBlob,
+    'OpenSSH signature blob',
+  )
+  const algorithm = signatureReader.readStringText('algorithm')
+  const signature = signatureReader.readStringBytes('signature')
+  signatureReader.assertDone()
+
+  if (signature.byteLength !== 64) {
+    throw new WriteAuthorizationError(
+      'OpenSSH signature must be an Ed25519 signature',
+    )
+  }
+
+  return {
+    algorithm,
+    hashAlgorithm,
+    namespace,
+    publicKey,
+    reserved,
+    signature,
+  }
+}
+
+function parseSshEd25519PublicKeyBlob(blob: Uint8Array): SshEd25519PublicKey {
+  const reader = new SshBinaryReader(blob, 'OpenSSH signature public key')
+  const algorithm = reader.readStringText('algorithm')
+
+  if (algorithm !== 'ssh-ed25519') {
+    throw new WriteAuthorizationError(
+      'OpenSSH signature public key algorithm must be ssh-ed25519',
+    )
+  }
+
+  const key = reader.readStringBytes('key')
+  reader.assertDone()
+
+  if (key.byteLength !== 32) {
+    throw new WriteAuthorizationError(
+      'OpenSSH signature public key must be an Ed25519 public key',
+    )
+  }
+
+  return { blob, key }
+}
+
+function normalizeSshSignature(value: unknown): string {
+  const signature = normalizeString(value, 'signature').trim()
+
+  if (
+    !/^-----BEGIN SSH SIGNATURE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END SSH SIGNATURE-----$/u.test(
+      signature,
+    )
+  ) {
+    throw new WriteAuthorizationError(
+      'Write authorization signature must be an OpenSSH signature',
+    )
+  }
+
+  return signature
+}
+
+const sshSignatureMagic = new TextEncoder().encode('SSHSIG')
+const sshEd25519SpkiPrefix = Buffer.from('302a300506032b6570032100', 'hex')
+
+function hashSshSignedPayload(
+  hashAlgorithm: OpenSshSignature['hashAlgorithm'],
+  payload: Uint8Array,
+): Uint8Array {
+  return createHash(hashAlgorithm).update(payload).digest()
+}
+
+function sshSignatureSignedData(input: {
+  digest: Uint8Array
+  hashAlgorithm: OpenSshSignature['hashAlgorithm']
+  namespace: string
+  reserved: Uint8Array
+}): Uint8Array {
+  return concatBytes(
+    sshSignatureMagic,
+    sshString(new TextEncoder().encode(input.namespace)),
+    sshString(input.reserved),
+    sshString(new TextEncoder().encode(input.hashAlgorithm)),
+    sshString(input.digest),
+  )
+}
+
+function createEd25519PublicKeyFromRaw(
+  key: Uint8Array,
+): ReturnType<typeof createPublicKey> {
+  return createPublicKey({
+    format: 'der',
+    key: Buffer.concat([sshEd25519SpkiPrefix, Buffer.from(key)]),
+    type: 'spki',
+  })
+}
+
+function sshString(bytes: Uint8Array): Uint8Array {
+  const output = new Uint8Array(4 + bytes.byteLength)
+  const view = new DataView(output.buffer, output.byteOffset, output.byteLength)
+
+  view.setUint32(0, bytes.byteLength, false)
+  output.set(bytes, 4)
+
+  return output
+}
+
+function concatBytes(...chunks: Uint8Array[]): Uint8Array {
+  const totalBytes = chunks.reduce(
+    (total, chunk) => total + chunk.byteLength,
+    0,
+  )
+  const output = new Uint8Array(totalBytes)
+  let offset = 0
+
+  for (const chunk of chunks) {
+    output.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return output
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) {
+    return false
+  }
+
+  return left.every((byte, index) => byte === right[index])
+}
+
+function base64Bytes(value: string, field: string): Uint8Array {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(value)) {
+    throw new WriteAuthorizationError(`${field} must be base64`)
+  }
+
+  return new Uint8Array(Buffer.from(value, 'base64'))
+}
+
+class SshBinaryReader {
+  #offset = 0
+  private readonly bytes: Uint8Array
+  private readonly label: string
+
+  constructor(bytes: Uint8Array, label: string) {
+    this.bytes = bytes
+    this.label = label
+  }
+
+  readRawMagic(expected: Uint8Array): void {
+    const actual = this.readBytes(expected.byteLength, 'magic')
+
+    if (!bytesEqual(actual, expected)) {
+      throw new WriteAuthorizationError(`${this.label} magic is invalid`)
+    }
+  }
+
+  readUint32(field: string): number {
+    const bytes = this.readBytes(4, field)
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+
+    return view.getUint32(0, false)
+  }
+
+  readStringBytes(field: string): Uint8Array {
+    const length = this.readUint32(`${field} length`)
+
+    return this.readBytes(length, field)
+  }
+
+  readStringText(field: string): string {
+    const bytes = this.readStringBytes(field)
+
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      throw new WriteAuthorizationError(`${this.label} ${field} must be UTF-8`)
+    }
+  }
+
+  assertDone(): void {
+    if (this.#offset !== this.bytes.byteLength) {
+      throw new WriteAuthorizationError(`${this.label} has trailing bytes`)
+    }
+  }
+
+  private readBytes(length: number, field: string): Uint8Array {
+    if (
+      !Number.isSafeInteger(length) ||
+      length < 0 ||
+      this.#offset + length > this.bytes.byteLength
+    ) {
+      throw new WriteAuthorizationError(`${this.label} ${field} is truncated`)
+    }
+
+    const start = this.#offset
+    this.#offset += length
+
+    return this.bytes.slice(start, start + length)
+  }
 }
 
 function ed25519SignatureBytes(value: string): Uint8Array {

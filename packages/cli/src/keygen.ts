@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   DomainBinding,
-  DomainBindingKey,
+  Ed25519DomainBindingKey,
   Ed25519PrivateKeyJwk,
   Ed25519PublicKeyJwk,
 } from '@regesta/auth'
@@ -24,7 +24,7 @@ export interface PrivateKeyFile {
   privateKeyJwk: Ed25519PrivateKeyJwk
 }
 
-export interface PublicKeyFile extends DomainBindingKey {}
+export interface PublicKeyFile extends Ed25519DomainBindingKey {}
 
 export interface WriteGeneratedKeyFilesInput extends GenerateKeyMaterialInput {
   force?: boolean

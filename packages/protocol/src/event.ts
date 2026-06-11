@@ -334,24 +334,8 @@ function parseAuthorizationProof(
   label: string,
 ): WriteAuthorizationProof {
   const record = readRecord(value, label)
-  assertKnownFields(
-    record,
-    [
-      'alg',
-      'domain',
-      'kid',
-      'object',
-      'payloadDigest',
-      'publicKeyJwk',
-      'signature',
-      'signedAt',
-      'wellKnownDigest',
-    ],
-    label,
-  )
-
-  return {
-    alg: readLiteral(record.alg, 'EdDSA', `${label} alg`),
+  const alg = readString(record.alg, `${label} alg`)
+  const common = {
     domain: readString(record.domain, `${label} domain`),
     kid: readString(record.kid, `${label} kid`),
     object: readLiteral(
@@ -362,10 +346,6 @@ function parseAuthorizationProof(
     payloadDigest: assertSha256Digest(
       readString(record.payloadDigest, `${label} payloadDigest`),
     ),
-    publicKeyJwk: parseEd25519PublicKeyJwk(
-      record.publicKeyJwk,
-      `${label} publicKeyJwk`,
-    ),
     signature: readString(record.signature, `${label} signature`),
     signedAt: assertCanonicalTimestamp(
       readString(record.signedAt, `${label} signedAt`),
@@ -375,12 +355,65 @@ function parseAuthorizationProof(
       readString(record.wellKnownDigest, `${label} wellKnownDigest`),
     ),
   }
+
+  if (alg === 'EdDSA') {
+    assertKnownFields(
+      record,
+      [
+        'alg',
+        'domain',
+        'kid',
+        'object',
+        'payloadDigest',
+        'publicKeyJwk',
+        'signature',
+        'signedAt',
+        'wellKnownDigest',
+      ],
+      label,
+    )
+
+    return {
+      ...common,
+      alg,
+      publicKeyJwk: parseEd25519PublicKeyJwk(
+        record.publicKeyJwk,
+        `${label} publicKeyJwk`,
+      ),
+    }
+  }
+
+  if (alg === 'ssh-ed25519') {
+    assertKnownFields(
+      record,
+      [
+        'alg',
+        'domain',
+        'kid',
+        'object',
+        'payloadDigest',
+        'publicKey',
+        'signature',
+        'signedAt',
+        'wellKnownDigest',
+      ],
+      label,
+    )
+
+    return {
+      ...common,
+      alg,
+      publicKey: readString(record.publicKey, `${label} publicKey`),
+    }
+  }
+
+  throw new TypeError(`${label} alg must be EdDSA or ssh-ed25519`)
 }
 
 function parseEd25519PublicKeyJwk(
   value: unknown,
   label: string,
-): WriteAuthorizationProof['publicKeyJwk'] {
+): Extract<WriteAuthorizationProof, { alg: 'EdDSA' }>['publicKeyJwk'] {
   const record = readRecord(value, label)
   assertKnownFields(record, ['crv', 'kty', 'x'], label)
 

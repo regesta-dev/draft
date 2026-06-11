@@ -1061,20 +1061,35 @@ function collectAuthorizationProof(
   eventTimestamp: string,
   problems: string[],
 ): void {
+  const authorizationKnownFields =
+    authorization.alg === 'ssh-ed25519'
+      ? [
+          'alg',
+          'domain',
+          'kid',
+          'object',
+          'payloadDigest',
+          'publicKey',
+          'signature',
+          'signedAt',
+          'wellKnownDigest',
+        ]
+      : [
+          'alg',
+          'domain',
+          'kid',
+          'object',
+          'payloadDigest',
+          'publicKeyJwk',
+          'signature',
+          'signedAt',
+          'wellKnownDigest',
+        ]
+
   if (
     !collectKnownFields(
       authorization,
-      [
-        'alg',
-        'domain',
-        'kid',
-        'object',
-        'payloadDigest',
-        'publicKeyJwk',
-        'signature',
-        'signedAt',
-        'wellKnownDigest',
-      ],
+      authorizationKnownFields,
       'Publish event authorization',
       problems,
     )
@@ -1088,8 +1103,10 @@ function collectAuthorizationProof(
     )
   }
 
-  if (authorization.alg !== 'EdDSA') {
-    problems.push('Publish event authorization alg must be EdDSA')
+  if (authorization.alg !== 'EdDSA' && authorization.alg !== 'ssh-ed25519') {
+    problems.push(
+      'Publish event authorization alg must be EdDSA or ssh-ed25519',
+    )
   }
 
   const parsedPackageId = parseManifestPackageId(expectedPackageId, problems)
@@ -1104,11 +1121,19 @@ function collectAuthorizationProof(
     'Publish event authorization kid',
     problems,
   )
-  collectEd25519Signature(
-    authorization.signature,
-    'Publish event authorization signature',
-    problems,
-  )
+  if (authorization.alg === 'ssh-ed25519') {
+    collectOpenSshSignature(
+      authorization.signature,
+      'Publish event authorization signature',
+      problems,
+    )
+  } else {
+    collectEd25519Signature(
+      authorization.signature,
+      'Publish event authorization signature',
+      problems,
+    )
+  }
   collectSha256Digest(
     authorization.payloadDigest,
     'Publish event authorization payloadDigest',
@@ -1131,11 +1156,18 @@ function collectAuthorizationProof(
     )
   }
 
-  collectPublicKeyJwk(authorization.publicKeyJwk, problems)
+  if (authorization.alg === 'ssh-ed25519') {
+    collectSshEd25519PublicKey(authorization.publicKey, problems)
+  } else {
+    collectPublicKeyJwk(authorization.publicKeyJwk, problems)
+  }
 }
 
 function collectPublicKeyJwk(
-  publicKeyJwk: WriteAuthorizationProof['publicKeyJwk'],
+  publicKeyJwk: Extract<
+    WriteAuthorizationProof,
+    { alg: 'EdDSA' }
+  >['publicKeyJwk'],
   problems: string[],
 ): void {
   if (
@@ -1169,6 +1201,40 @@ function collectPublicKeyJwk(
     'Publish event authorization publicKeyJwk.x',
     problems,
   )
+}
+
+function collectOpenSshSignature(
+  value: unknown,
+  label: string,
+  problems: string[],
+): void {
+  collectNonEmptyString(value, label, problems)
+
+  if (
+    typeof value === 'string' &&
+    !/^-----BEGIN SSH SIGNATURE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END SSH SIGNATURE-----$/u.test(
+      value.trim(),
+    )
+  ) {
+    problems.push(`${label} must be an OpenSSH signature`)
+  }
+}
+
+function collectSshEd25519PublicKey(value: unknown, problems: string[]): void {
+  collectNonEmptyString(
+    value,
+    'Publish event authorization publicKey',
+    problems,
+  )
+
+  if (
+    typeof value === 'string' &&
+    !/^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?:\s.*)?$/u.test(value)
+  ) {
+    problems.push(
+      'Publish event authorization publicKey must be an ssh-ed25519 key',
+    )
+  }
 }
 
 function verifyStoredObject(

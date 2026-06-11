@@ -95,10 +95,11 @@ Each artifact metadata entry names a multipart part:
 The binary part named `artifact.install` contains the package-manager-produced
 install artifact.
 
-The request also includes a signed write authorization. The server verifies the
-domain binding, checks the signed intent against the request body, processes
-artifacts, stores objects, writes the release manifest, appends a publish event,
-and assigns the default `latest` channel.
+The request also includes a signed write authorization. V0 accepts Ed25519 JWK
+authorization and `ssh-ed25519` OpenSSH `SSHSIG` authorization. The server
+verifies the domain binding, checks the signed intent against the request body,
+processes artifacts, stores objects, writes the release manifest, appends a
+publish event, and assigns the default `latest` channel.
 
 Response shape:
 
@@ -208,8 +209,9 @@ DELETE /packages/{packageId}/channels/{channel}
 Content-Type: application/json
 ```
 
-Channel writes require a signed write authorization. Updating a channel points
-it at an existing release version:
+Channel writes require a signed write authorization with the same Ed25519 JWK or
+`ssh-ed25519` authorization formats. Updating a channel points it at an existing
+release version:
 
 ```json
 {
