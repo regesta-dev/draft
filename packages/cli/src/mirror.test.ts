@@ -554,6 +554,52 @@ describe('mirrorRegistry', () => {
       await rm(outputDir, { force: true, recursive: true })
     }
   })
+
+  it('rejects immutable event endpoint responses without ETags', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventEndpointEtag: null,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Mirror event endpoint is missing ETag: https://registry.example${eventRoute(fixture.event.id)}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects immutable release envelope responses whose ETag does not match the event id', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          releaseEnvelopeEtag: `"${sha256(bytes('other event'))}"`,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Mirror release response ETag does not match event id: https://registry.example/packages/${encodeURIComponent(
+          fixture.manifest.id,
+        )}/releases/${fixture.manifest.version}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
 })
 
 describe('compareMirrorDirectories', () => {
@@ -1140,6 +1186,7 @@ function mirrorFetch(
     eventPageCacheControl?: string | null
     eventPageEtag?: string | null
     eventPageExtras?: Record<string, unknown>
+    eventEndpointEtag?: string | null
     eventEndpointText?: string
     omitEventPageContentLength?: boolean
     objectInventoryCacheControl?: string | null
@@ -1149,6 +1196,7 @@ function mirrorFetch(
     objectEtags?: ReadonlyMap<string, string | null>
     objectMediaTypes?: ReadonlyMap<string, string>
     objectOverrides?: ReadonlyMap<string, Uint8Array>
+    releaseEnvelopeEtag?: string | null
     releaseEnvelope?: unknown
     releaseEnvelopeText?: string
     reverseObjectInventory?: boolean
@@ -1245,10 +1293,15 @@ function mirrorFetch(
     }
 
     if (url.pathname === eventRoute(fixture.event.id)) {
+      const etag =
+        options.eventEndpointEtag === undefined
+          ? `"${fixture.event.id}"`
+          : options.eventEndpointEtag
+
       return Promise.resolve(
         options.eventEndpointText
-          ? rawCanonicalJsonResponse(options.eventEndpointText)
-          : canonicalJsonResponse(fixture.event),
+          ? rawCanonicalJsonResponse(options.eventEndpointText, etag)
+          : canonicalJsonResponse(fixture.event, etag),
       )
     }
 
@@ -1258,11 +1311,17 @@ function mirrorFetch(
         fixture.manifest.id,
       )}/releases/${fixture.manifest.version}`
     ) {
+      const etag =
+        options.releaseEnvelopeEtag === undefined
+          ? `W/"${fixture.event.id}"`
+          : options.releaseEnvelopeEtag
+
       return Promise.resolve(
         options.releaseEnvelopeText
-          ? rawCanonicalJsonResponse(options.releaseEnvelopeText)
+          ? rawCanonicalJsonResponse(options.releaseEnvelopeText, etag)
           : canonicalJsonResponse(
               options.releaseEnvelope ?? fixture.releaseEnvelope,
+              etag,
             ),
       )
     }
@@ -1372,18 +1431,25 @@ function eventLogPageResponse(
   })
 }
 
-function canonicalJsonResponse(value: unknown): Response {
-  return rawCanonicalJsonResponse(`${canonicalJson(value)}\n`)
+function canonicalJsonResponse(value: unknown, etag?: string | null): Response {
+  return rawCanonicalJsonResponse(`${canonicalJson(value)}\n`, etag)
 }
 
-function rawCanonicalJsonResponse(body: string): Response {
-  return new Response(body, {
-    headers: {
-      'cache-control': 'public, max-age=31536000, immutable',
-      'content-length': String(bytes(body).byteLength),
-      'content-type': 'application/json',
-    },
+function rawCanonicalJsonResponse(
+  body: string,
+  etag?: string | null,
+): Response {
+  const headers = new Headers({
+    'cache-control': 'public, max-age=31536000, immutable',
+    'content-length': String(bytes(body).byteLength),
+    'content-type': 'application/json',
   })
+
+  if (etag !== undefined && etag !== null) {
+    headers.set('etag', etag)
+  }
+
+  return new Response(body, { headers })
 }
 
 function objectInventoryResponse(

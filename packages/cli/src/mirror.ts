@@ -347,6 +347,8 @@ async function mirrorEvent(input: {
     input.fetch,
     eventUrl(input.registry, input.event.id),
     parseRegistryEvent,
+    input.event.id,
+    'Mirror event endpoint',
   )
   if (!eventFetch.ok) {
     return eventFetch
@@ -375,6 +377,8 @@ async function mirrorEvent(input: {
       input.event.release.version,
     ),
     parsePublicReleaseEnvelope,
+    input.event.id,
+    'Mirror release response',
   )
   if (!releaseFetch.ok) {
     return releaseFetch
@@ -1055,6 +1059,8 @@ async function fetchCanonicalJson<T>(
   fetchImpl: typeof fetch,
   url: string,
   parse: (value: unknown) => T,
+  expectedEtag: string,
+  etagLabel: string,
 ): Promise<{ ok: true; value: T } | { ok: false; problems: string[] }> {
   try {
     const response = await fetchImpl(
@@ -1075,6 +1081,7 @@ async function fetchCanonicalJson<T>(
 
     validateCanonicalJsonContentLength(url, response, text)
     validateImmutableCacheControl(url, response)
+    validateImmutableJsonEtag(url, response, expectedEtag, etagLabel)
 
     return {
       ok: true,
@@ -1085,6 +1092,23 @@ async function fetchCanonicalJson<T>(
       ok: false,
       problems: [`Mirror JSON request failed: ${errorMessage(error)}`],
     }
+  }
+}
+
+function validateImmutableJsonEtag(
+  url: string,
+  response: Response,
+  expected: string,
+  label: string,
+): void {
+  const etag = response.headers.get('etag')
+
+  if (!etag) {
+    throw new TypeError(`${label} is missing ETag: ${url}`)
+  }
+
+  if (stripWeakEtag(etag.trim()) !== `"${expected}"`) {
+    throw new TypeError(`${label} ETag does not match event id: ${url}`)
   }
 }
 
