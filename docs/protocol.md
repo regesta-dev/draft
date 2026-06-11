@@ -45,6 +45,10 @@ rules must not change the stored core id shape, and core must not need to know
 whether a package came from `package.json`, `pyproject.toml`, `Cargo.toml`,
 `go.mod`, an OCI manifest, or another ecosystem-native manifest.
 
+See [Projection Mapping Rule Requirements](./projections.md#mapping-rule-requirements)
+for the constraints every ecosystem-specific mapping should define before
+implementation.
+
 ## `regesta.json`
 
 `regesta.json` describes Regesta-specific release intent. It should stay thin.
