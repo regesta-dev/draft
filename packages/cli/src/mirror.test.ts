@@ -277,6 +277,50 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects empty event log pages that include nextAfter', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          emptyEventPageNextAfter: fixture.event.id,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror event log empty page must not include nextAfter',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects empty object inventory pages that include nextAfter', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          emptyObjectInventoryNextAfter: fixture.extraObject.digest,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror object inventory empty page must not include nextAfter',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects non-canonical immutable event endpoint responses', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -551,6 +595,8 @@ function mirrorFetch(
   fixture: ReturnType<typeof releaseFixture>,
   options: {
     duplicateEventPage?: boolean
+    emptyEventPageNextAfter?: string
+    emptyObjectInventoryNextAfter?: string
     eventEndpointText?: string
     omitEventPageContentLength?: boolean
     objectCacheControls?: ReadonlyMap<string, string>
@@ -613,7 +659,14 @@ function mirrorFetch(
 
     if (url.pathname === '/events') {
       if (url.searchParams.has('after')) {
-        return Promise.resolve(jsonResponse({ events: [] }))
+        return Promise.resolve(
+          jsonResponse({
+            events: [],
+            ...(options.emptyEventPageNextAfter
+              ? { nextAfter: options.emptyEventPageNextAfter }
+              : {}),
+          }),
+        )
       }
 
       const events = options.duplicateEventPage
@@ -655,6 +708,19 @@ function mirrorFetch(
     }
 
     if (url.pathname === '/objects') {
+      if (
+        url.searchParams.has('after') &&
+        options.emptyObjectInventoryNextAfter
+      ) {
+        return Promise.resolve(
+          jsonResponse({
+            nextAfter: options.emptyObjectInventoryNextAfter,
+            object: 'regesta.object-inventory',
+            objects: [],
+          }),
+        )
+      }
+
       return Promise.resolve(
         objectInventoryResponse(
           options.reverseObjectInventory

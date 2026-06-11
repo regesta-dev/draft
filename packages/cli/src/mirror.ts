@@ -146,6 +146,11 @@ export async function mirrorRegistry(
     }
 
     if (page.value.events.length === 0) {
+      if (page.value.nextAfter) {
+        problems.push('Mirror event log empty page must not include nextAfter')
+        break
+      }
+
       reachedTail = true
       break
     }
@@ -463,6 +468,13 @@ async function mirrorObjectInventory(input: {
     }
 
     if (page.value.objects.length === 0) {
+      if (page.value.nextAfter) {
+        problems.push(
+          'Mirror object inventory empty page must not include nextAfter',
+        )
+        break
+      }
+
       reachedTail = true
       break
     }
