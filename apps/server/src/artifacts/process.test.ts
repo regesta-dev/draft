@@ -205,6 +205,61 @@ describe('processPublishArtifacts', () => {
     })
   })
 
+  it('adds npm metadata only to the install artifact', async () => {
+    const tarball = await createNpmTarball()
+    const nativeArtifactBytes = new Uint8Array([4, 5, 6])
+
+    await expect(
+      processPublishArtifacts({
+        artifacts: [
+          {
+            bytes: tarball,
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+          {
+            bytes: nativeArtifactBytes,
+            ecosystemMetadata: {
+              napi: {
+                target: 'linux-x64-gnu',
+              },
+            },
+            mediaType: 'application/octet-stream',
+            role: 'native-binary',
+          },
+        ],
+        config: npmConfig(),
+      }),
+    ).resolves.toEqual({
+      artifacts: [
+        expect.objectContaining({
+          ecosystemMetadata: {
+            npm: {
+              dependencies: {
+                '@example.com/base': '^1.0.0',
+              },
+            },
+          },
+          role: 'install',
+        }),
+        {
+          bytes: nativeArtifactBytes,
+          ecosystemMetadata: {
+            napi: {
+              target: 'linux-x64-gnu',
+            },
+          },
+          mediaType: 'application/octet-stream',
+          role: 'native-binary',
+        },
+      ],
+      config: {
+        ...npmConfig(),
+        description: 'Fixture package',
+      },
+    })
+  })
+
   it('keeps explicit config description over npm artifact description', async () => {
     const tarball = await createNpmTarball()
     const config = {
