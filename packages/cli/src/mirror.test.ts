@@ -171,6 +171,55 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects object responses without ETags', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectEtags: new Map([[fixture.manifest.source.digest, null]]),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Missing object ETag header: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects object responses whose ETag does not match the digest', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectEtags: new Map([
+            [
+              fixture.manifest.source.digest,
+              `"${sha256(bytes('different object'))}"`,
+            ],
+          ]),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Object ETag does not match digest: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects event log pages whose ETag does not match the cursor', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -1025,6 +1074,7 @@ function mirrorFetch(
     objectInventoryCacheControl?: string | null
     objectInventoryEtag?: string | null
     objectCacheControls?: ReadonlyMap<string, string>
+    objectEtags?: ReadonlyMap<string, string | null>
     objectMediaTypes?: ReadonlyMap<string, string>
     objectOverrides?: ReadonlyMap<string, Uint8Array>
     releaseEnvelope?: unknown
@@ -1188,6 +1238,9 @@ function mirrorFetch(
           options.objectMediaTypes?.get(object.descriptor.digest) ??
             object.descriptor.mediaType,
           options.objectCacheControls?.get(object.descriptor.digest),
+          options.objectEtags?.has(object.descriptor.digest)
+            ? options.objectEtags.get(object.descriptor.digest)
+            : `"${object.descriptor.digest}"`,
         ),
       )
     }
@@ -1345,14 +1398,19 @@ function binaryResponse(
   bytes: Uint8Array,
   mediaType: string,
   cacheControl = 'public, max-age=31536000, immutable',
+  etag: string | null | undefined,
 ): Response {
-  return new Response(bytes, {
-    headers: {
-      'cache-control': cacheControl,
-      'content-length': String(bytes.byteLength),
-      'content-type': mediaType,
-    },
+  const headers = new Headers({
+    'cache-control': cacheControl,
+    'content-length': String(bytes.byteLength),
+    'content-type': mediaType,
   })
+
+  if (etag !== null && etag !== undefined) {
+    headers.set('etag', etag)
+  }
+
+  return new Response(bytes, { headers })
 }
 
 function eventRoute(digest: string): string {

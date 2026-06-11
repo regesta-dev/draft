@@ -1182,6 +1182,14 @@ function validateObjectResponseMetadata(
   bytes: Uint8Array,
   descriptor: ObjectDescriptor,
 ): void {
+  const etag = response.headers.get('etag')
+  if (!etag) {
+    throw new Error(`Missing object ETag header: ${descriptor.digest}`)
+  }
+  if (stripWeakEtag(etag.trim()) !== `"${descriptor.digest}"`) {
+    throw new Error(`Object ETag does not match digest: ${descriptor.digest}`)
+  }
+
   const sizeHeader = response.headers.get('content-length')
   if (!sizeHeader) {
     throw new Error(`Missing object Content-Length header: ${url}`)
