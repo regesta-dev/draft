@@ -1658,6 +1658,40 @@ describe('verifyEventLogFromRegistry', () => {
     })
   })
 
+  it('rejects empty event log pages that include nextAfter', async () => {
+    const result = await verifyEventLogFromRegistry({
+      fetch: publicEventLogFetch([], {
+        emptyPageNextAfter: sha256(bytes('unexpected cursor')),
+      }),
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      packages: 0,
+      problems: ['Public event log empty page must not include nextAfter'],
+    })
+  })
+
+  it('rejects event log pages whose nextAfter does not match the last event', async () => {
+    const fixture = releaseFixture()
+
+    const result = await verifyEventLogFromRegistry({
+      fetch: publicEventLogFetch([fixture.release.event], {
+        pageNextAfter: sha256(bytes('different cursor')),
+      }),
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      packages: 0,
+      problems: ['Public event log nextAfter must match last event id'],
+    })
+  })
+
   it('rejects unknown public event log response fields', async () => {
     const result = await verifyEventLogFromRegistry({
       fetch: publicEventLogFetch([], {
@@ -2476,6 +2510,7 @@ function publicRegistryFetch(fixture: {
 function publicEventLogFetch(
   events: RegistryEvent[],
   options: {
+    emptyPageNextAfter?: string
     eventEndpointEvents?: Map<string, RegistryEvent>
     extraPageFields?: Record<string, unknown>
     ignoreLimit?: boolean
@@ -2485,6 +2520,7 @@ function publicEventLogFetch(
     pageCacheControl?: string
     pageContentLength?: string
     pageEtag?: string
+    pageNextAfter?: string
   } = {},
 ): TestFetch {
   const headRequests: string[] = []
@@ -2537,6 +2573,9 @@ function publicEventLogFetch(
     const pageEtag =
       options.pageEtag ??
       `W/"regesta.event-log:${lastEvent?.id ?? after ?? 'head'}:${pageEvents.length}"`
+    const nextAfter = lastEvent
+      ? (options.pageNextAfter ?? lastEvent.id)
+      : options.emptyPageNextAfter
     const headers = new Headers()
     if (!options.omitPageCacheControl) {
       headers.set('cache-control', options.pageCacheControl ?? 'no-cache')
@@ -2553,7 +2592,7 @@ function publicEventLogFetch(
         {
           events: pageEvents,
           ...options.extraPageFields,
-          ...(lastEvent ? { nextAfter: lastEvent.id } : {}),
+          ...(nextAfter ? { nextAfter } : {}),
         },
         {
           headers,
