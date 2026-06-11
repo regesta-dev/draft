@@ -136,6 +136,30 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects object responses without immutable Cache-Control', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectCacheControls: new Map([
+            [fixture.manifest.source.digest, 'public, max-age=60'],
+          ]),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Object Cache-Control must include immutable: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects release envelopes that do not match their manifest descriptor', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -360,6 +384,7 @@ function mirrorFetch(
   fixture: ReturnType<typeof releaseFixture>,
   options: {
     omitEventPageContentLength?: boolean
+    objectCacheControls?: ReadonlyMap<string, string>
     objectMediaTypes?: ReadonlyMap<string, string>
     objectOverrides?: ReadonlyMap<string, Uint8Array>
     releaseEnvelope?: unknown
@@ -457,6 +482,7 @@ function mirrorFetch(
           object.bytes,
           options.objectMediaTypes?.get(object.descriptor.digest) ??
             object.descriptor.mediaType,
+          options.objectCacheControls?.get(object.descriptor.digest),
         ),
       )
     }
@@ -515,9 +541,14 @@ function objectInventoryResponse(
   })
 }
 
-function binaryResponse(bytes: Uint8Array, mediaType: string): Response {
+function binaryResponse(
+  bytes: Uint8Array,
+  mediaType: string,
+  cacheControl = 'public, max-age=31536000, immutable',
+): Response {
   return new Response(bytes, {
     headers: {
+      'cache-control': cacheControl,
       'content-length': String(bytes.byteLength),
       'content-type': mediaType,
     },

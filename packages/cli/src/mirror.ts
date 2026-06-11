@@ -864,6 +864,16 @@ function validateObjectResponseMetadata(
   if (mediaType !== descriptor.mediaType) {
     throw new Error(`Object Content-Type mismatch: ${descriptor.digest}`)
   }
+
+  const cacheControl = response.headers.get('cache-control')
+  if (!cacheControl) {
+    throw new Error(`Missing object Cache-Control header: ${descriptor.digest}`)
+  }
+  if (!cacheControlHas(cacheControl, 'immutable')) {
+    throw new Error(
+      `Object Cache-Control must include immutable: ${descriptor.digest}`,
+    )
+  }
 }
 
 function isolatedRequestInit(accept: string): RequestInit {
@@ -1152,6 +1162,13 @@ function validatePositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(`${label} must be a positive safe integer`)
   }
+}
+
+function cacheControlHas(value: string, directive: string): boolean {
+  return value.split(',').some((part) => {
+    const name = part.split('=', 1)[0]?.trim().toLowerCase()
+    return name === directive
+  })
 }
 
 function validateJsonContentType(value: string | null, url: string): void {
