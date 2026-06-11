@@ -228,3 +228,23 @@ V0 does not yet provide:
 
 Those are future transparency and governance protocol work. Until then, mirrors
 should treat V0 as replayable and inspectable, not globally witnessed.
+
+## Open Transparency Decisions
+
+Checkpoint, proof, and witness work should not start from implementation
+convenience. Before Regesta defines those protocol objects, the project needs
+explicit decisions for:
+
+- what registry state a checkpoint commits to;
+- whether checkpoint cadence is time-based, event-count-based, operator-driven,
+  or a combination of those policies;
+- how clients discover witnesses and decide which witness sets they trust;
+- what a witness statement means when mirrors observe inconsistent registry
+  views;
+- how inclusion and consistency proofs interact with event ids, release
+  envelopes, and object descriptors;
+- how a fork should select a trusted checkpoint when operator governance fails.
+
+Until those questions are answered, V0 mirror and auditor tooling should keep
+using public event replay, immutable event reads, release envelopes, object
+descriptors, and direct object digest checks as its source of evidence.

@@ -347,6 +347,32 @@ private database flags. Before implementation, the design should specify:
 Until those protocol events exist, Regesta should use conservative operator
 policy for compromise response while keeping core history replayable.
 
+## Open Governance Event Decisions
+
+Future governance events should be append-only public facts. They should not be
+introduced as hidden database flags that only one registry operator can
+interpret.
+
+Before Regesta defines governance event types, the project needs explicit
+decisions for:
+
+- which actions become protocol events instead of operator policy;
+- how an event identifies its authority without creating a single-company root
+  of trust;
+- how sensitive evidence is referenced when the bytes themselves cannot be
+  served publicly;
+- whether an action affects core facts, ecosystem projections, future writes, or
+  only operator notices;
+- how mirrors and auditors replay the action with release and channel events;
+- how appeals, reversals, and recovery actions appear without rewriting the
+  original event;
+- which events must be visible to package-manager clients and which remain
+  registry-auditor facts.
+
+Until those decisions are made, V0 should keep governance interventions narrow,
+record them operationally, and preserve enough public Regesta-native evidence
+for later migration into auditable events.
+
 ## Root Key Stewardship
 
 V0 does not define a protocol root key, checkpoint signing key, witness key, or

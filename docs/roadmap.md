@@ -42,6 +42,11 @@ specification and it is not limited to one implementation stage.
 - [x] Build V0 mirror and auditor tooling that can replay events and verify
       objects without private database access.
 
+The unchecked transparency items are intentionally unresolved protocol work.
+See [Open Transparency Decisions](/mirroring#open-transparency-decisions) for
+the questions that must be answered before they become object formats or
+server behavior.
+
 ## Ecosystem Projections
 
 - [x] Keep V0 ecosystem projection code outside the core registry model.
@@ -92,6 +97,9 @@ specification and it is not limited to one implementation stage.
 - [ ] Define checkpoint-based fork procedure.
 - [x] Define V0 auditor behavior for comparing sampled registry views.
 
+Fork procedures depend on the same checkpoint and witness decisions described
+in [Mirroring](/mirroring#open-transparency-decisions).
+
 ## Governance
 
 - [x] Document the V0 governance boundary for abuse handling, takedown,
@@ -104,6 +112,11 @@ specification and it is not limited to one implementation stage.
 - [x] Define V0 witness and mirror participation boundaries.
 - [x] Keep the project community-driven and resistant to capture by one
       company, operator, or package ecosystem.
+
+The unchecked governance event item is intentionally unresolved protocol work.
+See [Open Governance Event Decisions](/governance#open-governance-event-decisions)
+for the decisions that must be made before governance actions become public
+event types.
 
 ## Tooling And Knowledge
 
