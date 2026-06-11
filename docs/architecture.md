@@ -261,6 +261,34 @@ A publish operation follows this architectural shape:
 The client and artifact processor understand ecosystem details. Core records
 neutral facts and trust proofs.
 
+## Publisher Client Boundary
+
+Publisher clients are ecosystem adapters on the write path. They translate
+native project layout into Regesta publish input, but they must not change the
+core registry model.
+
+The current CLI is npm-first for V0 development and compatibility testing. It
+can infer `npm:<domain>/<name>` from `package.json`, ask the package manager to
+produce an install tarball, create a source archive, and submit a signed
+publish request.
+
+Future PyPI, Cargo, Go, OCI, or other publisher clients should follow the same
+shape:
+
+- infer or require the canonical Regesta package id;
+- apply the ecosystem's native package-name mapping rules;
+- create ecosystem-native install artifacts without asking core to understand
+  the package manager;
+- create a source archive when source attachment is supported;
+- collect resolver metadata that artifact processors can validate and project;
+- create a signed write intent over the normalized publish input;
+- send artifacts, source, config, and authorization to the core publish API.
+
+The server should not run arbitrary ecosystem build systems to decide identity
+or dependency semantics. If a client cannot infer an id or artifact shape
+without lossy assumptions, it should require explicit Regesta configuration
+instead of guessing.
+
 ## Read Flow
 
 Most reads are derived:
