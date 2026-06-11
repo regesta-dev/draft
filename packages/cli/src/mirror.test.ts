@@ -436,6 +436,38 @@ describe('compareMirrorDirectories', () => {
     }
   })
 
+  it('reports recorded local mirror inventory problems', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = await readInventory(join(rightDir, 'inventory.json'))
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          ok: false,
+          problems: ['Mirror stopped before reaching object inventory tail'],
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory recorded problem: Mirror stopped before reaching object inventory tail',
+      ])
+      expect(result.right.ok).toBe(false)
+      expect(result.right.problems).toEqual([
+        'Mirror stopped before reaching object inventory tail',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects local mirror inventories with non-canonical mirroredAt timestamps', async () => {
     const fixture = releaseFixture()
     const leftDir = await mirroredDirectory(fixture)

@@ -269,6 +269,8 @@ export async function compareMirrorDirectories(
   }
 
   problems.push(
+    ...declaredInventoryProblems(leftInventory, 'Left mirror'),
+    ...declaredInventoryProblems(rightInventory, 'Right mirror'),
     ...compareStringLists(
       'Mirror event inventory',
       leftInventory.events,
@@ -320,6 +322,15 @@ export async function compareMirrorDirectories(
     rightDir: input.rightDir,
     rightFiles: rightFiles.files,
     rightInventory,
+  })
+}
+
+function declaredInventoryProblems(
+  inventory: LocalMirrorInventory,
+  label: string,
+): string[] {
+  return inventory.problems.map((problem) => {
+    return `${label} inventory recorded problem: ${problem}`
   })
 }
 
