@@ -70,9 +70,15 @@ describe('createRegestaApp', () => {
     const readyHead = await app.request('/ready', {
       method: 'HEAD',
     })
+    const deploymentInfoText = await response.clone().text()
+    const healthText = await health.clone().text()
+    const readyText = await ready.clone().text()
 
     expect(response.status).toBe(200)
     expect(response.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/u)
+    expect(response.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(deploymentInfoText)),
+    )
     await expect(response.json()).resolves.toMatchObject({
       api: {
         version: 'v0',
@@ -96,18 +102,30 @@ describe('createRegestaApp', () => {
     expect(head.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
+    expect(head.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(deploymentInfoText)),
+    )
     expect(await head.text()).toBe('')
     expect(health.status).toBe(200)
     expect(health.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/u)
+    expect(health.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(healthText)),
+    )
     await expect(health.json()).resolves.toEqual({ ok: true })
     expect(healthHead.status).toBe(200)
     expect(healthHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
+    expect(healthHead.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(healthText)),
+    )
     expect(await healthHead.text()).toBe('')
     expect(ready.status).toBe(200)
     expect(ready.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/u)
     expect(ready.headers.get('cache-control')).toBe('no-store')
+    expect(ready.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(readyText)),
+    )
     await expect(ready.json()).resolves.toEqual({
       checks: {
         database: true,
@@ -122,6 +140,9 @@ describe('createRegestaApp', () => {
     expect(readyHead.headers.get('cache-control')).toBe('no-store')
     expect(readyHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
+    )
+    expect(readyHead.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(readyText)),
     )
     expect(await readyHead.text()).toBe('')
   })

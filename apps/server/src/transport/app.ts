@@ -85,10 +85,12 @@ function transportJson(
   body: unknown,
   init: ResponseInit = {},
 ): Response {
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
   const headers = new Headers(init.headers)
+  headers.set('content-length', String(bytes.byteLength))
   headers.set('content-type', 'application/json; charset=UTF-8')
 
   return method === 'HEAD'
     ? new Response(null, { ...init, headers })
-    : Response.json(body, { ...init, headers })
+    : new Response(bytes, { ...init, headers })
 }
