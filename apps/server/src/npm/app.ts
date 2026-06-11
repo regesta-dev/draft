@@ -4,13 +4,13 @@ import {
   npmInstallArtifact,
   npmPackageIdFromName,
   tarballFileName,
+  type NpmPackument,
 } from '@regesta/npm'
 import {
   sha256,
   type PackageId,
   type RegistryEvent,
   type ReleaseManifest,
-  type Sha256Digest,
 } from '@regesta/protocol'
 import { Hono, type Context } from 'hono'
 import { decodeRequestComponent, requiredParam } from '../request.ts'
@@ -272,10 +272,10 @@ async function serveNpmPackageManifest(
 
   if (packageId && releases.length > 0) {
     const state = await npmPackageProjectionState(adapters, packageId, releases)
-    const packument = createNpmPackument(
+    const packument = createLocalNpmPackument(
+      context,
       packageId,
       releases,
-      new URL(context.req.url).origin,
       state.channels,
       state.modifiedAt,
     )
@@ -333,10 +333,10 @@ async function serveNpmPackument(
     const state = await npmPackageProjectionState(adapters, packageId, releases)
     return serveNpmProjectionJson(
       context,
-      createNpmPackument(
+      createLocalNpmPackument(
+        context,
         packageId,
         releases,
-        new URL(context.req.url).origin,
         state.channels,
         state.modifiedAt,
       ),
@@ -645,8 +645,7 @@ async function serveNpmTarball(
     )
   }
 
-  const digest = npmInstallArtifact(release.manifest).digest
-  return redirectToTarball(coreObjectUrl(context, digest))
+  return redirectToTarball(upstreamNpmTarballUrl(packageName, file))
 }
 
 function redirectToTarball(location: string): Response {
@@ -659,7 +658,62 @@ function redirectToTarball(location: string): Response {
   })
 }
 
-function coreObjectUrl(context: Context, digest: Sha256Digest): string {
+function createLocalNpmPackument(
+  context: Context,
+  packageId: PackageId,
+  releases: Array<{ manifest: ReleaseManifest }>,
+  channels: Record<string, string>,
+  modifiedAt?: string,
+): NpmPackument {
+  return rewriteLocalNpmTarballUrls(
+    context,
+    createNpmPackument(
+      packageId,
+      releases,
+      new URL(context.req.url).origin,
+      channels,
+      modifiedAt,
+    ),
+    releases,
+  )
+}
+
+function rewriteLocalNpmTarballUrls(
+  context: Context,
+  packument: NpmPackument,
+  releases: Array<{ manifest: ReleaseManifest }>,
+): NpmPackument {
+  const tarballUrls = new Map(
+    releases.map((release) => [
+      release.manifest.version,
+      coreObjectUrl(context, npmInstallArtifact(release.manifest).digest),
+    ]),
+  )
+
+  return {
+    ...packument,
+    versions: Object.fromEntries(
+      Object.entries(packument.versions).map(([version, manifest]) => {
+        const tarball = tarballUrls.get(version)
+
+        return [
+          version,
+          tarball === undefined
+            ? manifest
+            : {
+                ...manifest,
+                dist: {
+                  ...manifest.dist,
+                  tarball,
+                },
+              },
+        ]
+      }),
+    ),
+  }
+}
+
+function coreObjectUrl(context: Context, digest: string): string {
   const url = new URL(context.req.url)
   url.hostname = coreRegistryHostname(url.hostname)
   url.pathname = `/objects/${digest}`

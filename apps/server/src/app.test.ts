@@ -3552,7 +3552,7 @@ describe('createRegestaApp', () => {
         assert: async (response: Response) => {
           expect(response.status).toBe(302)
           expect(response.headers.get('location')).toBe(
-            `http://registry.test/objects/${sha256(artifactBytes)}`,
+            'https://registry.npmjs.org/%40example.com%2Fconcurrent-reads/-/concurrent-reads-0.0.1.tgz',
           )
           expect(await response.text()).toBe('')
         },
@@ -4160,6 +4160,11 @@ describe('createRegestaApp', () => {
       'regesta.npm-projection',
       'regesta.npm-version',
     )
+    const installArtifactObjectUrl = `http://registry.test/objects/${sha256(
+      installArtifact.bytes,
+    )}`
+    const upstreamInstallTarballUrl =
+      'https://registry.npmjs.org/%40example.com%2Fhello-regesta/-/hello-regesta-0.0.1.tgz'
 
     const rootHostPackument = await app.request(
       'http://registry.test/npm/@example.com/hello-regesta',
@@ -4202,8 +4207,7 @@ describe('createRegestaApp', () => {
           },
           description: 'Fixture package',
           dist: {
-            tarball:
-              'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
+            tarball: installArtifactObjectUrl,
           },
         },
       },
@@ -4281,8 +4285,7 @@ describe('createRegestaApp', () => {
       },
       description: 'Fixture package',
       dist: {
-        tarball:
-          'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
+        tarball: installArtifactObjectUrl,
       },
       name: '@example.com/hello-regesta',
       version: '0.0.1',
@@ -4447,28 +4450,26 @@ describe('createRegestaApp', () => {
       'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
     )
 
-    const objectUrl = `http://registry.test/objects/${sha256(
-      installArtifact.bytes,
-    )}`
-
     expect(subdomainTarball.status).toBe(302)
     expect(subdomainTarball.headers.get('cache-control')).toBe('no-cache')
-    expect(subdomainTarball.headers.get('location')).toBe(objectUrl)
+    expect(subdomainTarball.headers.get('location')).toBe(
+      upstreamInstallTarballUrl,
+    )
     expect(await subdomainTarball.text()).toBe('')
 
-    const objectTarball = await app.request(objectUrl)
+    const objectTarball = await app.request(installArtifactObjectUrl)
 
     expect(objectTarball.status).toBe(200)
     const objectTarballBytes = new Uint8Array(await objectTarball.arrayBuffer())
     expect(objectTarballBytes).toEqual(new Uint8Array(installArtifact.bytes))
     expect(objectTarballBytes).not.toEqual(new Uint8Array(prepared.source))
 
-    const rangeTarball = await app.request(objectUrl, {
+    const rangeTarball = await app.request(installArtifactObjectUrl, {
       headers: {
         range: 'bytes=1-3',
       },
     })
-    const invalidRangeTarball = await app.request(objectUrl, {
+    const invalidRangeTarball = await app.request(installArtifactObjectUrl, {
       headers: {
         range: `bytes=${installArtifact.bytes.byteLength}-`,
       },
@@ -4484,7 +4485,9 @@ describe('createRegestaApp', () => {
     )
 
     expect(conditionalTarball.status).toBe(302)
-    expect(conditionalTarball.headers.get('location')).toBe(objectUrl)
+    expect(conditionalTarball.headers.get('location')).toBe(
+      upstreamInstallTarballUrl,
+    )
 
     const headTarball = await app.request(
       'http://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-0.0.1.tgz',
@@ -4494,7 +4497,7 @@ describe('createRegestaApp', () => {
     )
 
     expect(headTarball.status).toBe(302)
-    expect(headTarball.headers.get('location')).toBe(objectUrl)
+    expect(headTarball.headers.get('location')).toBe(upstreamInstallTarballUrl)
     expect(await headTarball.text()).toBe('')
 
     expect(rangeTarball.status).toBe(206)
@@ -4597,6 +4600,9 @@ describe('createRegestaApp', () => {
       const packument = await restartedApp.request(
         'http://npm.registry.test/@example.com/hello-regesta',
       )
+      const installArtifactObjectUrl = `http://registry.test/objects/${sha256(
+        installArtifact.bytes,
+      )}`
 
       expect(packument.status).toBe(200)
       await expect(packument.json()).resolves.toMatchObject({
@@ -4608,6 +4614,9 @@ describe('createRegestaApp', () => {
         versions: {
           [prepared.config.version]: {
             description: 'Fixture package',
+            dist: {
+              tarball: installArtifactObjectUrl,
+            },
             version: prepared.config.version,
           },
         },
@@ -4619,12 +4628,10 @@ describe('createRegestaApp', () => {
 
       expect(tarball.status).toBe(302)
       expect(tarball.headers.get('location')).toBe(
-        `http://registry.test/objects/${sha256(installArtifact.bytes)}`,
+        'https://registry.npmjs.org/%40example.com%2Fhello-regesta/-/hello-regesta-0.0.1.tgz',
       )
 
-      const object = await restartedApp.request(
-        requiredHeader(tarball, 'location'),
-      )
+      const object = await restartedApp.request(installArtifactObjectUrl)
 
       expect(object.status).toBe(200)
       expect(new Uint8Array(await object.arrayBuffer())).toEqual(
@@ -4681,7 +4688,8 @@ describe('createRegestaApp', () => {
     const app = createRegestaApp(adapters)
     const tarballUrl =
       'http://npm.registry.test/@example.com/descriptor-tarball/-/descriptor-tarball-0.0.1.tgz'
-    const objectUrl = `http://registry.test/objects/${artifactDigest}`
+    const upstreamTarballUrl =
+      'https://registry.npmjs.org/%40example.com%2Fdescriptor-tarball/-/descriptor-tarball-0.0.1.tgz'
     const head = await app.request(tarballUrl, {
       method: 'HEAD',
     })
@@ -4710,22 +4718,22 @@ describe('createRegestaApp', () => {
     const get = await app.request(tarballUrl)
 
     expect(head.status).toBe(302)
-    expect(head.headers.get('location')).toBe(objectUrl)
+    expect(head.headers.get('location')).toBe(upstreamTarballUrl)
     expect(await head.text()).toBe('')
     expect(rangeHead.status).toBe(302)
-    expect(rangeHead.headers.get('location')).toBe(objectUrl)
+    expect(rangeHead.headers.get('location')).toBe(upstreamTarballUrl)
     expect(await rangeHead.text()).toBe('')
     expect(invalidRangeHead.status).toBe(302)
-    expect(invalidRangeHead.headers.get('location')).toBe(objectUrl)
+    expect(invalidRangeHead.headers.get('location')).toBe(upstreamTarballUrl)
     expect(await invalidRangeHead.text()).toBe('')
     expect(conditional.status).toBe(302)
-    expect(conditional.headers.get('location')).toBe(objectUrl)
+    expect(conditional.headers.get('location')).toBe(upstreamTarballUrl)
     expect(await conditional.text()).toBe('')
     expect(invalidRangeGet.status).toBe(302)
-    expect(invalidRangeGet.headers.get('location')).toBe(objectUrl)
+    expect(invalidRangeGet.headers.get('location')).toBe(upstreamTarballUrl)
     expect(await invalidRangeGet.text()).toBe('')
     expect(get.status).toBe(302)
-    expect(get.headers.get('location')).toBe(objectUrl)
+    expect(get.headers.get('location')).toBe(upstreamTarballUrl)
     expect(await get.text()).toBe('')
     expect(objectGetCalls).toBe(0)
     expect(objectDescriptorGetCalls).toBe(0)
@@ -4833,7 +4841,7 @@ describe('createRegestaApp', () => {
 
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe(
-      `http://registry.test/objects/${artifactDigest}`,
+      'https://registry.npmjs.org/%40example.com%2Fmismatched-tarball-descriptor/-/mismatched-tarball-descriptor-0.0.1.tgz',
     )
     expect(objectGetCalls).toBe(0)
   })

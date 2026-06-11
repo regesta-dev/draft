@@ -349,7 +349,7 @@ describe('documentation references', () => {
     expect(normalizedOperations).toContain('npm tarball redirects')
   })
 
-  it('documents npm metadata tarball URLs as projection redirects', async () => {
+  it('documents npm metadata tarball URLs and projection redirects', async () => {
     const tarballSchema = await openapiValueAtPointer(
       '#/components/schemas/NpmVersionManifest/properties/dist/properties/tarball',
     )
@@ -359,16 +359,16 @@ describe('documentation references', () => {
 
     expect(tarballSchema).toEqual(
       expect.objectContaining({
-        description: expect.stringContaining('npm projection host'),
+        description: expect.stringContaining('core object URL'),
         format: 'uri',
         type: 'string',
       }),
     )
     expect(redirectDescription).toEqual(
-      expect.stringContaining('never proxies tarball bytes'),
+      expect.stringContaining('upstream npm registry tarball URL'),
     )
     expect(redirectDescription).toEqual(
-      expect.stringContaining('object layer serves immutable'),
+      expect.stringContaining('never serves or proxies tarball bytes'),
     )
   })
 
