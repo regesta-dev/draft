@@ -141,6 +141,17 @@ describe('server layer boundaries', () => {
     expect(violations).toEqual([])
   })
 
+  it('keeps server runtime from executing package-manager build processes', async () => {
+    await expectNoForbiddenImports(serverSourceRoot, [
+      'child_process',
+      'node:child_process',
+    ])
+    await expectNoForbiddenImports(
+      join(workspaceRoot, 'apps/server/server.ts'),
+      ['child_process', 'node:child_process'],
+    )
+  })
+
   it('keeps dev helpers independent from registry business implementations', async () => {
     await expectNoForbiddenImports('dev', [
       '@regesta/adapters',
