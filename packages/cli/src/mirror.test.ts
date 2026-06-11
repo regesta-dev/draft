@@ -558,6 +558,34 @@ describe('compareMirrorDirectories', () => {
     }
   })
 
+  it('rejects local mirror inventories with duplicate event lists', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = await readInventory(join(rightDir, 'inventory.json'))
+      const events = readUnknownArray(inventory, 'events')
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          events: [...events, events[0]],
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory events must be unique',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects local mirror inventories with duplicate package lists', async () => {
     const fixture = releaseFixture()
     const leftDir = await mirroredDirectory(fixture)
@@ -579,6 +607,34 @@ describe('compareMirrorDirectories', () => {
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
         'Right mirror inventory read failed: Right mirror inventory packages must be sorted and unique',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects local mirror inventories with duplicate release lists', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = await readInventory(join(rightDir, 'inventory.json'))
+      const releases = readUnknownArray(inventory, 'releases')
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          releases: [...releases, releases[0]],
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory releases must be unique',
       ])
     } finally {
       await rm(leftDir, { force: true, recursive: true })

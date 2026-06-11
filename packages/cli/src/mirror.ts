@@ -786,8 +786,17 @@ function parseLocalMirrorInventory(
     value.packages,
     `${label} inventory packages`,
   )
+  const releases = readInventoryReleases(
+    value.releases,
+    `${label} inventory releases`,
+  )
+  assertUniqueStrings(events, `${label} inventory events`)
   assertSortedUniqueStrings(objects, `${label} inventory objects`)
   assertSortedUniqueStrings(packages, `${label} inventory packages`)
+  assertUniqueStrings(
+    releases.map((release) => releaseKey(release)),
+    `${label} inventory releases`,
+  )
 
   return {
     events,
@@ -808,10 +817,22 @@ function parseLocalMirrorInventory(
     packages,
     problems: readStringArray(value.problems, `${label} inventory problems`),
     registry: readString(value.registry, `${label} inventory registry`),
-    releases: readInventoryReleases(
-      value.releases,
-      `${label} inventory releases`,
-    ),
+    releases,
+  }
+}
+
+function assertUniqueStrings<Value extends string>(
+  values: readonly Value[],
+  label: string,
+): void {
+  const seen = new Set<Value>()
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      throw new TypeError(`${label} must be unique`)
+    }
+
+    seen.add(value)
   }
 }
 
