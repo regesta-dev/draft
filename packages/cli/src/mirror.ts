@@ -1215,6 +1215,14 @@ function validateObjectResponseMetadata(
       `Object Cache-Control must include immutable: ${descriptor.digest}`,
     )
   }
+
+  const acceptRanges = response.headers.get('accept-ranges')
+  if (!acceptRanges) {
+    throw new Error(`Missing object Accept-Ranges header: ${descriptor.digest}`)
+  }
+  if (acceptRanges.trim().toLowerCase() !== 'bytes') {
+    throw new Error(`Object Accept-Ranges must be bytes: ${descriptor.digest}`)
+  }
 }
 
 function isolatedRequestInit(accept: string): RequestInit {

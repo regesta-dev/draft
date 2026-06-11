@@ -171,6 +171,52 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects object responses without Accept-Ranges', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectAcceptRanges: new Map([[fixture.manifest.source.digest, null]]),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Missing object Accept-Ranges header: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects object responses whose Accept-Ranges is not bytes', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectAcceptRanges: new Map([
+            [fixture.manifest.source.digest, 'none'],
+          ]),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Object Accept-Ranges must be bytes: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects object responses without ETags', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -1073,6 +1119,7 @@ function mirrorFetch(
     omitEventPageContentLength?: boolean
     objectInventoryCacheControl?: string | null
     objectInventoryEtag?: string | null
+    objectAcceptRanges?: ReadonlyMap<string, string | null>
     objectCacheControls?: ReadonlyMap<string, string>
     objectEtags?: ReadonlyMap<string, string | null>
     objectMediaTypes?: ReadonlyMap<string, string>
@@ -1241,6 +1288,9 @@ function mirrorFetch(
           options.objectEtags?.has(object.descriptor.digest)
             ? options.objectEtags.get(object.descriptor.digest)
             : `"${object.descriptor.digest}"`,
+          options.objectAcceptRanges?.has(object.descriptor.digest)
+            ? options.objectAcceptRanges.get(object.descriptor.digest)
+            : 'bytes',
         ),
       )
     }
@@ -1399,6 +1449,7 @@ function binaryResponse(
   mediaType: string,
   cacheControl = 'public, max-age=31536000, immutable',
   etag: string | null | undefined,
+  acceptRanges: string | null | undefined,
 ): Response {
   const headers = new Headers({
     'cache-control': cacheControl,
@@ -1408,6 +1459,9 @@ function binaryResponse(
 
   if (etag !== null && etag !== undefined) {
     headers.set('etag', etag)
+  }
+  if (acceptRanges !== null && acceptRanges !== undefined) {
+    headers.set('accept-ranges', acceptRanges)
   }
 
   return new Response(bytes, { headers })
