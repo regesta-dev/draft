@@ -21,6 +21,7 @@ import {
   canonicalJson,
   defaultPackageChannel,
   parsePackageId,
+  sha256,
   type ObjectDescriptor,
   type PackageId,
   type PackageState,
@@ -462,6 +463,7 @@ export function createCoreRegistryApp(
         authorization,
         channel,
         packageId,
+        previousVersion,
         timestamp: authorization.signedAt,
         version,
       })
@@ -534,6 +536,7 @@ export function createCoreRegistryApp(
         authorization,
         channel,
         packageId,
+        previousVersion,
         timestamp: authorization.signedAt,
       })
     } catch (error) {
@@ -719,9 +722,8 @@ async function servePackageChannelRequest(
     requiredParam(context.req.param('packageId'), 'packageId'),
   )
   const channel = parseRequestChannel(context.req.param('channel'))
-  const events = await adapters.database.listPackageEvents(packageId)
-  const state = replayPackageState(events, packageId)
-  const version = state.channels?.[channel]
+  const channels = await adapters.database.getPackageChannels(packageId)
+  const version = channels[channel]
 
   if (!version) {
     return context.json(
@@ -739,7 +741,11 @@ async function servePackageChannelRequest(
     )
   }
 
-  return serveMutableReleaseEnvelope(context, release, events.at(-1)?.id)
+  return serveMutableReleaseEnvelope(
+    context,
+    release,
+    channelReleaseEnvelopeEtag(packageId, channel, version, release.event.id),
+  )
 }
 
 function eventLogResponse(events: RegistryEvent[]) {
@@ -886,15 +892,15 @@ function servePackageState(
 function serveMutableReleaseEnvelope(
   context: Context,
   release: StoredRelease,
-  lastEventId: Sha256Digest | undefined,
+  etag: string | undefined,
 ): Response {
   const headers: Record<string, string> = {
     'cache-control': 'no-cache',
     'content-type': 'application/json; charset=UTF-8',
   }
 
-  if (lastEventId) {
-    headers.etag = `W/"${lastEventId}"`
+  if (etag) {
+    headers.etag = etag
   }
 
   if (
@@ -908,6 +914,22 @@ function serveMutableReleaseEnvelope(
   }
 
   return serveJson(context, release, headers)
+}
+
+function channelReleaseEnvelopeEtag(
+  packageId: PackageId,
+  channel: string,
+  version: string,
+  releaseEventId: Sha256Digest,
+): string {
+  return `W/"regesta.channel:${sha256(
+    canonicalJson({
+      channel,
+      package: packageId,
+      releaseEvent: releaseEventId,
+      version,
+    }),
+  )}"`
 }
 
 function serveJson(

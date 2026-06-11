@@ -17,6 +17,11 @@ describe('adapters package architecture', () => {
       { label: 'npm upstream registry', pattern: /registry\.npmjs\.org/u },
       { label: 'npm media type', pattern: /application\/vnd\.npm/u },
       { label: 'package-manager process execution', pattern: /child_process/u },
+      { label: 'full package-state replay', pattern: /replayPackageState/u },
+      {
+        label: 'full appendable event replay helper',
+        pattern: /assertAppendableRegistryEvent/u,
+      },
     ]
     const violations: string[] = []
 
@@ -71,6 +76,38 @@ describe('adapters package architecture', () => {
 
     expect(violations).toEqual([])
   })
+
+  it('keeps typed channel commits on indexed channel state', async () => {
+    for (const file of ['memory.ts', 'sqlite.ts']) {
+      const source = await readFile(join(adaptersSourceRoot, file), 'utf8')
+      const appendSource = methodSource(
+        source,
+        'appendEvent',
+        'commitPackageChannelUpdate',
+      )
+      const updateSource = methodSource(
+        source,
+        'commitPackageChannelUpdate',
+        'commitPackageChannelDelete',
+      )
+      const deleteSource = methodSource(
+        source,
+        'commitPackageChannelDelete',
+        'commitPublishedRelease',
+      )
+
+      expect(appendSource).toContain('assertRegistryEventCanBeApplied')
+      expect(appendSource).not.toContain('packageEvents(')
+      expect(appendSource).not.toContain('assertAppendableRegistryEvent')
+      expect(updateSource).toContain('assertExpectedChannelVersion')
+      expect(updateSource).toContain('assertReleaseExists')
+      expect(updateSource).not.toContain('packageEvents(')
+      expect(updateSource).not.toContain('assertAppendableRegistryEvent')
+      expect(deleteSource).toContain('assertExpectedChannelVersion')
+      expect(deleteSource).not.toContain('packageEvents(')
+      expect(deleteSource).not.toContain('assertAppendableRegistryEvent')
+    }
+  })
 })
 
 async function productionSourceFiles(directory: string): Promise<string[]> {
@@ -102,4 +139,15 @@ function isTestSourceFile(path: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function methodSource(source: string, name: string, nextName: string): string {
+  const start = source.indexOf(`${name}(`)
+  const end = source.indexOf(`${nextName}(`, start + name.length)
+
+  if (start === -1 || end === -1) {
+    throw new Error(`Could not find method range: ${name}`)
+  }
+
+  return source.slice(start, end)
 }

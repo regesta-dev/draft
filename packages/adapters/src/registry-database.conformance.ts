@@ -149,8 +149,14 @@ export function describeRegistryDatabaseConformance<
         )
 
         await expect(database.countPackages()).resolves.toBe(0)
+        await expect(
+          database.hasPackage(firstRelease.manifest.id),
+        ).resolves.toBe(false)
         await database.commitPublishedRelease(firstRelease, 'latest')
         await expect(database.countPackages()).resolves.toBe(1)
+        await expect(
+          database.hasPackage(firstRelease.manifest.id),
+        ).resolves.toBe(true)
         await database.commitPublishedRelease(secondRelease, 'latest')
         await expect(database.countPackages()).resolves.toBe(1)
         await database.commitPublishedRelease(otherPackageRelease, 'latest')

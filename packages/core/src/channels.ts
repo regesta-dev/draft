@@ -99,7 +99,7 @@ export async function getPackageChannelVersion(
   channel: string,
 ): Promise<string | undefined> {
   assertPackageChannel(channel)
-  return (await getPackageState(adapters, packageId)).channels?.[channel]
+  return (await adapters.database.getPackageChannels(packageId))[channel]
 }
 
 function eventPackageId(event: RegistryEvent): PackageId {
@@ -138,6 +138,7 @@ export async function updatePackageChannel(
     authorization?: WriteAuthorizationProof
     channel: string
     packageId: PackageId
+    previousVersion?: string
     timestamp?: string
     version: string
   },
@@ -156,11 +157,7 @@ export async function updatePackageChannel(
     throw new ReleaseNotFoundError(input.packageId, input.version)
   }
 
-  const previousVersion = await getPackageChannelVersion(
-    adapters,
-    input.packageId,
-    input.channel,
-  )
+  const previousVersion = await channelMutationPreviousVersion(adapters, input)
   const eventWithoutId = {
     ...(input.authorization ? { authorization: input.authorization } : {}),
     channel: input.channel,
@@ -192,6 +189,7 @@ export async function deletePackageChannel(
     authorization?: WriteAuthorizationProof
     channel: string
     packageId: PackageId
+    previousVersion?: string
     timestamp?: string
   },
 ): Promise<ChannelMutationResult> {
@@ -199,11 +197,7 @@ export async function deletePackageChannel(
   await assertWriteAuthorizationIsFresh(adapters, input.authorization)
   const timestamp = channelMutationTimestamp(input)
 
-  const previousVersion = await getPackageChannelVersion(
-    adapters,
-    input.packageId,
-    input.channel,
-  )
+  const previousVersion = await channelMutationPreviousVersion(adapters, input)
   const eventWithoutId = {
     ...(input.authorization ? { authorization: input.authorization } : {}),
     channel: input.channel,
@@ -225,6 +219,25 @@ export async function deletePackageChannel(
   })
 
   return { event, ...(previousVersion ? { previousVersion } : {}) }
+}
+
+function channelMutationPreviousVersion(
+  adapters: RegistryAdapters,
+  input: {
+    channel: string
+    packageId: PackageId
+    previousVersion?: string
+  },
+): Promise<string | undefined> {
+  if (!Object.prototype.hasOwnProperty.call(input, 'previousVersion')) {
+    return getPackageChannelVersion(adapters, input.packageId, input.channel)
+  }
+
+  if (input.previousVersion !== undefined) {
+    assertPackageVersion(input.previousVersion, 'Channel previousVersion')
+  }
+
+  return Promise.resolve(input.previousVersion)
 }
 
 function channelMutationTimestamp(input: {

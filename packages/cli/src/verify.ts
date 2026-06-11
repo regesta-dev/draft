@@ -885,6 +885,7 @@ function publicRegistryDatabase(input: {
           : undefined,
       )
     },
+    hasPackage: (packageId) => Promise.resolve(packageId === input.packageId),
     hasAuthorizationPayloadDigest: unsupportedRead(
       'read authorization payload digest',
     ),

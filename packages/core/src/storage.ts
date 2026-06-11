@@ -125,6 +125,7 @@ export interface RegistryDatabase {
     packageId: PackageId,
     version: string,
   ) => Promise<StoredRelease | undefined>
+  hasPackage: (packageId: PackageId) => Promise<boolean>
   hasAuthorizationPayloadDigest: (
     payloadDigest: Sha256Digest,
   ) => Promise<boolean>

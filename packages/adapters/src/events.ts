@@ -1,7 +1,6 @@
 import {
   assertRegistryEventIntegrity,
   RegistryEventIntegrityError,
-  replayPackageState,
 } from '@regesta/core'
 import {
   assertArtifactDescriptorString,
@@ -14,7 +13,6 @@ import {
   parsePackageId,
   sha256,
   type ObjectDescriptor,
-  type PackageId,
   type RegistryEvent,
   type ReleaseArtifact,
 } from '@regesta/protocol'
@@ -22,34 +20,6 @@ import type { StoredRelease } from './interfaces.ts'
 
 export function assertPersistableRegistryEvent(event: RegistryEvent): void {
   assertRegistryEventIntegrity(event)
-}
-
-export function assertAppendableRegistryEvent(
-  existingPackageEvents: Iterable<RegistryEvent>,
-  event: RegistryEvent,
-): void {
-  assertPersistableRegistryEvent(event)
-
-  try {
-    replayPackageState(
-      [...existingPackageEvents, event],
-      registryEventPackageId(event),
-    )
-  } catch (error) {
-    if (error instanceof RegistryEventIntegrityError) {
-      throw error
-    }
-
-    throw new RegistryEventIntegrityError(
-      error instanceof Error ? error.message : String(error),
-    )
-  }
-}
-
-function registryEventPackageId(event: RegistryEvent): PackageId {
-  return event.eventType === 'release.published'
-    ? event.release.id
-    : event.package
 }
 
 function assertKnownFields(

@@ -2919,11 +2919,17 @@ describe('createRegestaApp', () => {
         method: 'HEAD',
       },
     )
+    const channelEtag = expectedPackageChannelEtag({
+      channel: 'latest',
+      packageId,
+      releaseEventId: published.event.id,
+      version: '0.0.1',
+    })
     const conditionalChannel = await app.request(
       `/packages/${encodedPackageId}/channels/latest`,
       {
         headers: {
-          'if-none-match': `"${published.event.id}"`,
+          'if-none-match': channelEtag,
         },
       },
     )
@@ -3026,7 +3032,7 @@ describe('createRegestaApp', () => {
     expect(channel.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(channel.headers.get('etag')).toBe(`W/"${published.event.id}"`)
+    expect(channel.headers.get('etag')).toBe(channelEtag)
     const channelText = await channel.clone().text()
     expect(channel.headers.get('content-length')).toBe(
       String(Buffer.byteLength(channelText)),
@@ -3045,13 +3051,11 @@ describe('createRegestaApp', () => {
     expect(channelHead.headers.get('content-length')).toBe(
       String(Buffer.byteLength(channelText)),
     )
-    expect(channelHead.headers.get('etag')).toBe(`W/"${published.event.id}"`)
+    expect(channelHead.headers.get('etag')).toBe(channelEtag)
     expect(await channelHead.text()).toBe('')
     expect(conditionalChannel.status).toBe(304)
     expect(conditionalChannel.headers.get('cache-control')).toBe('no-cache')
-    expect(conditionalChannel.headers.get('etag')).toBe(
-      `W/"${published.event.id}"`,
-    )
+    expect(conditionalChannel.headers.get('etag')).toBe(channelEtag)
     expect(conditionalChannel.headers.get('content-length')).toBeNull()
     expect(await conditionalChannel.text()).toBe('')
     expect(verification.status).toBe(200)
@@ -3106,7 +3110,13 @@ describe('createRegestaApp', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-cache')
-    expect(response.headers.get('etag')).toBe(`W/"${publish.event.id}"`)
+    const etag = expectedPackageChannelEtag({
+      channel: 'latest',
+      packageId,
+      releaseEventId: publish.event.id,
+      version: '0.0.1',
+    })
+    expect(response.headers.get('etag')).toBe(etag)
     await expect(response.json()).resolves.toMatchObject({
       manifest: {
         id: packageId,
@@ -3118,14 +3128,14 @@ describe('createRegestaApp', () => {
       `/packages/${encodeURIComponent(packageId)}/channels/latest`,
       {
         headers: {
-          'if-none-match': `"${publish.event.id}"`,
+          'if-none-match': etag,
         },
       },
     )
 
     expect(conditional.status).toBe(304)
     expect(conditional.headers.get('cache-control')).toBe('no-cache')
-    expect(conditional.headers.get('etag')).toBe(`W/"${publish.event.id}"`)
+    expect(conditional.headers.get('etag')).toBe(etag)
     expect(await conditional.text()).toBe('')
   })
 
@@ -3149,6 +3159,58 @@ describe('createRegestaApp', () => {
     await expect(response.json()).resolves.toEqual({
       ok: false,
       problems: [`Release not found: ${packageId}@0.0.1`],
+    })
+  })
+
+  it('serves package channel releases from indexed channel state', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const packageId = 'npm:example.com/channel-read'
+    const publish = await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    adapters.database.listPackageEvents = () =>
+      Promise.reject(
+        new Error('package channel reads should not replay events'),
+      )
+
+    const response = await app.request(
+      `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get('etag')).toBe(
+      expectedPackageChannelEtag({
+        channel: 'latest',
+        packageId,
+        releaseEventId: publish.event.id,
+        version: '0.0.1',
+      }),
+    )
+    await expect(response.json()).resolves.toMatchObject({
+      manifest: {
+        id: packageId,
+        version: '0.0.1',
+      },
     })
   })
 
@@ -3213,6 +3275,76 @@ describe('createRegestaApp', () => {
       code: 'request_invalid',
       issues: ['Package version must not include control characters'],
     })
+  })
+
+  it('uses the verified previous channel version when committing signed channel updates', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/channel-previous-version'
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const authorization = auth.sign(
+      createChannelUpdateIntent({
+        channel: 'latest',
+        nonce: 'channel-bound-previous-version',
+        packageId,
+        previousVersion: '0.0.1',
+        timestamp: new Date().toISOString(),
+        version: '0.0.1',
+      }),
+    )
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        {
+          body: JSON.stringify({
+            authorization,
+            version: '0.0.1',
+          }),
+          headers: {
+            'content-type': 'application/json',
+          },
+          method: 'PUT',
+        },
+      )
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({
+        event: {
+          previousVersion: '0.0.1',
+        },
+        previousVersion: '0.0.1',
+      })
+      expect(getPackageChannels).toHaveBeenCalledOnce()
+      expect(getPackageChannels).toHaveBeenCalledWith(packageId)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('rejects replayed write authorizations for channel updates', async () => {
@@ -4540,6 +4672,9 @@ describe('createRegestaApp', () => {
       'regesta.npm-projection',
       'regesta.npm-version',
     )
+    const npmDistTagsEtag = `W/"regesta.npm-dist-tags:${sha256(
+      canonicalJson({ latest: '0.0.1' }),
+    )}"`
     const installArtifactObjectUrl = `http://registry.test/objects/${sha256(
       installArtifact.bytes,
     )}`
@@ -4652,7 +4787,9 @@ describe('createRegestaApp', () => {
     expect(subdomainLatestManifest.headers.get('cache-control')).toBe(
       'no-cache',
     )
-    expect(subdomainLatestManifest.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(subdomainLatestManifest.headers.get('etag')).toBe(
+      npmVersionManifestEtag,
+    )
     const subdomainLatestManifestText = await subdomainLatestManifest
       .clone()
       .text()
@@ -4757,7 +4894,7 @@ describe('createRegestaApp', () => {
 
     expect(subdomainDistTags.status).toBe(200)
     expect(subdomainDistTags.headers.get('cache-control')).toBe('no-cache')
-    expect(subdomainDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(subdomainDistTags.headers.get('etag')).toBe(npmDistTagsEtag)
     const subdomainDistTagsText = await subdomainDistTags.clone().text()
     expect(subdomainDistTags.headers.get('content-length')).toBe(
       String(Buffer.byteLength(subdomainDistTagsText)),
@@ -4770,14 +4907,14 @@ describe('createRegestaApp', () => {
       'http://npm.registry.test/-/package/@example.com/hello-regesta/dist-tags',
       {
         headers: {
-          'if-none-match': npmProjectionEtag,
+          'if-none-match': npmDistTagsEtag,
         },
       },
     )
 
     expect(conditionalDistTags.status).toBe(304)
     expect(conditionalDistTags.headers.get('cache-control')).toBe('no-cache')
-    expect(conditionalDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalDistTags.headers.get('etag')).toBe(npmDistTagsEtag)
     expect(conditionalDistTags.headers.get('content-length')).toBeNull()
     expect(await conditionalDistTags.text()).toBe('')
 
@@ -4790,7 +4927,7 @@ describe('createRegestaApp', () => {
 
     expect(headDistTags.status).toBe(200)
     expect(headDistTags.headers.get('cache-control')).toBe('no-cache')
-    expect(headDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(headDistTags.headers.get('etag')).toBe(npmDistTagsEtag)
     expect(headDistTags.headers.get('content-length')).toBe(
       String(Buffer.byteLength(subdomainDistTagsText)),
     )
@@ -4800,7 +4937,7 @@ describe('createRegestaApp', () => {
       'http://npm.registry.test/-/package/@example.com/hello-regesta/dist-tags',
       {
         headers: {
-          'if-none-match': npmProjectionEtag,
+          'if-none-match': npmDistTagsEtag,
         },
         method: 'HEAD',
       },
@@ -4810,7 +4947,7 @@ describe('createRegestaApp', () => {
     expect(conditionalHeadDistTags.headers.get('cache-control')).toBe(
       'no-cache',
     )
-    expect(conditionalHeadDistTags.headers.get('etag')).toBe(npmProjectionEtag)
+    expect(conditionalHeadDistTags.headers.get('etag')).toBe(npmDistTagsEtag)
     expect(conditionalHeadDistTags.headers.get('content-length')).toBeNull()
     expect(await conditionalHeadDistTags.text()).toBe('')
 
@@ -6213,7 +6350,7 @@ describe('createRegestaApp', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('resolves npm tag endpoints through event-replayed projected dist-tags', async () => {
+  it('resolves npm tag endpoints through indexed channel state', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
     const packageId = 'npm:example.com/stale-channel'
@@ -6239,8 +6376,10 @@ describe('createRegestaApp', () => {
       },
       adapters,
     )
-    adapters.database.getPackageChannels = () =>
-      Promise.reject(new Error('npm projection should not read channel views'))
+    adapters.database.listPackageEvents = () =>
+      Promise.reject(new Error('npm tag endpoints should not replay events'))
+    adapters.database.listPackageReleases = () =>
+      Promise.reject(new Error('npm tag endpoints should not list releases'))
 
     const distTags = await app.request(
       'http://npm.registry.test/-/package/@example.com/stale-channel/dist-tags',
@@ -6773,6 +6912,22 @@ async function prepareFixtureNpmPublish(projectDir: string): Promise<{
 
 interface FixtureProjectOptions {
   dependencies?: boolean
+}
+
+function expectedPackageChannelEtag(input: {
+  channel: string
+  packageId: string
+  releaseEventId: string
+  version: string
+}): string {
+  return `W/"regesta.channel:${sha256(
+    canonicalJson({
+      channel: input.channel,
+      package: input.packageId,
+      releaseEvent: input.releaseEventId,
+      version: input.version,
+    }),
+  )}"`
 }
 
 async function createFixtureProject(

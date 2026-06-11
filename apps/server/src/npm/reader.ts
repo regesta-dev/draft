@@ -7,6 +7,16 @@ import type {
 
 export interface NpmRegistryReader {
   database: {
+    getPackageChannels: (
+      packageId: PackageId,
+    ) => Promise<Record<string, string>>
+    getRelease: (
+      packageId: PackageId,
+      version: string,
+    ) => Promise<
+      { event: RegistryEvent; manifest: ReleaseManifest } | undefined
+    >
+    hasPackage: (packageId: PackageId) => Promise<boolean>
     listPackageEvents: (packageId: PackageId) => Promise<RegistryEvent[]>
     listPackageReleases: (
       packageId: PackageId,
@@ -19,6 +29,15 @@ export function createNpmRegistryReader(
 ): NpmRegistryReader {
   return {
     database: {
+      getPackageChannels: (packageId) => {
+        return adapters.database.getPackageChannels(packageId)
+      },
+      getRelease: (packageId, version) => {
+        return adapters.database.getRelease(packageId, version)
+      },
+      hasPackage: (packageId) => {
+        return adapters.database.hasPackage(packageId)
+      },
       listPackageEvents: (packageId) => {
         return adapters.database.listPackageEvents(packageId)
       },

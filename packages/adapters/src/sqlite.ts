@@ -5,6 +5,7 @@ import {
   PackageChannelConflictError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
+  RegistryEventIntegrityError,
   ReleaseAlreadyExistsError,
   ReleaseNotFoundError,
   WriteAuthorizationReplayError,
@@ -18,7 +19,6 @@ import {
   type Sha256Digest,
 } from '@regesta/protocol'
 import {
-  assertAppendableRegistryEvent,
   assertPersistableRegistryEvent,
   assertPersistableStoredRelease,
 } from './events.ts'
@@ -77,6 +77,24 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       CREATE INDEX IF NOT EXISTS registry_events_package_sequence_idx
         ON registry_events (package_id, sequence);
 
+      CREATE TABLE IF NOT EXISTS registry_event_releases (
+        package_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        PRIMARY KEY (package_id, version)
+      );
+
+      CREATE TABLE IF NOT EXISTS registry_event_channels (
+        package_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        version TEXT NOT NULL,
+        PRIMARY KEY (package_id, channel)
+      );
+
+      CREATE TABLE IF NOT EXISTS registry_event_state_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS registry_stats (
         key TEXT PRIMARY KEY,
         value INTEGER NOT NULL CHECK (value >= 0)
@@ -84,6 +102,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
 
     `)
     this.ensureRegistryEventColumns()
+    this.ensureRegistryEventState()
     this.ensureRegistryStats()
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS registry_events_authorization_payload_digest_unique_idx
@@ -107,20 +126,15 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     const authorizationPayloadDigest = eventAuthorizationPayloadDigest(event)
 
     try {
-      if (this.eventExists(event.id)) {
-        throw new RegistryEventAlreadyExistsError(event.id)
-      }
-
-      if (
-        authorizationPayloadDigest &&
-        this.authorizationPayloadDigestExists(authorizationPayloadDigest)
-      ) {
-        throw new WriteAuthorizationReplayError(authorizationPayloadDigest)
-      }
-
-      assertAppendableRegistryEvent(this.packageEvents(event), event)
+      this.db.exec('BEGIN IMMEDIATE')
+      this.assertEventCanBeInserted(event, authorizationPayloadDigest)
+      this.assertRegistryEventCanBeApplied(event)
       this.insertRegistryEvent(event, authorizationPayloadDigest)
+      this.applyRegistryEventState(event)
+      this.db.exec('COMMIT')
     } catch (error) {
+      this.rollbackTransaction()
+
       if (isSqliteUniqueEventIdError(error)) {
         throw new RegistryEventAlreadyExistsError(event.id)
       }
@@ -153,8 +167,14 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       )
       this.assertReleaseExists(event.package, event.version)
       this.assertEventCanBeInserted(event, authorizationPayloadDigest)
-      assertAppendableRegistryEvent(this.packageEvents(event), event)
+      this.assertEventReleaseExists(event.package, event.version)
+      this.assertEventChannelVersion(
+        event.package,
+        event.channel,
+        event.previousVersion,
+      )
       this.insertRegistryEvent(event, authorizationPayloadDigest)
+      this.applyRegistryEventState(event)
       this.db
         .prepare(
           `INSERT INTO package_channels (package_id, channel, version)
@@ -198,8 +218,13 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         this.channelVersion(event.package, event.channel),
       )
       this.assertEventCanBeInserted(event, authorizationPayloadDigest)
-      assertAppendableRegistryEvent(this.packageEvents(event), event)
+      this.assertEventChannelVersion(
+        event.package,
+        event.channel,
+        event.previousVersion,
+      )
       this.insertRegistryEvent(event, authorizationPayloadDigest)
+      this.applyRegistryEventState(event)
       this.db
         .prepare(
           `DELETE FROM package_channels
@@ -245,11 +270,9 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
       }
       const newPackage = !this.packageExists(packageId)
-      assertAppendableRegistryEvent(
-        this.packageEvents(release.event),
-        release.event,
-      )
+      this.assertRegistryEventCanBeApplied(release.event)
       this.insertRegistryEvent(release.event, authorizationPayloadDigest)
+      this.applyRegistryEventState(release.event)
       this.db
         .prepare(
           `INSERT INTO releases (
@@ -418,6 +441,10 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       .get(packageId, version)
 
     return Promise.resolve(row ? decodeStoredRelease(row) : undefined)
+  }
+
+  hasPackage(packageId: PackageId): Promise<boolean> {
+    return Promise.resolve(this.packageExists(packageId))
   }
 
   hasAuthorizationPayloadDigest(payloadDigest: Sha256Digest): Promise<boolean> {
@@ -598,22 +625,6 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
   }
 
-  private packageEvents(event: RegistryEvent): RegistryEvent[] {
-    const packageId = eventPackageId(event)
-    const rows = this.db
-      .prepare(
-        `SELECT event_json
-          FROM registry_events
-          WHERE package_id = ?
-          ORDER BY sequence ASC`,
-      )
-      .all(packageId)
-
-    return rows.map((row) =>
-      decodeRegistryEvent(requiredText(row, 'event_json')),
-    )
-  }
-
   private ensureRegistryEventColumns(): void {
     const columns = this.db
       .prepare(`PRAGMA table_info(registry_events)`)
@@ -644,6 +655,130 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
             )
             .run(payloadDigest, requiredNumber(row, 'sequence'))
         }
+      }
+    }
+  }
+
+  private ensureRegistryEventState(): void {
+    if (this.registryEventStateExists()) {
+      return
+    }
+
+    try {
+      this.db.exec('BEGIN IMMEDIATE')
+      this.db.prepare(`DELETE FROM registry_event_channels`).run()
+      this.db.prepare(`DELETE FROM registry_event_releases`).run()
+
+      const rows = this.db
+        .prepare(
+          `SELECT event_json
+            FROM registry_events
+            ORDER BY sequence ASC`,
+        )
+        .all()
+
+      for (const row of rows) {
+        const event = decodeRegistryEvent(requiredText(row, 'event_json'))
+        this.assertRegistryEventCanBeApplied(event)
+        this.applyRegistryEventState(event)
+      }
+
+      this.db
+        .prepare(
+          `INSERT INTO registry_event_state_meta (key, value)
+            VALUES ('rebuilt', '1')
+            ON CONFLICT(key)
+            DO UPDATE SET value = excluded.value`,
+        )
+        .run()
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.rollbackTransaction()
+      throw error
+    }
+  }
+
+  private registryEventStateExists(): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+            FROM registry_event_state_meta
+            WHERE key = 'rebuilt'
+            LIMIT 1`,
+        )
+        .get(),
+    )
+  }
+
+  private assertRegistryEventCanBeApplied(event: RegistryEvent): void {
+    switch (event.eventType) {
+      case 'release.published': {
+        if (this.eventReleaseExists(event.release.id, event.release.version)) {
+          throw new RegistryEventIntegrityError(
+            `Registry event release version already exists: ${event.release.version}`,
+          )
+        }
+        break
+      }
+      case 'channel.updated': {
+        this.assertEventReleaseExists(event.package, event.version)
+        this.assertEventChannelVersion(
+          event.package,
+          event.channel,
+          event.previousVersion,
+        )
+        break
+      }
+      case 'channel.deleted': {
+        this.assertEventChannelVersion(
+          event.package,
+          event.channel,
+          event.previousVersion,
+        )
+        break
+      }
+    }
+  }
+
+  private applyRegistryEventState(event: RegistryEvent): void {
+    switch (event.eventType) {
+      case 'release.published': {
+        this.db
+          .prepare(
+            `INSERT INTO registry_event_releases (package_id, version)
+              VALUES (?, ?)`,
+          )
+          .run(event.release.id, event.release.version)
+        this.db
+          .prepare(
+            `INSERT INTO registry_event_channels (package_id, channel, version)
+              VALUES (?, ?, ?)
+              ON CONFLICT(package_id, channel)
+              DO UPDATE SET version = excluded.version`,
+          )
+          .run(event.release.id, event.channel, event.release.version)
+        break
+      }
+      case 'channel.updated': {
+        this.db
+          .prepare(
+            `INSERT INTO registry_event_channels (package_id, channel, version)
+              VALUES (?, ?, ?)
+              ON CONFLICT(package_id, channel)
+              DO UPDATE SET version = excluded.version`,
+          )
+          .run(event.package, event.channel, event.version)
+        break
+      }
+      case 'channel.deleted': {
+        this.db
+          .prepare(
+            `DELETE FROM registry_event_channels
+              WHERE package_id = ? AND channel = ?`,
+          )
+          .run(event.package, event.channel)
+        break
       }
     }
   }
@@ -782,6 +917,59 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     if (!this.releaseExists(packageId, version)) {
       throw new ReleaseNotFoundError(packageId, version)
     }
+  }
+
+  private assertEventReleaseExists(
+    packageId: PackageId,
+    version: string,
+  ): void {
+    if (!this.eventReleaseExists(packageId, version)) {
+      throw new RegistryEventIntegrityError(
+        `Registry event channel target version does not exist: ${version}`,
+      )
+    }
+  }
+
+  private assertEventChannelVersion(
+    packageId: PackageId,
+    channel: string,
+    expectedVersion: string | undefined,
+  ): void {
+    const actualVersion = this.eventChannelVersion(packageId, channel)
+
+    if (actualVersion !== expectedVersion) {
+      throw new RegistryEventIntegrityError(
+        `Registry event previousVersion does not match indexed event channel state: ${packageId}#${channel}`,
+      )
+    }
+  }
+
+  private eventReleaseExists(packageId: PackageId, version: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+            FROM registry_event_releases
+            WHERE package_id = ? AND version = ?
+            LIMIT 1`,
+        )
+        .get(packageId, version),
+    )
+  }
+
+  private eventChannelVersion(
+    packageId: PackageId,
+    channel: string,
+  ): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT version
+          FROM registry_event_channels
+          WHERE package_id = ? AND channel = ?`,
+      )
+      .get(packageId, channel)
+
+    return row ? requiredText(row, 'version') : undefined
   }
 
   private releaseExists(packageId: PackageId, version: string): boolean {

@@ -2,7 +2,9 @@ import { Hono, type Context } from 'hono'
 import { decodeRequestComponent, requiredParam } from '../request.ts'
 import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
 import {
+  createLocalNpmVersionManifest,
   localNpmPackageId,
+  npmDistTagsEtag,
   npmVersionManifestEtag,
   readLocalNpmPackageProjection,
 } from './projection.ts'
@@ -224,22 +226,20 @@ async function serveNpmDistTags(
   packageName: string,
 ): Promise<Response> {
   const packageId = localNpmPackageId(packageName)
-  const releases = packageId
-    ? await adapters.database.listPackageReleases(packageId)
-    : []
 
-  if (packageId && releases.length > 0) {
-    const projection = await readLocalNpmPackageProjection(
-      adapters,
-      packageId,
-      releases,
-      new URL(context.req.url),
-    )
-    return serveNpmProjectionJson(
-      context,
-      projection.packument['dist-tags'],
-      projection.etag,
-    )
+  if (packageId) {
+    const channels = await adapters.database.getPackageChannels(packageId)
+
+    if (
+      Object.keys(channels).length > 0 ||
+      (await adapters.database.hasPackage(packageId))
+    ) {
+      return serveNpmProjectionJson(
+        context,
+        channels,
+        npmDistTagsEtag(channels),
+      )
+    }
   }
 
   return upstream.distTags(context, packageName)
@@ -254,47 +254,35 @@ async function serveNpmPackageManifest(
 ): Promise<Response> {
   const tagOrVersion = decodeRequestComponent(rawTagOrVersion)
   const packageId = localNpmPackageId(packageName)
-  const releases = packageId
-    ? await adapters.database.listPackageReleases(packageId)
-    : []
 
-  if (packageId && releases.length > 0) {
-    const projection = await readLocalNpmPackageProjection(
-      adapters,
-      packageId,
-      releases,
-      new URL(context.req.url),
-    )
-    const packument = projection.packument
-    const taggedVersion = packument['dist-tags'][tagOrVersion]
+  if (packageId) {
+    const channels = await adapters.database.getPackageChannels(packageId)
+    const taggedVersion = channels[tagOrVersion]
     const version = taggedVersion ?? tagOrVersion
-    const manifest = packument.versions[version]
+    const release = await adapters.database.getRelease(packageId, version)
 
-    if (!manifest) {
+    if (release) {
+      return serveNpmProjectionJson(
+        context,
+        createLocalNpmVersionManifest(new URL(context.req.url), packageId, {
+          manifest: release.manifest,
+        }),
+        npmVersionManifestEtag(release.event.id),
+        taggedVersion === undefined
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache',
+      )
+    }
+
+    if (
+      Object.keys(channels).length > 0 ||
+      (await adapters.database.hasPackage(packageId))
+    ) {
       return context.json(
         errorResponse('package_version_not_found', 'Package version not found'),
         404,
       )
     }
-
-    if (taggedVersion) {
-      return serveNpmProjectionJson(context, manifest, projection.etag)
-    }
-
-    const release = releases.find((candidate) => {
-      return candidate.manifest.version === version
-    })
-
-    if (!release) {
-      throw new Error('Release projection is inconsistent')
-    }
-
-    return serveNpmProjectionJson(
-      context,
-      manifest,
-      npmVersionManifestEtag(release.event.id),
-      'public, max-age=31536000, immutable',
-    )
   }
 
   return upstream.packageManifest(context, packageName, tagOrVersion)

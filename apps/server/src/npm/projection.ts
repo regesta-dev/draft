@@ -4,11 +4,14 @@ import {
   npmInstallArtifact,
   npmPackageIdFromName,
   type NpmPackument,
+  type NpmPackumentVersion,
 } from '@regesta/npm'
-import type {
-  PackageId,
-  RegistryEvent,
-  ReleaseManifest,
+import {
+  canonicalJson,
+  sha256,
+  type PackageId,
+  type RegistryEvent,
+  type ReleaseManifest,
 } from '@regesta/protocol'
 
 export interface NpmProjectionStateReader {
@@ -65,6 +68,31 @@ export async function readLocalNpmPackageProjection(
 
 export function npmVersionManifestEtag(releaseEventId: string): string {
   return `W/"regesta.npm-version:${releaseEventId}"`
+}
+
+export function npmDistTagsEtag(channels: Record<string, string>): string {
+  return `W/"regesta.npm-dist-tags:${sha256(canonicalJson(channels))}"`
+}
+
+export function createLocalNpmVersionManifest(
+  requestUrl: URL,
+  packageId: PackageId,
+  release: { manifest: ReleaseManifest },
+): NpmPackumentVersion {
+  const packument = createLocalNpmPackument(
+    requestUrl,
+    packageId,
+    [release],
+    {},
+    release.manifest.createdAt,
+  )
+  const manifest = packument.versions[release.manifest.version]
+
+  if (!manifest) {
+    throw new Error('Release projection is inconsistent')
+  }
+
+  return manifest
 }
 
 function createLocalNpmPackument(

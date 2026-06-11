@@ -85,6 +85,13 @@ describe('createNpmRegistryRoutes', () => {
     })
     const reader = {
       database: {
+        getPackageChannels: vi.fn(() =>
+          Promise.resolve({
+            latest: '1.0.0',
+          }),
+        ),
+        getRelease: vi.fn(() => Promise.resolve(undefined)),
+        hasPackage: vi.fn(() => Promise.resolve(true)),
         listPackageEvents: vi.fn(() => Promise.resolve([event])),
         listPackageReleases: vi.fn(() =>
           Promise.resolve([
@@ -126,6 +133,129 @@ describe('createNpmRegistryRoutes', () => {
     })
     expect(reader.database.listPackageReleases).toHaveBeenCalledWith(packageId)
     expect(reader.database.listPackageEvents).toHaveBeenCalledWith(packageId)
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
+  it('serves local npm dist-tags from indexed channel state', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('upstream fallback should not be used for local packages')
+    })
+    const reader = {
+      database: {
+        getPackageChannels: vi.fn(() =>
+          Promise.resolve({
+            latest: '1.0.0',
+            next: '2.0.0',
+          }),
+        ),
+        getRelease: vi.fn(() => Promise.resolve(undefined)),
+        hasPackage: vi.fn(() => Promise.resolve(true)),
+        listPackageEvents: vi.fn(() => Promise.resolve([])),
+        listPackageReleases: vi.fn(() => Promise.resolve([])),
+      },
+    } satisfies NpmRegistryReader
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const response = await app.request(
+      'https://npm.registry.test/-/package/@example.com/hello-regesta/dist-tags',
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      latest: '1.0.0',
+      next: '2.0.0',
+    })
+    expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(reader.database.hasPackage).not.toHaveBeenCalled()
+    expect(reader.database.listPackageEvents).not.toHaveBeenCalled()
+    expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
+  it('serves local npm tagged manifests from indexed channel and release state', async () => {
+    const manifest = releaseManifest()
+    const event = publishEvent(manifest)
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('upstream fallback should not be used for local packages')
+    })
+    const reader = {
+      database: {
+        getPackageChannels: vi.fn(() =>
+          Promise.resolve({
+            latest: '1.0.0',
+          }),
+        ),
+        getRelease: vi.fn(() =>
+          Promise.resolve({
+            event,
+            manifest,
+          }),
+        ),
+        hasPackage: vi.fn(() => Promise.resolve(true)),
+        listPackageEvents: vi.fn(() => Promise.resolve([])),
+        listPackageReleases: vi.fn(() => Promise.resolve([])),
+      },
+    } satisfies NpmRegistryReader
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const response = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta/latest',
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    await expect(response.json()).resolves.toMatchObject({
+      dist: {
+        tarball: `https://registry.test/objects/${installArtifactDigest(manifest)}`,
+      },
+      name: '@example.com/hello-regesta',
+      version: '1.0.0',
+    })
+    expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(reader.database.getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
+    expect(reader.database.hasPackage).not.toHaveBeenCalled()
+    expect(reader.database.listPackageEvents).not.toHaveBeenCalled()
+    expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 for missing versions when indexed local package exists', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('upstream fallback should not be used for local packages')
+    })
+    const reader = {
+      database: {
+        getPackageChannels: vi.fn(() => Promise.resolve({})),
+        getRelease: vi.fn(() => Promise.resolve(undefined)),
+        hasPackage: vi.fn(() => Promise.resolve(true)),
+        listPackageEvents: vi.fn(() => Promise.resolve([])),
+        listPackageReleases: vi.fn(() => Promise.resolve([])),
+      },
+    } satisfies NpmRegistryReader
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const response = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta/missing',
+    )
+
+    expect(response.status).toBe(404)
+    expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(reader.database.getRelease).toHaveBeenCalledWith(
+      packageId,
+      'missing',
+    )
+    expect(reader.database.hasPackage).toHaveBeenCalledWith(packageId)
+    expect(reader.database.listPackageEvents).not.toHaveBeenCalled()
+    expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 })

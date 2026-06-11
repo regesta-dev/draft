@@ -897,7 +897,7 @@ describe('publishRelease', () => {
     })
   })
 
-  it('derives channel mutation state from append-only package events', async () => {
+  it('derives channel mutation state from indexed package channels', async () => {
     const adapters = createTestRegistryAdapters()
 
     await publishRelease(
@@ -907,8 +907,8 @@ describe('publishRelease', () => {
       },
       adapters,
     )
-    adapters.database.getPackageChannels = () =>
-      Promise.reject(new Error('channel mutations should not read views'))
+    adapters.database.listPackageEvents = () =>
+      Promise.reject(new Error('channel mutations should not replay events'))
 
     await expect(
       updatePackageChannel(adapters, {
@@ -927,6 +927,50 @@ describe('publishRelease', () => {
         timestamp: '2026-06-01T00:02:00.000Z',
       }),
     ).resolves.toMatchObject({
+      previousVersion: '0.0.1',
+    })
+  })
+
+  it('uses caller-bound previous channel versions for mutations', async () => {
+    const adapters = createTestRegistryAdapters()
+
+    await publishRelease(
+      {
+        ...createPublishInput(),
+        createdAt: '2026-06-01T00:00:00.000Z',
+      },
+      adapters,
+    )
+    adapters.database.getPackageChannels = () =>
+      Promise.reject(
+        new Error('caller-bound channel mutations should not reread channels'),
+      )
+
+    await expect(
+      updatePackageChannel(adapters, {
+        channel: 'latest',
+        packageId: 'npm:example.com/hello-regesta',
+        previousVersion: '0.0.1',
+        timestamp: '2026-06-01T00:01:00.000Z',
+        version: '0.0.1',
+      }),
+    ).resolves.toMatchObject({
+      event: {
+        previousVersion: '0.0.1',
+      },
+      previousVersion: '0.0.1',
+    })
+    await expect(
+      deletePackageChannel(adapters, {
+        channel: 'latest',
+        packageId: 'npm:example.com/hello-regesta',
+        previousVersion: '0.0.1',
+        timestamp: '2026-06-01T00:02:00.000Z',
+      }),
+    ).resolves.toMatchObject({
+      event: {
+        previousVersion: '0.0.1',
+      },
       previousVersion: '0.0.1',
     })
   })
@@ -2026,6 +2070,7 @@ function createTestRegistryAdapters(): RegistryAdapters {
       },
       getRelease: (packageId, version) =>
         Promise.resolve(releases.get(packageId)?.get(version)),
+      hasPackage: (packageId) => Promise.resolve(releases.has(packageId)),
       hasAuthorizationPayloadDigest: (payloadDigest) =>
         Promise.resolve(
           events.some((event) => {

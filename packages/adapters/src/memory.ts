@@ -3,6 +3,7 @@ import {
   PackageChannelConflictError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
+  RegistryEventIntegrityError,
   ReleaseAlreadyExistsError,
   ReleaseNotFoundError,
   WriteAuthorizationReplayError,
@@ -18,7 +19,6 @@ import {
   type Sha256Digest,
 } from '@regesta/protocol'
 import {
-  assertAppendableRegistryEvent,
   assertPersistableRegistryEvent,
   assertPersistableStoredRelease,
 } from './events.ts'
@@ -206,7 +206,9 @@ function copyStoredRelease(release: StoredRelease): StoredRelease {
 export class MemoryRegistryDatabase implements RegistryDatabase {
   readonly authorizationPayloadDigests: Set<Sha256Digest> = new Set()
   readonly channels: Map<PackageId, Map<string, string>> = new Map()
+  readonly eventChannels: Map<PackageId, Map<string, string>> = new Map()
   readonly eventIds: Set<Sha256Digest> = new Set()
+  readonly eventReleases: Map<PackageId, Set<string>> = new Map()
   readonly events: RegistryEvent[] = []
   readonly releases: Map<PackageId, Map<string, StoredRelease>> = new Map()
 
@@ -216,12 +218,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
 
   appendEvent(event: RegistryEvent): Promise<void> {
     const payloadDigest = this.assertNewEvent(event)
-    assertAppendableRegistryEvent(
-      this.events.filter((item) => {
-        return eventPackageId(item) === eventPackageId(event)
-      }),
-      event,
-    )
+    this.assertRegistryEventCanBeApplied(event)
     this.commitEventAfterChecks(event, payloadDigest)
     return Promise.resolve()
   }
@@ -237,7 +234,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
       packageChannels.get(event.channel),
     )
     this.assertReleaseExists(event.package, event.version)
-    assertAppendableRegistryEvent(this.packageEvents(event), event)
+    this.assertRegistryEventCanBeApplied(event)
 
     this.commitEventAfterChecks(event, payloadDigest)
     packageChannels.set(event.channel, event.version)
@@ -256,7 +253,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
       event.previousVersion,
       packageChannels.get(event.channel),
     )
-    assertAppendableRegistryEvent(this.packageEvents(event), event)
+    this.assertRegistryEventCanBeApplied(event)
 
     this.commitEventAfterChecks(event, payloadDigest)
     packageChannels.delete(event.channel)
@@ -279,10 +276,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     if (versions.has(release.manifest.version)) {
       throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
     }
-    assertAppendableRegistryEvent(
-      this.packageEvents(release.event),
-      release.event,
-    )
+    this.assertRegistryEventCanBeApplied(release.event)
 
     this.commitEventAfterChecks(release.event, payloadDigest)
     versions.set(release.manifest.version, copyStoredRelease(release))
@@ -361,6 +355,10 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     return Promise.resolve(release ? copyStoredRelease(release) : undefined)
   }
 
+  hasPackage(packageId: PackageId): Promise<boolean> {
+    return Promise.resolve(this.releases.has(packageId))
+  }
+
   hasAuthorizationPayloadDigest(payloadDigest: Sha256Digest): Promise<boolean> {
     return Promise.resolve(this.authorizationPayloadDigests.has(payloadDigest))
   }
@@ -428,14 +426,6 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     return payloadDigest
   }
 
-  private packageEvents(event: RegistryEvent): RegistryEvent[] {
-    return this.events
-      .filter((item) => {
-        return eventPackageId(item) === eventPackageId(event)
-      })
-      .map((item) => copyRegistryEvent(item))
-  }
-
   private commitEventAfterChecks(
     event: RegistryEvent,
     payloadDigest: Sha256Digest | undefined,
@@ -446,6 +436,70 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
 
     this.eventIds.add(event.id)
     this.events.push(copyRegistryEvent(event))
+    this.applyRegistryEventState(event)
+  }
+
+  private assertRegistryEventCanBeApplied(event: RegistryEvent): void {
+    switch (event.eventType) {
+      case 'release.published': {
+        if (
+          this.eventReleases.get(event.release.id)?.has(event.release.version)
+        ) {
+          throw new RegistryEventIntegrityError(
+            `Registry event release version already exists: ${event.release.version}`,
+          )
+        }
+        break
+      }
+      case 'channel.updated': {
+        this.assertEventReleaseExists(event.package, event.version)
+        this.assertEventChannelVersion(
+          event.package,
+          event.channel,
+          event.previousVersion,
+        )
+        break
+      }
+      case 'channel.deleted': {
+        this.assertEventChannelVersion(
+          event.package,
+          event.channel,
+          event.previousVersion,
+        )
+        break
+      }
+    }
+  }
+
+  private applyRegistryEventState(event: RegistryEvent): void {
+    switch (event.eventType) {
+      case 'release.published': {
+        const packageReleases =
+          this.eventReleases.get(event.release.id) ?? new Set<string>()
+        packageReleases.add(event.release.version)
+        this.eventReleases.set(event.release.id, packageReleases)
+
+        const packageChannels =
+          this.eventChannels.get(event.release.id) ?? new Map<string, string>()
+        packageChannels.set(event.channel, event.release.version)
+        this.eventChannels.set(event.release.id, packageChannels)
+        break
+      }
+      case 'channel.updated': {
+        const packageChannels =
+          this.eventChannels.get(event.package) ?? new Map<string, string>()
+        packageChannels.set(event.channel, event.version)
+        this.eventChannels.set(event.package, packageChannels)
+        break
+      }
+      case 'channel.deleted': {
+        const packageChannels =
+          this.eventChannels.get(event.package) ?? new Map<string, string>()
+        packageChannels.delete(event.channel)
+        this.eventChannels.set(event.package, packageChannels)
+        break
+      }
+    }
   }
 
   private assertExpectedChannelVersion(
@@ -467,6 +521,31 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   private assertReleaseExists(packageId: PackageId, version: string): void {
     if (!this.releases.get(packageId)?.has(version)) {
       throw new ReleaseNotFoundError(packageId, version)
+    }
+  }
+
+  private assertEventReleaseExists(
+    packageId: PackageId,
+    version: string,
+  ): void {
+    if (!this.eventReleases.get(packageId)?.has(version)) {
+      throw new RegistryEventIntegrityError(
+        `Registry event channel target version does not exist: ${version}`,
+      )
+    }
+  }
+
+  private assertEventChannelVersion(
+    packageId: PackageId,
+    channel: string,
+    expectedVersion: string | undefined,
+  ): void {
+    const actualVersion = this.eventChannels.get(packageId)?.get(channel)
+
+    if (actualVersion !== expectedVersion) {
+      throw new RegistryEventIntegrityError(
+        `Registry event previousVersion does not match indexed event channel state: ${packageId}#${channel}`,
+      )
     }
   }
 }
