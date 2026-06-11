@@ -4936,6 +4936,18 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
     )
     expect(await deployedUnscopedTarball.text()).toBe('')
+    const deployedUnscopedTarballHead = await app.request(
+      'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(deployedUnscopedTarballHead.status).toBe(302)
+    expect(deployedUnscopedTarballHead.headers.get('location')).toBe(
+      'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    expect(await deployedUnscopedTarballHead.text()).toBe('')
     expect(fetchCalls).toHaveLength(7)
   })
 
