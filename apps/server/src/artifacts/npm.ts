@@ -2,7 +2,9 @@ import { processNpmPublishArtifacts } from '@regesta/npm'
 import type {
   ProcessPublishArtifactsInput,
   ProcessPublishArtifactsOutput,
+  PublishArtifactForProcessing,
 } from './process.ts'
+import type { ArtifactEcosystemMetadata } from '@regesta/protocol'
 
 export async function processNpmArtifacts(
   input: ProcessPublishArtifactsInput,
@@ -26,17 +28,14 @@ export async function processNpmArtifacts(
   }
 
   return {
-    artifacts: input.artifacts.map((artifact) => ({
-      ...artifact,
-      ...(artifact.role === 'install' && npmProcessing.ecosystemMetadata
-        ? {
-            ecosystemMetadata: {
-              ...artifact.ecosystemMetadata,
-              ...npmProcessing.ecosystemMetadata,
-            },
-          }
-        : {}),
-    })),
+    artifacts: input.artifacts.map((artifact) =>
+      artifact.role === 'install'
+        ? applyNpmEcosystemMetadata(
+            artifact,
+            npmProcessing.ecosystemMetadata?.npm,
+          )
+        : artifact,
+    ),
     config:
       input.config.description === undefined &&
       npmProcessing.description !== undefined
@@ -46,4 +45,33 @@ export async function processNpmArtifacts(
           }
         : input.config,
   }
+}
+
+function applyNpmEcosystemMetadata(
+  artifact: PublishArtifactForProcessing,
+  npmMetadata: unknown,
+): PublishArtifactForProcessing {
+  const { ecosystemMetadata, ...artifactWithoutMetadata } = artifact
+  const retainedMetadata = omitNpmEcosystemMetadata(ecosystemMetadata)
+  const nextMetadata = {
+    ...retainedMetadata,
+    ...(npmMetadata === undefined ? {} : { npm: npmMetadata }),
+  }
+
+  return Object.keys(nextMetadata).length > 0
+    ? {
+        ...artifactWithoutMetadata,
+        ecosystemMetadata: nextMetadata,
+      }
+    : artifactWithoutMetadata
+}
+
+function omitNpmEcosystemMetadata(
+  metadata: ArtifactEcosystemMetadata | undefined,
+): ArtifactEcosystemMetadata {
+  return Object.fromEntries(
+    Object.entries(metadata ?? {}).filter(([key]) => {
+      return key !== 'npm'
+    }),
+  )
 }

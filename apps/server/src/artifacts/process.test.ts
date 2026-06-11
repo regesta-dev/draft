@@ -176,6 +176,11 @@ describe('processPublishArtifacts', () => {
               custom: {
                 retained: true,
               },
+              npm: {
+                dependencies: {
+                  '@example.com/base': '^9.0.0',
+                },
+              },
             },
             mediaType: 'application/gzip',
             role: 'install',
@@ -202,6 +207,42 @@ describe('processPublishArtifacts', () => {
         ...npmConfig(),
         description: 'Fixture package',
       },
+    })
+  })
+
+  it('drops stale npm metadata when install artifacts do not declare npm resolver metadata', async () => {
+    const tarball = await createNpmTarball({
+      dependencies: undefined,
+      description: undefined,
+    })
+
+    await expect(
+      processPublishArtifacts({
+        artifacts: [
+          {
+            bytes: tarball,
+            ecosystemMetadata: {
+              npm: {
+                dependencies: {
+                  '@example.com/base': '^9.0.0',
+                },
+              },
+            },
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: npmConfig(),
+      }),
+    ).resolves.toEqual({
+      artifacts: [
+        {
+          bytes: tarball,
+          mediaType: 'application/gzip',
+          role: 'install',
+        },
+      ],
+      config: npmConfig(),
     })
   })
 
