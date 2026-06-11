@@ -1124,6 +1124,16 @@ describe('createRegestaApp', () => {
     const secondPage = await app.request(
       `/objects?after=${encodeURIComponent(sorted[1]!.digest)}&limit=2`,
     )
+    const emptyPageUrl = `/objects?after=${encodeURIComponent(sorted[2]!.digest)}&limit=2`
+    const emptyPage = await app.request(emptyPageUrl)
+    const emptyPageHead = await app.request(emptyPageUrl, {
+      method: 'HEAD',
+    })
+    const conditionalEmptyPage = await app.request(emptyPageUrl, {
+      headers: {
+        'if-none-match': `W/"regesta.object-inventory:${sorted[2]!.digest}:0"`,
+      },
+    })
     const missingCursor = await app.request(
       `/objects?after=${encodeURIComponent(sha256(bytes('missing')))}`,
     )
@@ -1167,6 +1177,41 @@ describe('createRegestaApp', () => {
       object: 'regesta.object-inventory',
       objects: sorted.slice(2),
     })
+    expect(emptyPage.status).toBe(200)
+    expect(emptyPage.headers.get('cache-control')).toBe('no-cache')
+    expect(emptyPage.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(emptyPage.headers.get('etag')).toBe(
+      `W/"regesta.object-inventory:${sorted[2]!.digest}:0"`,
+    )
+    const emptyPageText = await emptyPage.clone().text()
+    expect(emptyPage.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(emptyPageText)),
+    )
+    await expect(emptyPage.json()).resolves.toEqual({
+      object: 'regesta.object-inventory',
+      objects: [],
+    })
+    expect(emptyPageHead.status).toBe(200)
+    expect(emptyPageHead.headers.get('cache-control')).toBe('no-cache')
+    expect(emptyPageHead.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(emptyPageHead.headers.get('etag')).toBe(
+      `W/"regesta.object-inventory:${sorted[2]!.digest}:0"`,
+    )
+    expect(emptyPageHead.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(emptyPageText)),
+    )
+    expect(await emptyPageHead.text()).toBe('')
+    expect(conditionalEmptyPage.status).toBe(304)
+    expect(conditionalEmptyPage.headers.get('cache-control')).toBe('no-cache')
+    expect(conditionalEmptyPage.headers.get('etag')).toBe(
+      `W/"regesta.object-inventory:${sorted[2]!.digest}:0"`,
+    )
+    expect(conditionalEmptyPage.headers.get('content-length')).toBeNull()
+    expect(await conditionalEmptyPage.text()).toBe('')
     expect(missingCursor.status).toBe(404)
     await expect(missingCursor.json()).resolves.toMatchObject({
       code: 'object_cursor_not_found',
@@ -4999,6 +5044,7 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/-/package/%40upstream%2Fpkg/dist-tags',
     )
 
+    const fetchCallsBeforeTarballs = fetchCalls.length
     const tarball = await app.request(
       'http://npm.registry.test/@upstream/pkg/-/pkg-1.0.0.tgz',
     )
@@ -5008,6 +5054,7 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/%40upstream%2Fpkg/-/pkg-1.0.0.tgz',
     )
     expect(await tarball.text()).toBe('')
+    expect(fetchCalls).toHaveLength(fetchCallsBeforeTarballs)
     const unscopedTarball = await app.request(
       'http://npm.registry.test/tinyexec/-/tinyexec-0.0.1.tgz',
     )
@@ -5017,6 +5064,7 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
     )
     expect(await unscopedTarball.text()).toBe('')
+    expect(fetchCalls).toHaveLength(fetchCallsBeforeTarballs)
     const deployedUnscopedTarball = await app.request(
       'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
     )
@@ -5026,6 +5074,7 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
     )
     expect(await deployedUnscopedTarball.text()).toBe('')
+    expect(fetchCalls).toHaveLength(fetchCallsBeforeTarballs)
     const deployedUnscopedTarballHead = await app.request(
       'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
       {
@@ -5038,7 +5087,7 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
     )
     expect(await deployedUnscopedTarballHead.text()).toBe('')
-    expect(fetchCalls).toHaveLength(7)
+    expect(fetchCalls).toHaveLength(fetchCallsBeforeTarballs)
   })
 
   it('logs upstream npm fallback failures while returning structured errors', async () => {
