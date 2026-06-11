@@ -20,8 +20,12 @@ import {
 import { domainBindingFetchForRequest } from './dev/domain-binding.ts'
 import { createNpmRegistryRoutes, type NpmRegistryReader } from './npm/app.ts'
 import { RequestValidationError } from './request.ts'
-import { createStorageReadinessCheck } from './storage/readiness.ts'
+import {
+  createStorageReadinessCheck,
+  type StorageReadinessCheckOptions,
+} from './storage/readiness.ts'
 import { createTransportRoutes, type StatisticsRead } from './transport/app.ts'
+import { normalizeDeploymentStatistics } from './transport/build-info.ts'
 import { createCorsMiddleware } from './transport/cors.ts'
 import { createTransportErrorBoundary } from './transport/errors.ts'
 import {
@@ -45,6 +49,7 @@ export interface RegestaAppOptions {
   npmUpstreamFetch?: typeof fetch
   publishUploadLimits?: PublishUploadLimits
   requestLog?: RequestLogSink
+  readiness?: StorageReadinessCheckOptions
   requestSizeLimit?: RequestSizeLimitOptions
 }
 
@@ -121,7 +126,7 @@ export function createRegestaApp(
   app.route(
     '/root',
     createTransportRoutes({
-      readiness: createStorageReadinessCheck(adapters),
+      readiness: createStorageReadinessCheck(adapters, options.readiness),
       statistics: createDeploymentStatisticsRead(adapters),
     }),
   )
@@ -178,7 +183,7 @@ function createDeploymentStatisticsRead(
     pending ??= adapters.database
       .countPackages()
       .then((packages) => {
-        const value = { packages }
+        const value = normalizeDeploymentStatistics({ packages })
         cached = {
           expiresAt: Date.now() + deploymentStatisticsCacheTtlMs,
           value,

@@ -388,6 +388,9 @@ describe('documentation references', () => {
       'readiness reads',
       'object inventory reads',
       'redirected object downloads',
+      'readiness checks are cheap, bounded, independent adapter probes',
+      'REGESTA_READINESS_TIMEOUT_MS',
+      'falling back to a 5s timeout',
     ]) {
       expect(normalizedOperations).toContain(text)
     }
@@ -617,6 +620,41 @@ describe('documentation references', () => {
         $ref: '#/components/headers/NoStoreCacheControl',
       })
     }
+  })
+
+  it('documents readiness as named independent adapter checks', async () => {
+    const api = await readText('api.md')
+    const readinessDescription = await openapiValueAtPointer(
+      '#/components/schemas/ReadinessStatus/description',
+    )
+
+    expect(readinessDescription).toContain('Aggregate adapter readiness status')
+    expect(readinessDescription).toContain(
+      'bounded by deployment timeout policy',
+    )
+    expect(api).toContain(
+      '`/ready` aggregates independent adapter readiness checks',
+    )
+    expect(api).toMatch(/must\s+not depend on probe ordering/u)
+  })
+
+  it('documents deployment statistics as advisory cached status data', async () => {
+    await expect(
+      openapiValueAtPointer(
+        '#/components/schemas/DeploymentInfo/properties/statistics/description',
+      ),
+    ).resolves.toContain('Advisory deployment statistics')
+    await expect(
+      openapiValueAtPointer(
+        '#/components/schemas/DeploymentInfo/properties/statistics/properties/packages/description',
+      ),
+    ).resolves.toContain('not a consistency boundary')
+    await expect(readText('api.md')).resolves.toContain(
+      'Registry statistics are advisory status data.',
+    )
+    await expect(readText('api.md')).resolves.toContain(
+      'briefly to keep status checks cheap under load.',
+    )
   })
 
   it('keeps the machine-readable core schema free of ecosystem projection terms', async () => {

@@ -81,7 +81,7 @@ function nonEmptyString(value: string | undefined): string | undefined {
   return value && value.length > 0 ? value : undefined
 }
 
-function normalizeDeploymentStatistics(
+export function normalizeDeploymentStatistics(
   statistics: DeploymentStatistics,
 ): DeploymentStatistics {
   if (!Number.isSafeInteger(statistics.packages) || statistics.packages < 0) {

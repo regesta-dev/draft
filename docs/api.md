@@ -51,12 +51,16 @@ The root route returns deployment information: service name, package version,
 runtime, build time, git sha, dirty state, and registry statistics such as the
 current package count. It is meant for operators and debugging.
 
+Registry statistics are advisory status data. Implementations may cache them
+briefly to keep status checks cheap under load.
+
 `/health` is a lightweight liveness check and returns `{ "ok": true }` when
 the process can answer requests.
 
-`/ready` checks storage dependencies and returns `200` when database, object
-storage, queue, and signer are ready. It returns `503` when any dependency is
-not ready.
+`/ready` aggregates independent adapter readiness checks and returns `200` when
+database, object storage, queue, and signer are ready. It returns `503` when
+any dependency is not ready. Clients should read the `checks` object and must
+not depend on probe ordering.
 
 Transport status responses use `Cache-Control: no-store`.
 

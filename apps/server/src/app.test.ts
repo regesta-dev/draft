@@ -177,10 +177,124 @@ describe('createRegestaApp', () => {
     expect(countPackages).toHaveBeenCalledTimes(1)
   })
 
+  it('coalesces concurrent deployment statistics reads', async () => {
+    const pendingCount = deferred<number>()
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() => pendingCount.promise)
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters)
+
+    const first = app.request('/')
+    const second = app.request('/')
+
+    await Promise.resolve()
+    expect(countPackages).toHaveBeenCalledTimes(1)
+
+    pendingCount.resolve(11)
+    const responses = await Promise.all([first, second])
+
+    for (const response of responses) {
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 11,
+        },
+      })
+    }
+    expect(countPackages).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes deployment statistics after the cache ttl expires', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() =>
+      Promise.resolve(countPackages.mock.calls.length),
+    )
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters)
+
+    try {
+      const first = await app.request('/')
+      dateNow.mockReturnValue(10_999)
+      const cached = await app.request('/')
+      dateNow.mockReturnValue(11_000)
+      const refreshed = await app.request('/')
+
+      await expect(first.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 1,
+        },
+      })
+      await expect(cached.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 1,
+        },
+      })
+      await expect(refreshed.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 2,
+        },
+      })
+      expect(countPackages).toHaveBeenCalledTimes(2)
+    } finally {
+      dateNow.mockRestore()
+    }
+  })
+
+  it('does not cache failed deployment statistics reads', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi
+      .fn<() => Promise<number>>()
+      .mockRejectedValueOnce(new Error('transient statistics failure'))
+      .mockResolvedValueOnce(13)
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters)
+
+    try {
+      const failed = await app.request('http://registry.test/', {
+        headers: {
+          'x-request-id': 'transient-statistics-failure-001',
+        },
+      })
+      const recovered = await app.request('http://registry.test/')
+
+      expect(failed.status).toBe(500)
+      await expect(failed.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(recovered.status).toBe(200)
+      await expect(recovered.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 13,
+        },
+      })
+      expect(countPackages).toHaveBeenCalledTimes(2)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: 'transient statistics failure',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'transient-statistics-failure-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('logs schema-invalid deployment statistics at the transport boundary', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const adapters = createMemoryRegistryAdapters()
-    adapters.database.countPackages = () => Promise.resolve(-1)
+    const countPackages = vi
+      .fn<() => Promise<number>>()
+      .mockResolvedValueOnce(-1)
+      .mockResolvedValueOnce(17)
+    adapters.database.countPackages = countPackages
     const app = createRegestaApp(adapters)
 
     try {
@@ -210,6 +324,15 @@ describe('createRegestaApp', () => {
           requestId: 'invalid-deployment-statistics-001',
         }),
       )
+      const recovered = await app.request('http://registry.test/')
+
+      expect(recovered.status).toBe(200)
+      await expect(recovered.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 17,
+        },
+      })
+      expect(countPackages).toHaveBeenCalledTimes(2)
     } finally {
       consoleError.mockRestore()
     }
@@ -242,6 +365,39 @@ describe('createRegestaApp', () => {
     expect(readyHead.status).toBe(503)
     expect(readyHead.headers.get('cache-control')).toBe('no-store')
     expect(await readyHead.text()).toBe('')
+  })
+
+  it('applies configured readiness probe timeouts to ready checks', async () => {
+    vi.useFakeTimers()
+    const adapters = createMemoryRegistryAdapters()
+    adapters.database.checkReadiness = () => new Promise<void>(() => {})
+    const app = createRegestaApp(adapters, {
+      readiness: {
+        timeoutMs: 50,
+      },
+    })
+
+    try {
+      const ready = app.request('/ready')
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      const response = await ready
+      expect(response.status).toBe(503)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      await expect(response.json()).resolves.toMatchObject({
+        checks: {
+          database: false,
+          objects: true,
+          queue: true,
+          signer: true,
+        },
+        kind: 'regesta.readiness',
+        ok: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('checks database readiness without scanning the event log', async () => {
@@ -6300,6 +6456,29 @@ function requiredHeader(response: Response, name: string): string {
   }
 
   return value
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  reject: (error: unknown) => void
+  resolve: (value: T) => void
+} {
+  let rejectPromise: ((error: unknown) => void) | undefined
+  let resolvePromise: ((value: T) => void) | undefined
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve
+    rejectPromise = reject
+  })
+
+  if (!resolvePromise || !rejectPromise) {
+    throw new Error('Failed to create deferred promise')
+  }
+
+  return {
+    promise,
+    reject: rejectPromise,
+    resolve: resolvePromise,
+  }
 }
 
 async function prepareFixtureNpmPublish(projectDir: string): Promise<{

@@ -1064,10 +1064,12 @@
           },
           "service": { "type": "string" },
           "statistics": {
+            "description": "Advisory deployment statistics for operators. Implementations may cache these values briefly to keep status checks cheap under load.",
             "type": "object",
             "additionalProperties": false,
             "properties": {
               "packages": {
+                "description": "Approximate current package count exposed as status data, not a consistency boundary.",
                 "type": "integer",
                 "maximum": 9007199254740991,
                 "minimum": 0
@@ -1221,6 +1223,7 @@
         "$ref": "../schema/regesta-v0.schema.json#/$defs/releaseManifest"
       },
       "ReadinessStatus": {
+        "description": "Aggregate adapter readiness status. Checks are independent and bounded by deployment timeout policy; clients should read named check results and must not depend on probe ordering.",
         "type": "object",
         "additionalProperties": false,
         "properties": {

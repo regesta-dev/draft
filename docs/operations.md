@@ -192,7 +192,12 @@ adapters:
 - content-addressed objects are immutable by digest;
 - object descriptors match stored bytes;
 - queues do not corrupt messages under concurrent writers;
+- readiness checks are cheap, bounded, independent adapter probes;
 - readiness checks fail closed when a dependency is unavailable.
+
+The default server bounds each readiness probe with
+`REGESTA_READINESS_TIMEOUT_MS`, falling back to a 5s timeout when the variable
+is not set.
 
 The backend can be Postgres, DynamoDB, S3, R2, GCS, a platform queue, KMS, or
 another service. The registry core should continue to see only adapters.

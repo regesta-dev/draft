@@ -14,6 +14,7 @@ const app: Hono = createRegestaApp(createLocalRegistryAdapters(dataDir), {
     console.info(JSON.stringify(entry))
   },
   publishUploadLimits: readPublishUploadLimits(process.env),
+  readiness: readReadinessOptions(process.env),
   requestSizeLimit: readRequestSizeLimit(process.env),
 })
 
@@ -50,6 +51,17 @@ function readRequestSizeLimit(
   return maxBytes === undefined ? undefined : { maxBytes }
 }
 
+function readReadinessOptions(
+  env: NodeJS.ProcessEnv,
+): { timeoutMs?: number } | undefined {
+  const timeoutMs = readOptionalPositiveInteger(
+    env.REGESTA_READINESS_TIMEOUT_MS,
+    'REGESTA_READINESS_TIMEOUT_MS',
+  )
+
+  return timeoutMs === undefined ? undefined : { timeoutMs }
+}
+
 function readOptionalByteLimit(
   value: string | undefined,
   name: string,
@@ -62,6 +74,23 @@ function readOptionalByteLimit(
 
   if (!Number.isSafeInteger(limit) || limit < 0) {
     throw new TypeError(`${name} must be a non-negative safe integer`)
+  }
+
+  return limit
+}
+
+function readOptionalPositiveInteger(
+  value: string | undefined,
+  name: string,
+): number | undefined {
+  if (value === undefined || value.length === 0) {
+    return undefined
+  }
+
+  const limit = Number(value)
+
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new TypeError(`${name} must be a positive safe integer`)
   }
 
   return limit
