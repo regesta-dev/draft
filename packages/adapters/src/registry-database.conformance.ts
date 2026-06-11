@@ -76,6 +76,7 @@ export function describeRegistryDatabaseConformance<
         await expect(
           database.getPackageChannels(duplicateRelease.manifest.id),
         ).resolves.toEqual({ latest: firstRelease.manifest.version })
+        await expect(database.countPackages()).resolves.toBe(1)
       })
     })
 
@@ -128,6 +129,7 @@ export function describeRegistryDatabaseConformance<
             version: firstRelease.manifest.version,
           },
         })
+        await expect(database.countPackages()).resolves.toBe(1)
       })
     })
 

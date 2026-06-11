@@ -126,6 +126,7 @@ describe('createLocalRegistryAdapters', () => {
       await expect(secondAdapters.database.getEventLog()).resolves.toEqual([
         release.event,
       ])
+      await expect(secondAdapters.database.countPackages()).resolves.toBe(1)
       await expect(
         secondAdapters.database.getEvent(release.event.id),
       ).resolves.toEqual(release.event)
@@ -985,6 +986,170 @@ describe('MemoryRegistryDatabase', () => {
 })
 
 describe('SQLiteRegistryDatabase', () => {
+  it('backfills package count statistics for existing release tables', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-stats-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const firstDatabase = new SQLiteRegistryDatabase(databasePath)
+    let firstDatabaseClosed = false
+
+    try {
+      await firstDatabase.putRelease(
+        storedRelease('npm:example.com/stats-migration', '0.0.1'),
+      )
+      await firstDatabase.putRelease(
+        storedRelease('npm:example.com/other-stats-migration', '0.0.1'),
+      )
+      firstDatabase.close()
+      firstDatabaseClosed = true
+
+      const rawDatabase = new DatabaseSync(databasePath)
+      rawDatabase.exec('DROP TABLE registry_stats')
+      rawDatabase.close()
+
+      const migratedDatabase = new SQLiteRegistryDatabase(databasePath)
+      try {
+        await expect(migratedDatabase.countPackages()).resolves.toBe(2)
+      } finally {
+        migratedDatabase.close()
+      }
+    } finally {
+      if (!firstDatabaseClosed) {
+        firstDatabase.close()
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('keeps existing package count statistics across startup', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-stats-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const firstDatabase = new SQLiteRegistryDatabase(databasePath)
+    let firstDatabaseClosed = false
+
+    try {
+      await firstDatabase.putRelease(
+        storedRelease('npm:example.com/stats-startup', '0.0.1'),
+      )
+      firstDatabase.close()
+      firstDatabaseClosed = true
+
+      const rawDatabase = new DatabaseSync(databasePath)
+      rawDatabase
+        .prepare(
+          `UPDATE registry_stats
+            SET value = 7
+            WHERE key = 'package_count'`,
+        )
+        .run()
+      rawDatabase.close()
+
+      const reopenedDatabase = new SQLiteRegistryDatabase(databasePath)
+      try {
+        await expect(reopenedDatabase.countPackages()).resolves.toBe(7)
+      } finally {
+        reopenedDatabase.close()
+      }
+    } finally {
+      if (!firstDatabaseClosed) {
+        firstDatabase.close()
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects invalid package count statistics', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-stats-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const firstDatabase = new SQLiteRegistryDatabase(databasePath)
+    let firstDatabaseClosed = false
+
+    try {
+      firstDatabase.close()
+      firstDatabaseClosed = true
+
+      const rawDatabase = new DatabaseSync(databasePath)
+      rawDatabase.exec('DROP TABLE registry_stats')
+      rawDatabase.exec(`
+        CREATE TABLE registry_stats (
+          key TEXT PRIMARY KEY,
+          value INTEGER NOT NULL
+        );
+      `)
+      rawDatabase
+        .prepare(
+          `INSERT INTO registry_stats (key, value)
+            VALUES ('package_count', -1)`,
+        )
+        .run()
+      rawDatabase.close()
+
+      const reopenedDatabase = new SQLiteRegistryDatabase(databasePath)
+      try {
+        await expect(reopenedDatabase.countPackages()).rejects.toThrow(
+          'SQLite column value must be a non-negative integer',
+        )
+      } finally {
+        reopenedDatabase.close()
+      }
+    } finally {
+      if (!firstDatabaseClosed) {
+        firstDatabase.close()
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects release writes when package count statistics are missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-stats-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const database = new SQLiteRegistryDatabase(databasePath)
+
+    try {
+      const rawDatabase = new DatabaseSync(databasePath)
+      rawDatabase
+        .prepare(`DELETE FROM registry_stats WHERE key = 'package_count'`)
+        .run()
+      rawDatabase.close()
+
+      const release = storedRelease(
+        'npm:example.com/missing-stats-row',
+        '0.0.1',
+      )
+
+      await expect(database.putRelease(release)).rejects.toThrow(
+        'SQLite registry statistic is missing: package_count',
+      )
+      await expect(
+        database.getRelease(release.manifest.id, release.manifest.version),
+      ).resolves.toBeUndefined()
+    } finally {
+      database.close()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('maintains package counts for direct release projection writes', async () => {
+    const database = new SQLiteRegistryDatabase(':memory:')
+
+    try {
+      await expect(database.countPackages()).resolves.toBe(0)
+      await database.putRelease(
+        storedRelease('npm:example.com/direct-package-count', '0.0.1'),
+      )
+      await expect(database.countPackages()).resolves.toBe(1)
+      await database.putRelease(
+        storedRelease('npm:example.com/direct-package-count', '0.0.2'),
+      )
+      await expect(database.countPackages()).resolves.toBe(1)
+      await database.putRelease(
+        storedRelease('npm:example.com/other-direct-package-count', '0.0.1'),
+      )
+      await expect(database.countPackages()).resolves.toBe(2)
+    } finally {
+      database.close()
+    }
+  })
+
   it('rejects duplicate authorization payload digests at the storage layer', async () => {
     const firstEvent = authorizedPublishEvent('duplicate payload', 'first')
     const secondEvent = authorizedPublishEvent('duplicate payload', 'second')

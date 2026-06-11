@@ -77,8 +77,14 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       CREATE INDEX IF NOT EXISTS registry_events_package_sequence_idx
         ON registry_events (package_id, sequence);
 
+      CREATE TABLE IF NOT EXISTS registry_stats (
+        key TEXT PRIMARY KEY,
+        value INTEGER NOT NULL CHECK (value >= 0)
+      );
+
     `)
     this.ensureRegistryEventColumns()
+    this.ensureRegistryStats()
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS registry_events_authorization_payload_digest_unique_idx
         ON registry_events (authorization_payload_digest)
@@ -92,14 +98,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
   }
 
   countPackages(): Promise<number> {
-    const row = this.db
-      .prepare('SELECT COUNT(DISTINCT package_id) AS count FROM releases')
-      .get()
-    if (!row) {
-      throw new TypeError('Package count query did not return a row')
-    }
-
-    return Promise.resolve(requiredNumber(row, 'count'))
+    return Promise.resolve().then(() => this.registryStat('package_count'))
   }
 
   appendEvent(event: RegistryEvent): Promise<void> {
@@ -245,6 +244,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       if (this.releaseExists(packageId, release.manifest.version)) {
         throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
       }
+      const newPackage = !this.packageExists(packageId)
       assertAppendableRegistryEvent(
         this.packageEvents(release.event),
         release.event,
@@ -277,6 +277,9 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           DO UPDATE SET version = excluded.version`,
         )
         .run(packageId, channel, release.manifest.version)
+      if (newPackage) {
+        this.incrementRegistryStat('package_count', 1)
+      }
       this.db.exec('COMMIT')
     } catch (error) {
       this.rollbackTransaction()
@@ -468,6 +471,8 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     }
 
     try {
+      this.db.exec('BEGIN IMMEDIATE')
+      const newPackage = !this.packageExists(packageId)
       this.db
         .prepare(
           `INSERT INTO releases (
@@ -487,7 +492,13 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           encodeJson(release.manifestDescriptor),
           encodeJson(release.event),
         )
+      if (newPackage) {
+        this.incrementRegistryStat('package_count', 1)
+      }
+      this.db.exec('COMMIT')
     } catch (error) {
+      this.rollbackTransaction()
+
       if (isSqliteUniqueReleaseError(error)) {
         throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
       }
@@ -574,6 +585,19 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
   }
 
+  private packageExists(packageId: PackageId): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+          FROM releases
+          WHERE package_id = ?
+          LIMIT 1`,
+        )
+        .get(packageId),
+    )
+  }
+
   private packageEvents(event: RegistryEvent): RegistryEvent[] {
     const packageId = eventPackageId(event)
     const rows = this.db
@@ -621,6 +645,71 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
             .run(payloadDigest, requiredNumber(row, 'sequence'))
         }
       }
+    }
+  }
+
+  private ensureRegistryStats(): void {
+    if (this.registryStatExists('package_count')) {
+      return
+    }
+
+    const row = this.db
+      .prepare('SELECT COUNT(DISTINCT package_id) AS count FROM releases')
+      .get()
+    if (!row) {
+      throw new TypeError('Package count query did not return a row')
+    }
+
+    this.db
+      .prepare(
+        `INSERT INTO registry_stats (key, value)
+          VALUES ('package_count', ?)
+          ON CONFLICT(key)
+          DO UPDATE SET value = excluded.value`,
+      )
+      .run(requiredNumber(row, 'count'))
+  }
+
+  private registryStatExists(key: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+          FROM registry_stats
+          WHERE key = ?
+          LIMIT 1`,
+        )
+        .get(key),
+    )
+  }
+
+  private registryStat(key: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT value
+          FROM registry_stats
+          WHERE key = ?`,
+      )
+      .get(key)
+
+    if (!row) {
+      throw new TypeError(`SQLite registry statistic is missing: ${key}`)
+    }
+
+    return requiredNonNegativeInteger(row, 'value')
+  }
+
+  private incrementRegistryStat(key: string, increment: number): void {
+    const result = this.db
+      .prepare(
+        `UPDATE registry_stats
+          SET value = value + ?
+          WHERE key = ?`,
+      )
+      .run(increment, key)
+
+    if (result.changes !== 1) {
+      throw new TypeError(`SQLite registry statistic is missing: ${key}`)
     }
   }
 
@@ -768,6 +857,18 @@ function requiredNumber(row: SqliteRow, column: string): number {
 
   if (typeof value !== 'number') {
     throw new TypeError(`SQLite column ${column} must be a number`)
+  }
+
+  return value
+}
+
+function requiredNonNegativeInteger(row: SqliteRow, column: string): number {
+  const value = requiredNumber(row, column)
+
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(
+      `SQLite column ${column} must be a non-negative integer`,
+    )
   }
 
   return value
