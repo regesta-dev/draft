@@ -853,6 +853,7 @@ function readInventoryReleases(
     if (!isRecord(item)) {
       throw new TypeError(`${label}[${index}] must be an object`)
     }
+    assertKnownFields(item, ['id', 'version'], `${label}[${index}]`)
 
     return {
       id: parsePackageId(readString(item.id, `${label}[${index}].id`)).id,

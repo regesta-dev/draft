@@ -494,6 +494,42 @@ describe('compareMirrorDirectories', () => {
     }
   })
 
+  it('rejects local mirror inventory release entries with unknown fields', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      const inventory = JSON.parse(
+        await readText(join(rightDir, 'inventory.json')),
+      )
+      await writeFile(
+        join(rightDir, 'inventory.json'),
+        `${canonicalJson({
+          ...inventory,
+          releases: inventory.releases.map(
+            (release: Record<string, unknown>) => {
+              return {
+                ...release,
+                operatorHint: 'trust me',
+              }
+            },
+          ),
+        })}\n`,
+      )
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Right mirror inventory read failed: Right mirror inventory releases[0] must not include unknown field: operatorHint',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
   it('reports corrupted local mirror objects', async () => {
     const fixture = releaseFixture()
     const leftDir = await mirroredDirectory(fixture)
