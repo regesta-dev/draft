@@ -4055,6 +4055,46 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('rejects npm release descriptions that cannot be reproduced from install artifacts', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const prepared = await prepareFixtureNpmPublish(
+      await createFixtureProject(),
+    )
+    const auth = createTestDomainAuth()
+    const timestamp = new Date().toISOString()
+    const publishConfig: RegestaConfig = {
+      ...prepared.config,
+      description: 'Different package description',
+    }
+    const publishForm = createSignedPublishForm({
+      auth,
+      nonce: 'mismatched-npm-description-nonce',
+      prepared: {
+        ...prepared,
+        config: publishConfig,
+      },
+      timestamp,
+    })
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request('/releases', {
+        body: publishForm,
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'request_invalid',
+        error:
+          'regesta.json description must match npm package.json description',
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('serves npm projection APIs on npm subdomains', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
