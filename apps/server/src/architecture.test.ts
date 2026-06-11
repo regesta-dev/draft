@@ -395,7 +395,14 @@ describe('workspace layer boundaries', () => {
   it('keeps storage adapters independent from registry business implementations', async () => {
     await expectNoForbiddenImports(
       join(workspaceRoot, 'packages/adapters/src'),
-      ['@regesta/auth', '@regesta/npm', '../auth/', '../npm/'],
+      [
+        '@regesta/auth',
+        '@regesta/npm',
+        'hono',
+        'valibot',
+        '../auth/',
+        '../npm/',
+      ],
     )
   })
 
