@@ -139,6 +139,7 @@ export async function mirrorRegistry(
     const page = await fetchJsonPage(
       fetchImpl,
       eventLogUrl(registry, { after, limit }),
+      after,
     )
     if (!page.ok) {
       problems.push(page.problem)
@@ -472,6 +473,7 @@ async function mirrorObjectInventory(input: {
     const page = await fetchObjectInventoryPage(
       input.fetch,
       objectInventoryUrl(input.registry, { after, limit: input.limit }),
+      after,
     )
     if (!page.ok) {
       problems.push(page.problem)
@@ -1019,7 +1021,9 @@ async function fetchJson<T>(
   fetchImpl: typeof fetch,
   url: string,
   parse: (value: unknown) => T,
-): Promise<{ ok: true; value: T } | { ok: false; problems: string[] }> {
+): Promise<
+  { headers: Headers; ok: true; value: T } | { ok: false; problems: string[] }
+> {
   try {
     const response = await fetchImpl(
       url,
@@ -1035,6 +1039,7 @@ async function fetchJson<T>(
     const value: unknown = JSON.parse(text)
 
     return {
+      headers: response.headers,
       ok: true,
       value: parse(value),
     }
@@ -1086,23 +1091,49 @@ async function fetchCanonicalJson<T>(
 async function fetchJsonPage(
   fetchImpl: typeof fetch,
   url: string,
+  after: Sha256Digest | undefined,
 ): Promise<{ ok: true; value: EventLogPage } | { ok: false; problem: string }> {
   const result = await fetchJson(fetchImpl, url, parseEventLogPage)
+  if (!result.ok) {
+    return { ok: false, problem: result.problems.join('; ') }
+  }
 
-  return result.ok ? result : { ok: false, problem: result.problems.join('; ') }
+  const problem = mutableJsonPageHeaderProblem(
+    result.headers,
+    'Mirror event log',
+    'regesta.event-log',
+    result.value.nextAfter,
+    after,
+    result.value.events.length,
+  )
+
+  return problem ? { ok: false, problem } : result
 }
 
 async function fetchObjectInventoryPage(
   fetchImpl: typeof fetch,
   url: string,
+  after: Sha256Digest | undefined,
 ): Promise<
   { ok: true; value: ObjectInventoryPage } | { ok: false; problem: string }
 > {
   const result = await fetchJson(fetchImpl, url, (value) => {
     return parseObjectInventoryPage(value, 'Mirror object inventory')
   })
+  if (!result.ok) {
+    return { ok: false, problem: result.problems.join('; ') }
+  }
 
-  return result.ok ? result : { ok: false, problem: result.problems.join('; ') }
+  const problem = mutableJsonPageHeaderProblem(
+    result.headers,
+    'Mirror object inventory',
+    'regesta.object-inventory',
+    result.value.nextAfter,
+    after,
+    result.value.objects.length,
+  )
+
+  return problem ? { ok: false, problem } : result
 }
 
 async function fetchObject(
@@ -1506,6 +1537,41 @@ function cacheControlHas(value: string, directive: string): boolean {
     const name = part.split('=', 1)[0]?.trim().toLowerCase()
     return name === directive
   })
+}
+
+function mutableJsonPageHeaderProblem(
+  headers: Headers,
+  label: string,
+  etagPrefix: string,
+  nextAfter: Sha256Digest | undefined,
+  after: Sha256Digest | undefined,
+  itemCount: number,
+): string | undefined {
+  const cacheControl = headers.get('cache-control')
+
+  if (!cacheControl) {
+    return `${label} response is missing Cache-Control`
+  }
+
+  if (!cacheControlHas(cacheControl, 'no-cache')) {
+    return `${label} response Cache-Control must include no-cache`
+  }
+
+  const etag = headers.get('etag')
+  if (!etag) {
+    return `${label} response is missing ETag`
+  }
+
+  const validator = nextAfter ?? after ?? 'head'
+  const expected = `${etagPrefix}:${validator}:${itemCount}`
+
+  return stripWeakEtag(etag.trim()) === `"${expected}"`
+    ? undefined
+    : `${label} response ETag does not match page cursor`
+}
+
+function stripWeakEtag(etag: string): string {
+  return etag.startsWith('W/') ? etag.slice(2) : etag
 }
 
 function validateJsonContentType(value: string | null, url: string): void {

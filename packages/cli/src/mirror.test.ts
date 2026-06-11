@@ -171,6 +171,28 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects event log pages whose ETag does not match the cursor', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventPageEtag: `W/"regesta.event-log:${sha256(bytes('other'))}:1"`,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror event log response ETag does not match page cursor',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects object inventory pages that are not digest ordered', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -187,6 +209,28 @@ describe('mirrorRegistry', () => {
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
         'Mirror object inventory page must be strictly ordered by digest',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects object inventory pages without no-cache Cache-Control', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectInventoryCacheControl: 'public, max-age=60',
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror object inventory response Cache-Control must include no-cache',
       ])
     } finally {
       await rm(outputDir, { force: true, recursive: true })
@@ -973,9 +1017,13 @@ function mirrorFetch(
     duplicateEventPage?: boolean
     emptyEventPageNextAfter?: string
     emptyObjectInventoryNextAfter?: string
+    eventPageCacheControl?: string | null
+    eventPageEtag?: string | null
     eventPageExtras?: Record<string, unknown>
     eventEndpointText?: string
     omitEventPageContentLength?: boolean
+    objectInventoryCacheControl?: string | null
+    objectInventoryEtag?: string | null
     objectCacheControls?: ReadonlyMap<string, string>
     objectMediaTypes?: ReadonlyMap<string, string>
     objectOverrides?: ReadonlyMap<string, Uint8Array>
@@ -1037,12 +1085,19 @@ function mirrorFetch(
     if (url.pathname === '/events') {
       if (url.searchParams.has('after')) {
         return Promise.resolve(
-          jsonResponse({
-            events: [],
-            ...(options.emptyEventPageNextAfter
-              ? { nextAfter: options.emptyEventPageNextAfter }
-              : {}),
-          }),
+          eventLogPageResponse(
+            {
+              events: [],
+              ...(options.emptyEventPageNextAfter
+                ? { nextAfter: options.emptyEventPageNextAfter }
+                : {}),
+            },
+            url,
+            {
+              cacheControl: options.eventPageCacheControl,
+              etag: options.eventPageEtag,
+            },
+          ),
         )
       }
 
@@ -1051,13 +1106,18 @@ function mirrorFetch(
         : [fixture.event]
 
       return Promise.resolve(
-        jsonResponse(
+        eventLogPageResponse(
           {
             events,
             ...options.eventPageExtras,
             nextAfter: fixture.event.id,
           },
-          { omitContentLength: options.omitEventPageContentLength },
+          url,
+          {
+            cacheControl: options.eventPageCacheControl,
+            etag: options.eventPageEtag,
+            omitContentLength: options.omitEventPageContentLength,
+          },
         ),
       )
     }
@@ -1091,11 +1151,18 @@ function mirrorFetch(
         options.emptyObjectInventoryNextAfter
       ) {
         return Promise.resolve(
-          jsonResponse({
-            nextAfter: options.emptyObjectInventoryNextAfter,
-            object: 'regesta.object-inventory',
-            objects: [],
-          }),
+          objectInventoryPageResponse(
+            {
+              nextAfter: options.emptyObjectInventoryNextAfter,
+              object: 'regesta.object-inventory',
+              objects: [],
+            },
+            url,
+            {
+              cacheControl: options.objectInventoryCacheControl,
+              etag: options.objectInventoryEtag,
+            },
+          ),
         )
       }
 
@@ -1105,6 +1172,10 @@ function mirrorFetch(
             ? descriptors.toReversed()
             : descriptors,
           url,
+          {
+            cacheControl: options.objectInventoryCacheControl,
+            etag: options.objectInventoryEtag,
+          },
         ),
       )
     }
@@ -1135,12 +1206,13 @@ function objectDescriptor(bytes: Uint8Array, mediaType: string) {
 
 function jsonResponse(
   value: unknown,
-  options: { omitContentLength?: boolean } = {},
+  options: { headers?: HeadersInit; omitContentLength?: boolean } = {},
 ): Response {
   const body = canonicalJson(value)
-  const headers = new Headers({
-    'content-type': 'application/json',
-  })
+  const headers = new Headers(options.headers)
+  if (!headers.has('content-type')) {
+    headers.set('content-type', 'application/json')
+  }
 
   if (!options.omitContentLength) {
     headers.set('content-length', String(bytes(body).byteLength))
@@ -1148,6 +1220,27 @@ function jsonResponse(
 
   return new Response(body, {
     headers,
+  })
+}
+
+function eventLogPageResponse(
+  page: { events: unknown[]; nextAfter?: string },
+  url: URL,
+  options: {
+    cacheControl?: string | null
+    etag?: string | null
+    omitContentLength?: boolean
+  } = {},
+): Response {
+  return jsonResponse(page, {
+    headers: mutablePageHeaders(
+      'regesta.event-log',
+      page.nextAfter,
+      url.searchParams.get('after'),
+      page.events.length,
+      options,
+    ),
+    omitContentLength: options.omitContentLength,
   })
 }
 
@@ -1168,6 +1261,10 @@ function rawCanonicalJsonResponse(body: string): Response {
 function objectInventoryResponse(
   descriptors: ReturnType<typeof objectDescriptor>[],
   url: URL,
+  options: {
+    cacheControl?: string | null
+    etag?: string | null
+  } = {},
 ): Response {
   const after = url.searchParams.get('after')
   const limit = Number(url.searchParams.get('limit') ?? descriptors.length)
@@ -1182,11 +1279,66 @@ function objectInventoryResponse(
   const objects = descriptors.slice(afterIndex + 1, afterIndex + 1 + limit)
   const lastObject = objects.at(-1)
 
-  return jsonResponse({
-    ...(lastObject ? { nextAfter: lastObject.digest } : {}),
-    object: 'regesta.object-inventory',
-    objects,
+  return objectInventoryPageResponse(
+    {
+      ...(lastObject ? { nextAfter: lastObject.digest } : {}),
+      object: 'regesta.object-inventory',
+      objects,
+    },
+    url,
+    options,
+  )
+}
+
+function objectInventoryPageResponse(
+  page: {
+    nextAfter?: string
+    object: 'regesta.object-inventory'
+    objects: unknown[]
+  },
+  url: URL,
+  options: {
+    cacheControl?: string | null
+    etag?: string | null
+  } = {},
+): Response {
+  return jsonResponse(page, {
+    headers: mutablePageHeaders(
+      'regesta.object-inventory',
+      page.nextAfter,
+      url.searchParams.get('after'),
+      page.objects.length,
+      options,
+    ),
   })
+}
+
+function mutablePageHeaders(
+  prefix: string,
+  nextAfter: string | undefined,
+  after: string | null,
+  itemCount: number,
+  options: {
+    cacheControl?: string | null
+    etag?: string | null
+  },
+): Headers {
+  const validator = nextAfter ?? after ?? 'head'
+  const headers = new Headers()
+
+  if (options.cacheControl === undefined) {
+    headers.set('cache-control', 'no-cache')
+  } else if (options.cacheControl !== null) {
+    headers.set('cache-control', options.cacheControl)
+  }
+
+  if (options.etag === undefined) {
+    headers.set('etag', `W/"${prefix}:${validator}:${itemCount}"`)
+  } else if (options.etag !== null) {
+    headers.set('etag', options.etag)
+  }
+
+  return headers
 }
 
 function binaryResponse(
