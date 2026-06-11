@@ -5228,6 +5228,37 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('redirects fallback npm tarball routes without fetching upstream tarball bytes', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstreamFetch: fetchMock,
+    })
+
+    const getResponse = await app.request(
+      'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+
+    expect(getResponse.status).toBe(302)
+    expect(getResponse.headers.get('location')).toBe(
+      'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    expect(await getResponse.text()).toBe('')
+
+    const headResponse = await app.request(
+      'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(headResponse.status).toBe(302)
+    expect(headResponse.headers.get('location')).toBe(
+      'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    expect(await headResponse.text()).toBe('')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('resolves npm tag endpoints through event-replayed projected dist-tags', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
