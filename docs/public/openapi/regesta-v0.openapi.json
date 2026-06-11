@@ -1064,7 +1064,7 @@
           },
           "service": { "type": "string" },
           "statistics": {
-            "description": "Advisory deployment statistics for operators. Implementations may cache these values briefly to keep status checks cheap under load.",
+            "description": "Advisory deployment statistics for operators. Implementations may cache these values briefly to keep status checks cheap under load. Storage adapters should expose them from cheap counters or indexes, not by replaying events or scanning release rows on every root request.",
             "type": "object",
             "additionalProperties": false,
             "properties": {

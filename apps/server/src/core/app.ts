@@ -280,7 +280,7 @@ export function createCoreRegistryApp(
         services,
       )
     } catch (error) {
-      await writeCoreAuditLog(
+      writeCoreAuditLog(
         options.auditLog,
         rejectedCoreWriteAuditEntry(error, {
           action: 'release.publish',
@@ -293,7 +293,7 @@ export function createCoreRegistryApp(
       throw error
     }
 
-    await writeCoreAuditLog(options.auditLog, {
+    writeCoreAuditLog(options.auditLog, {
       action: 'release.publish',
       channel: result.channel,
       eventId: result.event.id,
@@ -467,7 +467,7 @@ export function createCoreRegistryApp(
         version,
       })
     } catch (error) {
-      await writeCoreAuditLog(
+      writeCoreAuditLog(
         options.auditLog,
         rejectedCoreWriteAuditEntry(error, {
           action: 'channel.update',
@@ -481,7 +481,7 @@ export function createCoreRegistryApp(
       throw error
     }
 
-    await writeCoreAuditLog(options.auditLog, {
+    writeCoreAuditLog(options.auditLog, {
       action: 'channel.update',
       channel,
       eventId: result.event.id,
@@ -539,7 +539,7 @@ export function createCoreRegistryApp(
         timestamp: authorization.signedAt,
       })
     } catch (error) {
-      await writeCoreAuditLog(
+      writeCoreAuditLog(
         options.auditLog,
         rejectedCoreWriteAuditEntry(error, {
           action: 'channel.delete',
@@ -552,7 +552,7 @@ export function createCoreRegistryApp(
       throw error
     }
 
-    await writeCoreAuditLog(options.auditLog, {
+    writeCoreAuditLog(options.auditLog, {
       action: 'channel.delete',
       channel,
       eventId: result.event.id,
@@ -1230,24 +1230,33 @@ function normalizeByteLimit(value: number | undefined): number | undefined {
   return value
 }
 
-async function writeCoreAuditLog(
+function writeCoreAuditLog(
   auditLog: CoreRegistryAuditSink | undefined,
   entry: CoreRegistryAuditEntry,
-): Promise<void> {
+): void {
   if (!auditLog) {
     return
   }
 
   try {
-    await auditLog(entry)
-  } catch (error) {
-    console.error('Core registry audit log sink failed', {
-      action: entry.action,
-      error,
-      ...(entry.outcome === 'accepted' ? { eventId: entry.eventId } : {}),
-      package: entry.package,
+    Promise.resolve(auditLog(entry)).catch((error: unknown) => {
+      reportCoreAuditLogError(entry, error)
     })
+  } catch (error) {
+    reportCoreAuditLogError(entry, error)
   }
+}
+
+function reportCoreAuditLogError(
+  entry: CoreRegistryAuditEntry,
+  error: unknown,
+): void {
+  console.error('Core registry audit log sink failed', {
+    action: entry.action,
+    error,
+    ...(entry.outcome === 'accepted' ? { eventId: entry.eventId } : {}),
+    package: entry.package,
+  })
 }
 
 function rejectedCoreWriteAuditEntry(

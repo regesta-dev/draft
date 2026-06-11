@@ -52,7 +52,9 @@ runtime, build time, git sha, dirty state, and registry statistics such as the
 current package count. It is meant for operators and debugging.
 
 Registry statistics are advisory status data. Implementations may cache them
-briefly to keep status checks cheap under load.
+briefly to keep status checks cheap under load. Storage adapters should expose
+these values from cheap counters or indexes, not by replaying events or scanning
+release rows on every root request.
 
 `/health` is a lightweight liveness check and returns `{ "ok": true }` when
 the process can answer requests.

@@ -136,6 +136,31 @@ describe('adapters package architecture', () => {
     expect(sqliteSource).toContain('registry_event_releases')
     expect(sqliteSource).toContain('registry_event_channels')
   })
+
+  it('keeps package counts on indexed adapter statistics', async () => {
+    const sources = {
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
+    const memorySource = methodSource(
+      sources.memory,
+      'countPackages',
+      'getEventLog',
+    )
+    const sqliteSource = methodSource(
+      sources.sqlite,
+      'countPackages',
+      'appendEvent',
+    )
+
+    expect(memorySource).toContain('this.releases.size')
+    expect(memorySource).not.toContain('new Set')
+    expect(memorySource).not.toContain('for (')
+    expect(sqliteSource).toContain("registryStat('package_count')")
+    expect(sqliteSource).not.toContain('COUNT(')
+    expect(sqliteSource).not.toContain('DISTINCT')
+    expect(sqliteSource).not.toContain('releases')
+  })
 })
 
 async function productionSourceFiles(directory: string): Promise<string[]> {

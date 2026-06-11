@@ -112,6 +112,13 @@ This is not yet a checkpointed transparency system. It is enough for V0 mirrors
 and auditors to replay sampled public state, verify object bytes, and detect
 differences between observed registry views.
 
+`verify-package` intentionally reads event-log pages until it reaches the tail,
+then filters events for the requested package. That keeps the check grounded in
+the public global log, but it means large registries should run it with explicit
+`--limit` and `--max-pages` values or against a local mirror. Package-scoped
+proofs, checkpoints, or compact inclusion proofs are future protocol work and
+should not be assumed by V0 auditors.
+
 ## Auditor Checks
 
 Current CLI checks cover the public verification path:

@@ -668,6 +668,33 @@ describe('documentation references', () => {
     await expect(readText('api.md')).resolves.toContain(
       'briefly to keep status checks cheap under load.',
     )
+    await expect(readText('api.md')).resolves.toContain(
+      'not by replaying events or scanning',
+    )
+    await expect(readText('operations.md')).resolves.toContain(
+      'package count is maintained in',
+    )
+  })
+
+  it('documents V0 package-state verification as full-log based', async () => {
+    const mirroring = await readText('mirroring.md')
+
+    expect(mirroring).toContain(
+      '`verify-package` intentionally reads event-log pages until it reaches the tail',
+    )
+    expect(mirroring).toContain('proofs are future protocol work')
+  })
+
+  it('documents operational request and audit logging boundaries', async () => {
+    const operations = await readText('operations.md')
+
+    expect(operations).toContain('## Operational Logs')
+    expect(operations).toContain('`regesta.request`')
+    expect(operations).toContain('`regesta.core-audit`')
+    expect(operations).toContain('excludes query strings')
+    expect(operations).toContain('outside the request critical path')
+    expect(operations).toContain('not public protocol objects')
+    expect(operations).toMatch(/append-only\s+event log/u)
   })
 
   it('keeps the machine-readable core schema free of ecosystem projection terms', async () => {

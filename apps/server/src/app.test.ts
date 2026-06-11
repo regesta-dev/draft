@@ -1139,6 +1139,89 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('does not wait for slow asynchronous operator audit sinks', async () => {
+    const pendingAudit = deferred<void>()
+    const entries: CoreRegistryAuditEntry[] = []
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters, {
+      auditLog: async (entry) => {
+        await pendingAudit.promise
+        entries.push(entry)
+      },
+    })
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/slow-audit'
+    const timestamp = new Date().toISOString()
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        {
+          body: JSON.stringify({
+            authorization: auth.sign(
+              createChannelUpdateIntent({
+                channel: 'latest',
+                nonce: 'slow-audit-nonce',
+                packageId,
+                previousVersion: '0.0.1',
+                timestamp,
+                version: '0.0.1',
+              }),
+            ),
+            version: '0.0.1',
+          }),
+          headers: {
+            'content-type': 'application/json',
+            'x-request-id': 'slow-audit-001',
+          },
+          method: 'PUT',
+        },
+      )
+
+      expect(response.status).toBe(200)
+      expect(entries).toEqual([])
+
+      pendingAudit.resolve(undefined)
+      await vi.waitFor(() => {
+        expect(entries).toHaveLength(1)
+      })
+      expect(entries[0]).toMatchObject({
+        action: 'channel.update',
+        kind: 'regesta.core-audit',
+        outcome: 'accepted',
+        package: packageId,
+        requestId: 'slow-audit-001',
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('logs accepted channel delete events to the operator audit sink when configured', async () => {
     const entries: CoreRegistryAuditEntry[] = []
     const adapters = createMemoryRegistryAdapters()

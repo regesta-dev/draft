@@ -507,6 +507,19 @@ describe('server layer boundaries', () => {
     expect(source).not.toContain('createMemoryRegistryAdapters')
   })
 
+  it('keeps the server entrypoint wired to structured operational logs', async () => {
+    const source = await readFile(
+      join(workspaceRoot, 'apps/server/server.ts'),
+      'utf8',
+    )
+
+    expect(source).toContain('requestLog(entry)')
+    expect(source).toContain('auditLog(entry)')
+    expect(
+      source.match(/console\.info\(JSON\.stringify\(entry\)\)/gu),
+    ).toHaveLength(2)
+  })
+
   it('keeps server runtime limits wired at the composition root', async () => {
     const source = await readFile(
       join(workspaceRoot, 'apps/server/server.ts'),

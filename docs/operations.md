@@ -158,6 +158,23 @@ Operators should treat these gates as minimum deployment evidence, not a claim
 that the registry can handle every ecosystem workload. Public SLOs should be
 defined separately from protocol compatibility.
 
+## Operational Logs
+
+The default Node server writes structured JSON logs to stdout:
+
+- `regesta.request` records transport-layer request id, host, method, path,
+  response status, and duration. The logged path excludes query strings;
+- `regesta.core-audit` records accepted and rejected core write attempts,
+  including publish and channel operations.
+
+Unexpected server errors are logged with `console.error` by the transport error
+boundary while the HTTP response hides internal exception details. Request-log
+and audit-log sinks are scheduled outside the request critical path, so a slow
+operator log sink should not add response latency. Request logs and audit logs
+are operator telemetry. They are not public protocol objects, do not replace the
+append-only event log, and should follow the operator's private log retention
+policy.
+
 ## Retention
 
 Regesta's default bias should be preservation.
@@ -222,7 +239,10 @@ is not set.
 The root deployment info endpoint caches advisory package statistics for 10s by
 default. Operators can tune this with `REGESTA_STATISTICS_CACHE_TTL_MS`; set it
 to `0` to disable cross-request statistics caching. In-flight statistics reads
-are still coalesced.
+are still coalesced. Storage adapters should serve these statistics from cheap
+counters or indexes. In the local SQLite adapter, package count is maintained in
+`registry_stats`; startup migration or repair may scan releases to backfill the
+counter, but normal root requests should not.
 
 The npm projection bounds upstream npm metadata fallback requests with
 `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`, falling back to a 10s timeout when the

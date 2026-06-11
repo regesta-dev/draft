@@ -43,19 +43,29 @@ export function createRequestLogger(log: RequestLogSink): MiddlewareHandler {
       status: context.res.status,
     } satisfies RequestLogEntry
 
-    try {
-      await log(entry)
-    } catch (error) {
-      console.error('Transport request log sink failed', {
-        error,
-        kind: 'regesta.request-log-error',
-        method: entry.method,
-        path: entry.path,
-        requestId: entry.requestId,
-        status: entry.status,
-      })
-    }
+    writeRequestLog(log, entry)
   }
+}
+
+function writeRequestLog(log: RequestLogSink, entry: RequestLogEntry): void {
+  try {
+    Promise.resolve(log(entry)).catch((error: unknown) => {
+      reportRequestLogError(entry, error)
+    })
+  } catch (error) {
+    reportRequestLogError(entry, error)
+  }
+}
+
+function reportRequestLogError(entry: RequestLogEntry, error: unknown): void {
+  console.error('Transport request log sink failed', {
+    error,
+    kind: 'regesta.request-log-error',
+    method: entry.method,
+    path: entry.path,
+    requestId: entry.requestId,
+    status: entry.status,
+  })
 }
 
 function elapsedMilliseconds(startedAt: number): number {
