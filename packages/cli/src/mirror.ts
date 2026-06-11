@@ -822,6 +822,7 @@ async function fetchObject(
     }
 
     const bytes = new Uint8Array(await response.arrayBuffer())
+    validateObjectResponseMetadata(url, response, bytes, descriptor)
     if (bytes.byteLength !== descriptor.size) {
       throw new Error(
         `Object size does not match descriptor: ${descriptor.digest}`,
@@ -839,6 +840,29 @@ async function fetchObject(
       ok: false,
       problems: [`Mirror object request failed: ${errorMessage(error)}`],
     }
+  }
+}
+
+function validateObjectResponseMetadata(
+  url: string,
+  response: Response,
+  bytes: Uint8Array,
+  descriptor: ObjectDescriptor,
+): void {
+  const sizeHeader = response.headers.get('content-length')
+  if (!sizeHeader) {
+    throw new Error(`Missing object Content-Length header: ${url}`)
+  }
+  if (parseContentLength(sizeHeader, url, 'object') !== bytes.byteLength) {
+    throw new Error(`Object Content-Length does not match body: ${url}`)
+  }
+
+  const mediaType = response.headers.get('content-type')
+  if (!mediaType) {
+    throw new Error(`Missing object Content-Type header: ${descriptor.digest}`)
+  }
+  if (mediaType !== descriptor.mediaType) {
+    throw new Error(`Object Content-Type mismatch: ${descriptor.digest}`)
   }
 }
 
@@ -1154,22 +1178,22 @@ function validateJsonContentLength(
   }
 
   if (
-    parseContentLength(sizeHeader, url) !==
+    parseContentLength(sizeHeader, url, 'JSON') !==
     new TextEncoder().encode(text).byteLength
   ) {
     throw new TypeError(`JSON Content-Length does not match body: ${url}`)
   }
 }
 
-function parseContentLength(value: string, url: string): number {
+function parseContentLength(value: string, url: string, label: string): number {
   if (!/^(?:0|[1-9]\d*)$/u.test(value)) {
-    throw new TypeError(`Invalid JSON Content-Length header: ${url}`)
+    throw new TypeError(`Invalid ${label} Content-Length header: ${url}`)
   }
 
   const size = Number(value)
 
   if (!Number.isSafeInteger(size)) {
-    throw new TypeError(`Invalid JSON Content-Length header: ${url}`)
+    throw new TypeError(`Invalid ${label} Content-Length header: ${url}`)
   }
 
   return size

@@ -112,6 +112,30 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects object responses whose Content-Type does not match the descriptor', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectMediaTypes: new Map([
+            [fixture.manifest.source.digest, 'application/octet-stream'],
+          ]),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Object Content-Type mismatch: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects release envelopes that do not match their manifest descriptor', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -336,6 +360,7 @@ function mirrorFetch(
   fixture: ReturnType<typeof releaseFixture>,
   options: {
     omitEventPageContentLength?: boolean
+    objectMediaTypes?: ReadonlyMap<string, string>
     objectOverrides?: ReadonlyMap<string, Uint8Array>
     releaseEnvelope?: unknown
   } = {},
@@ -428,7 +453,11 @@ function mirrorFetch(
     const object = objects.get(digestFromObjectRoute(url.pathname))
     if (object) {
       return Promise.resolve(
-        binaryResponse(object.bytes, object.descriptor.mediaType),
+        binaryResponse(
+          object.bytes,
+          options.objectMediaTypes?.get(object.descriptor.digest) ??
+            object.descriptor.mediaType,
+        ),
       )
     }
 
