@@ -577,7 +577,7 @@ export class LocalQueueAdapter implements QueueAdapter {
   }
 
   async enqueue(topic: string, payload: unknown): Promise<void> {
-    const line = `${JSON.stringify({ payload, topic })}\n`
+    const line = `${JSON.stringify({ enqueuedAt: new Date().toISOString(), payload, topic })}\n`
     const queuePath = join(this.root, 'queue.ndjson')
     await mkdir(this.root, { recursive: true })
     await writeFile(queuePath, line, { flag: 'a' })

@@ -248,6 +248,43 @@ describe('documentation references', () => {
     })
   })
 
+  it('keeps V0 provenance honest about source attachment', async () => {
+    const readme = await readWorkspaceText('README.md')
+    const protocol = await readText('protocol.md')
+    const schema = await readText('schema.md')
+
+    await expect(
+      schemaPropertiesAtPointer(
+        '#/$defs/regestaConfig/properties/provenance/properties',
+      ),
+    ).resolves.toEqual({
+      level: { const: 'source-attached' },
+    })
+    await expect(
+      schemaPropertiesAtPointer(
+        '#/$defs/releaseManifest/properties/provenance/properties',
+      ),
+    ).resolves.toEqual({
+      level: { const: 'source-attached' },
+      verified: { const: false },
+    })
+    await expect(
+      schemaValueAtPointer(
+        '#/$defs/releaseManifest/properties/provenance/required',
+      ),
+    ).resolves.toEqual(['level', 'verified'])
+
+    expect(readme).toContain(
+      'v0 is source-attached, not trusted-builder verified',
+    )
+    expect(schema).toContain(
+      'Those fields are inspection metadata, not safety claims.',
+    )
+    expect(schema).toMatch(/V0 does not prove that\s+source built an artifact/u)
+    expect(protocol).toContain('the source built the artifact')
+    expect(protocol).toContain('externally witnessed transparency checkpoints')
+  })
+
   it('documents the public object inventory page shape', async () => {
     await expect(schemaValueAtPointer('#/oneOf')).resolves.toEqual(
       expect.arrayContaining([{ $ref: '#/$defs/objectInventory' }]),
@@ -695,6 +732,34 @@ describe('documentation references', () => {
     expect(operations).toContain('outside the request critical path')
     expect(operations).toContain('not public protocol objects')
     expect(operations).toMatch(/append-only\s+event log/u)
+  })
+
+  it('documents current hot-path scalability boundaries', async () => {
+    const operations = await readText('operations.md')
+
+    expect(operations).toContain('## Hot Path Cost Boundaries')
+    expect(operations).toContain('health reads do not touch storage')
+    expect(operations).toContain(
+      'readiness reads call cheap, bounded adapter probes',
+    )
+    expect(operations).toContain(
+      'root deployment statistics are cached and served from adapter counters or',
+    )
+    expect(operations).toContain(
+      'root deployment info does not run readiness probes',
+    )
+    expect(operations).toContain(
+      'core package-state reads use adapter-owned event indexes',
+    )
+    expect(operations).toContain(
+      'npm tarball routes redirect to the canonical object or upstream URL',
+    )
+    expect(operations).toContain('`REGESTA_NPM_UPSTREAM_TIMEOUT_MS`')
+    expect(operations).toMatch(/outside the committed\s+write path/u)
+    expect(operations).toContain('not protocol guarantees')
+    expect(operations).toContain('newline-delimited JSON entries')
+    expect(operations).toContain('`topic`, `payload`,')
+    expect(operations).toContain('`enqueuedAt` operational metadata')
   })
 
   it('keeps the machine-readable core schema free of ecosystem projection terms', async () => {

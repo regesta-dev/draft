@@ -341,15 +341,17 @@ describe('createLocalRegistryAdapters', () => {
       })
 
       const text = await readFile(join(root, 'queue.ndjson'), 'utf8')
+      const entries = text
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line))
 
       expect(text.endsWith('\n')).toBe(true)
-      expect(
-        text
-          .trimEnd()
-          .split('\n')
-          .map((line) => JSON.parse(line)),
-      ).toEqual([
+      expect(entries).toHaveLength(2)
+      expect(entries.every(hasCanonicalEnqueuedAt)).toBe(true)
+      expect(entries).toEqual([
         {
+          enqueuedAt: expect.any(String),
           payload: {
             package: 'npm:example.com/queued',
             version: '0.0.1',
@@ -357,6 +359,7 @@ describe('createLocalRegistryAdapters', () => {
           topic: 'release.published',
         },
         {
+          enqueuedAt: expect.any(String),
           payload: {
             channel: 'latest',
             package: 'npm:example.com/queued',
@@ -401,10 +404,12 @@ describe('createLocalRegistryAdapters', () => {
 
       expect(text.endsWith('\n')).toBe(true)
       expect(entries).toHaveLength(messages.length)
+      expect(entries.every(hasCanonicalEnqueuedAt)).toBe(true)
       expect(entries).toEqual(
         expect.arrayContaining(
           messages.map((message) => {
             return {
+              enqueuedAt: expect.any(String),
               payload: message.payload,
               topic: message.topic,
             }
@@ -2628,6 +2633,16 @@ describe('SQLiteRegistryDatabase', () => {
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value)
+}
+
+function hasCanonicalEnqueuedAt(entry: unknown): boolean {
+  return (
+    Boolean(entry) &&
+    typeof entry === 'object' &&
+    'enqueuedAt' in entry &&
+    typeof entry.enqueuedAt === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(entry.enqueuedAt)
+  )
 }
 
 function text(value: Uint8Array | undefined): string | undefined {

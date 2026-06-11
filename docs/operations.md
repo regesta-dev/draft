@@ -175,6 +175,36 @@ are operator telemetry. They are not public protocol objects, do not replace the
 append-only event log, and should follow the operator's private log retention
 policy.
 
+## Hot Path Cost Boundaries
+
+The V0 implementation is optimized for simple, cache-friendly read paths before
+introducing distributed storage.
+
+Current hot-path boundaries:
+
+- health reads do not touch storage;
+- readiness reads call cheap, bounded adapter probes;
+- root deployment statistics are cached and served from adapter counters or
+  indexes;
+- root deployment info does not run readiness probes;
+- core package-state reads use adapter-owned event indexes instead of replaying
+  the event log on every request;
+- npm tag and version reads use indexed channel and release state;
+- npm tarball routes redirect to the canonical object or upstream URL instead
+  of proxying bytes through the npm compatibility layer;
+- upstream npm fallback metadata requests are bounded by
+  `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`;
+- request-log, audit-log, and derived-queue sinks run outside the committed
+  write path.
+
+These are implementation cost boundaries, not protocol guarantees. A production
+adapter can choose different indexes or caches, but it should preserve the same
+behavioral result: public facts remain replayable, immutable objects stay
+content-addressed, and compatibility projections are derived from core data.
+The local queue writes newline-delimited JSON entries with `topic`, `payload`,
+and `enqueuedAt` operational metadata so derived work can be inspected after a
+restart.
+
 ## Retention
 
 Regesta's default bias should be preservation.

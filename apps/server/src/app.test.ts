@@ -177,6 +177,91 @@ describe('createRegestaApp', () => {
     expect(countPackages).toHaveBeenCalledTimes(1)
   })
 
+  it('serves health without touching storage adapters or statistics', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() => {
+      throw new Error('health must not read deployment statistics')
+    })
+    const databaseReadiness = vi.fn(() => {
+      throw new Error('health must not probe database readiness')
+    })
+    const objectReadiness = vi.fn(() => {
+      throw new Error('health must not probe object readiness')
+    })
+    const queueReadiness = vi.fn(() => {
+      throw new Error('health must not probe queue readiness')
+    })
+    const signerReadiness = vi.fn(() => {
+      throw new Error('health must not probe signer readiness')
+    })
+
+    adapters.database.countPackages = countPackages
+    adapters.database.checkReadiness = databaseReadiness
+    adapters.objects.checkReadiness = objectReadiness
+    adapters.queue.checkReadiness = queueReadiness
+    adapters.signer.checkReadiness = signerReadiness
+
+    const app = createRegestaApp(adapters)
+    const health = await app.request('/health')
+    const healthHead = await app.request('/health', {
+      method: 'HEAD',
+    })
+
+    expect(health.status).toBe(200)
+    await expect(health.json()).resolves.toEqual({ ok: true })
+    expect(healthHead.status).toBe(200)
+    await expect(healthHead.text()).resolves.toBe('')
+
+    expect(countPackages).not.toHaveBeenCalled()
+    expect(databaseReadiness).not.toHaveBeenCalled()
+    expect(objectReadiness).not.toHaveBeenCalled()
+    expect(queueReadiness).not.toHaveBeenCalled()
+    expect(signerReadiness).not.toHaveBeenCalled()
+  })
+
+  it('keeps root statistics and readiness probes on separate hot paths', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() => Promise.resolve(5))
+    const databaseReadiness = vi.fn(() => Promise.resolve())
+    const objectReadiness = vi.fn(() => Promise.resolve())
+    const queueReadiness = vi.fn(() => Promise.resolve())
+    const signerReadiness = vi.fn(() => Promise.resolve())
+
+    adapters.database.countPackages = countPackages
+    adapters.database.checkReadiness = databaseReadiness
+    adapters.objects.checkReadiness = objectReadiness
+    adapters.queue.checkReadiness = queueReadiness
+    adapters.signer.checkReadiness = signerReadiness
+
+    const app = createRegestaApp(adapters)
+    const root = await app.request('/')
+
+    expect(root.status).toBe(200)
+    await expect(root.json()).resolves.toMatchObject({
+      statistics: {
+        packages: 5,
+      },
+    })
+    expect(countPackages).toHaveBeenCalledTimes(1)
+    expect(databaseReadiness).not.toHaveBeenCalled()
+    expect(objectReadiness).not.toHaveBeenCalled()
+    expect(queueReadiness).not.toHaveBeenCalled()
+    expect(signerReadiness).not.toHaveBeenCalled()
+
+    const ready = await app.request('/ready')
+
+    expect(ready.status).toBe(200)
+    await expect(ready.json()).resolves.toMatchObject({
+      kind: 'regesta.readiness',
+      ok: true,
+    })
+    expect(countPackages).toHaveBeenCalledTimes(1)
+    expect(databaseReadiness).toHaveBeenCalledTimes(1)
+    expect(objectReadiness).toHaveBeenCalledTimes(1)
+    expect(queueReadiness).toHaveBeenCalledTimes(1)
+    expect(signerReadiness).toHaveBeenCalledTimes(1)
+  })
+
   it('coalesces concurrent deployment statistics reads', async () => {
     const pendingCount = deferred<number>()
     const adapters = createMemoryRegistryAdapters()

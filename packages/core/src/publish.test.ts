@@ -1051,6 +1051,49 @@ describe('publishRelease', () => {
     }
   })
 
+  it('does not wait for slow derived release queue jobs', async () => {
+    const adapters = createTestRegistryAdapters()
+    const pendingQueue = deferred<void>()
+    const enqueue = vi.fn(() => pendingQueue.promise)
+    adapters.queue.enqueue = enqueue
+    let result: Awaited<ReturnType<typeof publishRelease>> | undefined
+    let failure: unknown
+    const publish = publishRelease(
+      {
+        ...createPublishInput(),
+        createdAt: '2026-06-01T00:00:00.000Z',
+      },
+      adapters,
+    ).then(
+      (value) => {
+        result = value
+      },
+      (error: unknown) => {
+        failure = error
+      },
+    )
+
+    await vi.waitFor(
+      () => {
+        expect(failure).toBeUndefined()
+        expect(result).toBeDefined()
+      },
+      { timeout: 100 },
+    )
+
+    if (!result) {
+      throw new Error('Publish did not settle before the derived queue job')
+    }
+
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    await expect(
+      adapters.database.getPackageChannels('npm:example.com/hello-regesta'),
+    ).resolves.toEqual({ latest: '0.0.1' })
+
+    pendingQueue.resolve()
+    await publish
+  })
+
   it('rejects duplicate package versions with a typed conflict error', async () => {
     const adapters = createTestRegistryAdapters()
     const input = {
@@ -1213,6 +1256,58 @@ describe('publishRelease', () => {
     } finally {
       consoleError.mockRestore()
     }
+  })
+
+  it('does not wait for slow derived channel queue jobs', async () => {
+    const adapters = createTestRegistryAdapters()
+    await publishRelease(
+      {
+        ...createPublishInput(),
+        createdAt: '2026-06-01T00:00:00.000Z',
+      },
+      adapters,
+    )
+    const pendingQueue = deferred<void>()
+    const enqueue = vi.fn(() => pendingQueue.promise)
+    adapters.queue.enqueue = enqueue
+    let result: Awaited<ReturnType<typeof updatePackageChannel>> | undefined
+    let failure: unknown
+    const update = updatePackageChannel(adapters, {
+      channel: 'beta',
+      packageId: 'npm:example.com/hello-regesta',
+      timestamp: '2026-06-01T00:01:00.000Z',
+      version: '0.0.1',
+    }).then(
+      (value) => {
+        result = value
+      },
+      (error: unknown) => {
+        failure = error
+      },
+    )
+
+    await vi.waitFor(
+      () => {
+        expect(failure).toBeUndefined()
+        expect(result).toBeDefined()
+      },
+      { timeout: 100 },
+    )
+
+    if (!result) {
+      throw new Error('Channel update did not settle before the queue job')
+    }
+
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    await expect(
+      adapters.database.getPackageChannels('npm:example.com/hello-regesta'),
+    ).resolves.toEqual({
+      beta: '0.0.1',
+      latest: '0.0.1',
+    })
+
+    pendingQueue.resolve()
+    await update
   })
 
   it('rejects replayed write authorization payload digests', async () => {
@@ -1990,6 +2085,27 @@ function createPublishInput(): PublishInput {
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value)
+}
+
+interface Deferred<T> {
+  promise: Promise<T>
+  reject: (error: unknown) => void
+  resolve: (value: T | PromiseLike<T>) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: Deferred<T>['resolve']
+  let reject!: Deferred<T>['reject']
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return {
+    promise,
+    reject,
+    resolve,
+  }
 }
 
 function createAuthorizationProof(value: string): WriteAuthorizationProof {
