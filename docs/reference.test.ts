@@ -704,6 +704,187 @@ describe('documentation references', () => {
     }
   })
 
+  it('documents no-cache caching for mutable core reads', async () => {
+    await expect(
+      openapiValueAtPointer('#/components/headers/NoCacheControl/schema'),
+    ).resolves.toEqual({ const: 'no-cache' })
+    await expect(
+      openapiValueAtPointer('#/components/headers/NoCacheControl/description'),
+    ).resolves.toContain('revalidated')
+
+    for (const pointer of [
+      '#/paths/~1events/get/responses/200/headers/Cache-Control',
+      '#/paths/~1events/head/responses/200/headers/Cache-Control',
+      '#/paths/~1objects/get/responses/200/headers/Cache-Control',
+      '#/paths/~1objects/head/responses/200/headers/Cache-Control',
+      '#/paths/~1packages~1{packageId}/get/responses/200/headers/Cache-Control',
+      '#/paths/~1packages~1{packageId}/head/responses/200/headers/Cache-Control',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/get/responses/200/headers/Cache-Control',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/head/responses/200/headers/Cache-Control',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toEqual({
+        $ref: '#/components/headers/NoCacheControl',
+      })
+    }
+
+    for (const pointer of [
+      '#/paths/~1events/get/responses/304',
+      '#/paths/~1events/head/responses/304',
+      '#/paths/~1objects/get/responses/304',
+      '#/paths/~1objects/head/responses/304',
+      '#/paths/~1packages~1{packageId}/get/responses/304',
+      '#/paths/~1packages~1{packageId}/head/responses/304',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/get/responses/304',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/head/responses/304',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toEqual({
+        $ref: '#/components/responses/MutableNotModified',
+      })
+    }
+
+    await expect(readText('api.md')).resolves.toContain(
+      'Package state responses include `Cache-Control: no-cache`.',
+    )
+    await expect(readText('api.md')).resolves.toContain(
+      'Channel reads are mutable projections. They include `Cache-Control: no-cache`',
+    )
+  })
+
+  it('documents immutable caching for immutable core reads', async () => {
+    await expect(
+      openapiValueAtPointer(
+        '#/components/headers/ImmutableCacheControl/schema',
+      ),
+    ).resolves.toEqual({
+      const: 'public, max-age=31536000, immutable',
+    })
+    await expect(
+      openapiValueAtPointer(
+        '#/components/headers/ImmutableCacheControl/description',
+      ),
+    ).resolves.toContain('cached long-term')
+    await expect(
+      openapiValueAtPointer(
+        '#/components/responses/ImmutableNotModified/headers/Cache-Control',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/ImmutableCacheControl',
+    })
+
+    for (const pointer of [
+      '#/paths/~1events~1{algorithm}~1{hex}/get/responses/200/headers/Cache-Control',
+      '#/paths/~1events~1{algorithm}~1{hex}/head/responses/200/headers/Cache-Control',
+      '#/paths/~1objects~1{algorithm}~1{hex}/get/responses/200/headers/Cache-Control',
+      '#/paths/~1objects~1{algorithm}~1{hex}/head/responses/200/headers/Cache-Control',
+      '#/paths/~1objects~1{digest}/get/responses/200/headers/Cache-Control',
+      '#/paths/~1objects~1{digest}/head/responses/200/headers/Cache-Control',
+      '#/paths/~1packages~1{packageId}~1releases~1{version}/get/responses/200/headers/Cache-Control',
+      '#/paths/~1packages~1{packageId}~1releases~1{version}/head/responses/200/headers/Cache-Control',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toEqual({
+        $ref: '#/components/headers/ImmutableCacheControl',
+      })
+    }
+
+    for (const pointer of [
+      '#/paths/~1events~1{algorithm}~1{hex}/get/responses/304',
+      '#/paths/~1events~1{algorithm}~1{hex}/head/responses/304',
+      '#/paths/~1packages~1{packageId}~1releases~1{version}/get/responses/304',
+      '#/paths/~1packages~1{packageId}~1releases~1{version}/head/responses/304',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toEqual({
+        $ref: '#/components/responses/ImmutableNotModified',
+      })
+    }
+
+    const api = await readText('api.md')
+    const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+
+    expect(normalizedApi).toContain('They use long-lived immutable caching')
+    expect(api).toContain(
+      'individual event reads are immutable public facts with long-lived immutable',
+    )
+  })
+
+  it('documents byte-range headers for immutable object reads', async () => {
+    await expect(
+      openapiValueAtPointer('#/components/headers/AcceptRangesBytes/schema'),
+    ).resolves.toEqual({ const: 'bytes' })
+    await expect(
+      openapiValueAtPointer('#/components/headers/ContentRange/description'),
+    ).resolves.toContain('416')
+    await expect(
+      openapiValueAtPointer(
+        '#/components/responses/ObjectRangeNotSatisfiable/headers/Accept-Ranges',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/AcceptRangesBytes',
+    })
+    await expect(
+      openapiValueAtPointer(
+        '#/components/responses/ObjectRangeNotSatisfiable/headers/Content-Range',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/ContentRange',
+    })
+    await expect(
+      openapiValueAtPointer(
+        '#/components/responses/ObjectNotModified/headers/Accept-Ranges',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/AcceptRangesBytes',
+    })
+
+    for (const path of ['/objects/{algorithm}/{hex}', '/objects/{digest}']) {
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Accept-Ranges`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/AcceptRangesBytes',
+        })
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/304`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/responses/ObjectNotModified',
+        })
+      }
+
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/${escapeJsonPointer(path)}/get/responses/206/headers/Accept-Ranges`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/AcceptRangesBytes',
+      })
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/${escapeJsonPointer(path)}/get/responses/206/headers/Content-Range`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/ContentRange',
+      })
+
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/416`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/responses/ObjectRangeNotSatisfiable',
+        })
+      }
+    }
+
+    const api = await readText('api.md')
+    expect(api).toContain('Accept-Ranges: bytes')
+    expect(api).toContain('Range requests return `206` with `Content-Range`')
+    expect(api).toContain('`416` with `Content-Range: bytes */{size}`')
+  })
+
   it('documents readiness as named independent adapter checks', async () => {
     const api = await readText('api.md')
     const readinessDescription = await openapiValueAtPointer(

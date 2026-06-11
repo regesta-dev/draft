@@ -184,7 +184,8 @@ HEAD /packages/{packageId}/releases/{version}
 Returns the stored release envelope: event, manifest, and manifest descriptor.
 The manifest contains the source descriptor and artifact descriptors. Versioned
 release reads are immutable and return canonical JSON bytes with a trailing
-newline and `Content-Length` for the exact response body.
+newline and `Content-Length` for the exact response body. They use long-lived
+immutable caching and weak validators derived from the release event id.
 
 ## Release Verification
 
@@ -325,8 +326,12 @@ Object responses include:
 
 - `Content-Type`;
 - `Content-Length`;
+- `Accept-Ranges: bytes`;
 - digest-based `ETag`;
 - `Cache-Control` including `immutable`.
+
+Range requests return `206` with `Content-Range`. Unsatisfiable ranges return
+`416` with `Content-Range: bytes */{size}` and no object bytes.
 
 `HEAD` returns descriptors without downloading bytes. Verifiers still need to
 download bytes when proving object integrity.
@@ -372,7 +377,8 @@ Rules:
 - pages include `Content-Length` for the exact JSON response body;
 - page `ETag` values identify the page cursor and event count;
 - unknown cursors return an explicit not-found error;
-- individual event reads are immutable public facts.
+- individual event reads are immutable public facts with long-lived immutable
+  caching and event-id validators.
 
 Mirrors and auditors should fetch each paged event again by id, recompute its
 event digest, compare the bodies, and verify the event `ETag`.

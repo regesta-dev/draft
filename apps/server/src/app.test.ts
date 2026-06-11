@@ -1916,6 +1916,7 @@ describe('createRegestaApp', () => {
     expect(digestGet.headers.get('etag')).toBe(`"${descriptor.digest}"`)
     expect(await digestGet.text()).toBe('object bytes')
     expect(digestHead.status).toBe(200)
+    expect(digestHead.headers.get('accept-ranges')).toBe('bytes')
     expect(digestHead.headers.get('content-length')).toBe(
       String(descriptor.size),
     )
@@ -1926,6 +1927,7 @@ describe('createRegestaApp', () => {
     expect(digestHead.headers.get('etag')).toBe(`"${descriptor.digest}"`)
     expect(await digestHead.text()).toBe('')
     expect(partsHead.status).toBe(200)
+    expect(partsHead.headers.get('accept-ranges')).toBe('bytes')
     expect(partsHead.headers.get('content-length')).toBe(
       String(descriptor.size),
     )
@@ -1936,6 +1938,7 @@ describe('createRegestaApp', () => {
     expect(partsHead.headers.get('etag')).toBe(`"${descriptor.digest}"`)
     expect(await partsHead.text()).toBe('')
     expect(conditionalGet.status).toBe(304)
+    expect(conditionalGet.headers.get('accept-ranges')).toBe('bytes')
     expect(conditionalGet.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
@@ -1943,6 +1946,7 @@ describe('createRegestaApp', () => {
     expect(conditionalGet.headers.get('content-length')).toBeNull()
     expect(await conditionalGet.text()).toBe('')
     expect(conditionalHead.status).toBe(304)
+    expect(conditionalHead.headers.get('accept-ranges')).toBe('bytes')
     expect(conditionalHead.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
@@ -2008,22 +2012,27 @@ describe('createRegestaApp', () => {
     })
 
     expect(head.status).toBe(200)
+    expect(head.headers.get('accept-ranges')).toBe('bytes')
     expect(head.headers.get('content-length')).toBe(String(descriptor.size))
     expect(await head.text()).toBe('')
     expect(rangeHead.status).toBe(206)
+    expect(rangeHead.headers.get('accept-ranges')).toBe('bytes')
     expect(rangeHead.headers.get('content-length')).toBe('6')
     expect(rangeHead.headers.get('content-range')).toBe(
       `bytes 6-11/${descriptor.size}`,
     )
     expect(await rangeHead.text()).toBe('')
     expect(invalidRangeHead.status).toBe(416)
+    expect(invalidRangeHead.headers.get('accept-ranges')).toBe('bytes')
     expect(invalidRangeHead.headers.get('content-range')).toBe(
       `bytes */${descriptor.size}`,
     )
     expect(await invalidRangeHead.text()).toBe('')
     expect(conditional.status).toBe(304)
+    expect(conditional.headers.get('accept-ranges')).toBe('bytes')
     expect(await conditional.text()).toBe('')
     expect(invalidRangeGet.status).toBe(416)
+    expect(invalidRangeGet.headers.get('accept-ranges')).toBe('bytes')
     expect(invalidRangeGet.headers.get('content-range')).toBe(
       `bytes */${descriptor.size}`,
     )

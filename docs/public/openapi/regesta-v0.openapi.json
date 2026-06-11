@@ -221,6 +221,9 @@
           "200": {
             "description": "Event-derived package state snapshot.",
             "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
               "ETag": { "$ref": "#/components/headers/WeakEtag" }
             },
             "content": {
@@ -229,7 +232,7 @@
               }
             }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       },
@@ -239,9 +242,15 @@
         "parameters": [{ "$ref": "#/components/parameters/PackageId" }],
         "responses": {
           "200": {
-            "description": "Package state exists."
+            "description": "Package state exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -258,6 +267,9 @@
           "200": {
             "description": "Stored release envelope.",
             "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
               "ETag": { "$ref": "#/components/headers/WeakEtag" }
             },
             "content": {
@@ -266,7 +278,7 @@
               }
             }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/ImmutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       },
@@ -278,8 +290,16 @@
           { "$ref": "#/components/parameters/Version" }
         ],
         "responses": {
-          "200": { "description": "Release exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "200": {
+            "description": "Release exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/ImmutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -324,6 +344,9 @@
           "200": {
             "description": "Current channel target release envelope.",
             "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
               "ETag": { "$ref": "#/components/headers/WeakEtag" }
             },
             "content": {
@@ -332,7 +355,7 @@
               }
             }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       },
@@ -344,8 +367,16 @@
           { "$ref": "#/components/parameters/Channel" }
         ],
         "responses": {
-          "200": { "description": "Channel target exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "200": {
+            "description": "Channel target exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       },
@@ -443,6 +474,9 @@
           "200": {
             "description": "Object descriptor inventory page.",
             "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
               "ETag": { "$ref": "#/components/headers/WeakEtag" }
             },
             "content": {
@@ -453,7 +487,7 @@
               }
             }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       },
@@ -465,8 +499,16 @@
           { "$ref": "#/components/parameters/ObjectLimit" }
         ],
         "responses": {
-          "200": { "description": "Object descriptor inventory page exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "200": {
+            "description": "Object descriptor inventory page exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -480,6 +522,12 @@
           "200": {
             "description": "Object bytes.",
             "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
               "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
             },
             "content": {
@@ -489,11 +537,23 @@
             }
           },
           "206": {
-            "description": "Object byte range."
+            "description": "Object byte range.",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "Content-Range": {
+                "$ref": "#/components/headers/ContentRange"
+              },
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/ObjectNotModified" },
           "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "416": { "$ref": "#/components/responses/ObjectRangeNotSatisfiable" }
         }
       },
       "head": {
@@ -501,10 +561,21 @@
         "summary": "Read immutable object headers by digest",
         "parameters": [{ "$ref": "#/components/parameters/Digest" }],
         "responses": {
-          "200": { "description": "Object exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "200": {
+            "description": "Object exists.",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/ObjectNotModified" },
           "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "416": { "$ref": "#/components/responses/ObjectRangeNotSatisfiable" }
         }
       }
     },
@@ -519,16 +590,39 @@
         "responses": {
           "200": {
             "description": "Object bytes.",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            },
             "content": {
               "application/octet-stream": {
                 "schema": { "type": "string", "format": "binary" }
               }
             }
           },
-          "206": { "description": "Object byte range." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "206": {
+            "description": "Object byte range.",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "Content-Range": {
+                "$ref": "#/components/headers/ContentRange"
+              },
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/ObjectNotModified" },
           "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "416": { "$ref": "#/components/responses/ObjectRangeNotSatisfiable" }
         }
       },
       "head": {
@@ -539,10 +633,21 @@
           { "$ref": "#/components/parameters/HexDigest" }
         ],
         "responses": {
-          "200": { "description": "Object exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "200": {
+            "description": "Object exists.",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/ObjectNotModified" },
           "404": { "$ref": "#/components/responses/Error" },
-          "416": { "description": "Requested range not satisfiable." }
+          "416": { "$ref": "#/components/responses/ObjectRangeNotSatisfiable" }
         }
       }
     },
@@ -558,6 +663,9 @@
           "200": {
             "description": "Ordered event page.",
             "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
               "ETag": { "$ref": "#/components/headers/WeakEtag" }
             },
             "content": {
@@ -566,7 +674,7 @@
               }
             }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       },
@@ -578,8 +686,16 @@
           { "$ref": "#/components/parameters/EventLimit" }
         ],
         "responses": {
-          "200": { "description": "Event page exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "200": {
+            "description": "Event page exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/MutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -595,13 +711,19 @@
         "responses": {
           "200": {
             "description": "Registry event.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/RegistryEvent" }
               }
             }
           },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "304": { "$ref": "#/components/responses/ImmutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       },
@@ -613,8 +735,16 @@
           { "$ref": "#/components/parameters/HexDigest" }
         ],
         "responses": {
-          "200": { "description": "Registry event exists." },
-          "304": { "$ref": "#/components/responses/NotModified" },
+          "200": {
+            "description": "Registry event exists.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "ETag": { "$ref": "#/components/headers/WeakEtag" }
+            }
+          },
+          "304": { "$ref": "#/components/responses/ImmutableNotModified" },
           "404": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -879,6 +1009,22 @@
   },
   "components": {
     "headers": {
+      "AcceptRangesBytes": {
+        "description": "Server supports byte-range requests for this object.",
+        "schema": { "const": "bytes" }
+      },
+      "ContentRange": {
+        "description": "Byte range selected for a partial response, or unsatisfied range size for 416 responses.",
+        "schema": { "type": "string" }
+      },
+      "ImmutableCacheControl": {
+        "description": "Immutable representation can be cached long-term.",
+        "schema": { "const": "public, max-age=31536000, immutable" }
+      },
+      "NoCacheControl": {
+        "description": "Mutable representation must be revalidated before reuse.",
+        "schema": { "const": "no-cache" }
+      },
       "NoStoreCacheControl": {
         "description": "Response must not be stored by caches.",
         "schema": { "const": "no-store" }
@@ -1010,6 +1156,50 @@
             "description": "Tarball download URL.",
             "schema": { "type": "string", "format": "uri" }
           }
+        }
+      },
+      "ObjectRangeNotSatisfiable": {
+        "description": "Requested object byte range is not satisfiable.",
+        "headers": {
+          "Accept-Ranges": {
+            "$ref": "#/components/headers/AcceptRangesBytes"
+          },
+          "Content-Range": {
+            "$ref": "#/components/headers/ContentRange"
+          }
+        }
+      },
+      "ObjectNotModified": {
+        "description": "Client validator still matches the current immutable object representation.",
+        "headers": {
+          "Accept-Ranges": {
+            "$ref": "#/components/headers/AcceptRangesBytes"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/ImmutableCacheControl"
+          },
+          "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+        }
+      },
+      "ImmutableNotModified": {
+        "description": "Client validator still matches the current immutable representation.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/ImmutableCacheControl"
+          },
+          "ETag": {
+            "description": "Weak or strong validator for the immutable representation.",
+            "schema": { "type": "string" }
+          }
+        }
+      },
+      "MutableNotModified": {
+        "description": "Client validator still matches the current mutable representation.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoCacheControl"
+          },
+          "ETag": { "$ref": "#/components/headers/WeakEtag" }
         }
       },
       "NotModified": {
