@@ -676,6 +676,29 @@ function localMirrorConsistencyProblems(
   files: MirrorFileSet,
 ): string[] {
   const problems: string[] = []
+  const eventValues = [...files.eventValues.values()]
+
+  problems.push(
+    ...compareDerivedInventoryList(
+      `${label} package inventory`,
+      inventory.packages,
+      [
+        ...new Set(eventValues.map((event) => registryEventPackageId(event))),
+      ].toSorted(),
+    ),
+    ...compareDerivedInventoryList(
+      `${label} release inventory`,
+      inventory.releases.map(releaseKey),
+      eventValues
+        .filter((event) => event.eventType === 'release.published')
+        .map((event) => {
+          return releaseKey({
+            id: event.release.id,
+            version: event.release.version,
+          })
+        }),
+    ),
+  )
 
   for (const release of inventory.releases) {
     const key = releaseKey(release)
@@ -708,6 +731,28 @@ function localMirrorConsistencyProblems(
   }
 
   return problems
+}
+
+function compareDerivedInventoryList(
+  label: string,
+  inventoryValues: string[],
+  eventValues: string[],
+): string[] {
+  const checked = Math.min(inventoryValues.length, eventValues.length)
+
+  for (let index = 0; index < checked; index += 1) {
+    if (inventoryValues[index] !== eventValues[index]) {
+      return [
+        `${label} differs from event files at index ${index}: inventory ${inventoryValues[index]}, events ${eventValues[index]}`,
+      ]
+    }
+  }
+
+  return inventoryValues.length === eventValues.length
+    ? []
+    : [
+        `${label} length differs from event files: inventory ${inventoryValues.length}, events ${eventValues.length}`,
+      ]
 }
 
 function releaseEnvelopeConsistencyProblems(

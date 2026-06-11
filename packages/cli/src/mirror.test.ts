@@ -468,6 +468,66 @@ describe('compareMirrorDirectories', () => {
     }
   })
 
+  it('reports package inventories that do not match event files', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      for (const directory of [leftDir, rightDir]) {
+        const inventory = await readInventory(join(directory, 'inventory.json'))
+        await writeFile(
+          join(directory, 'inventory.json'),
+          `${canonicalJson({
+            ...inventory,
+            packages: [],
+          })}\n`,
+        )
+      }
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Left mirror package inventory length differs from event files: inventory 0, events 1',
+        'Right mirror package inventory length differs from event files: inventory 0, events 1',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
+  it('reports release inventories that do not match event files', async () => {
+    const fixture = releaseFixture()
+    const leftDir = await mirroredDirectory(fixture)
+    const rightDir = await mirroredDirectory(fixture)
+
+    try {
+      for (const directory of [leftDir, rightDir]) {
+        const inventory = await readInventory(join(directory, 'inventory.json'))
+        await writeFile(
+          join(directory, 'inventory.json'),
+          `${canonicalJson({
+            ...inventory,
+            releases: [],
+          })}\n`,
+        )
+      }
+
+      const result = await compareMirrorDirectories({ leftDir, rightDir })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Left mirror release inventory length differs from event files: inventory 0, events 1',
+        'Right mirror release inventory length differs from event files: inventory 0, events 1',
+      ])
+    } finally {
+      await rm(leftDir, { force: true, recursive: true })
+      await rm(rightDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects local mirror inventories with non-canonical mirroredAt timestamps', async () => {
     const fixture = releaseFixture()
     const leftDir = await mirroredDirectory(fixture)
