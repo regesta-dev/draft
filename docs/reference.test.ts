@@ -41,6 +41,27 @@ describe('documentation references', () => {
     )
   })
 
+  it('keeps the landing page honest about project status and public demo endpoints', async () => {
+    const index = await readText('index.md')
+
+    expect(index).toContain(
+      'Regesta is an early draft and experimental implementation, not a production',
+    )
+    expect(index).toContain('https://registry.regesta.dev/')
+    expect(index).toContain('https://npm.regesta.dev/')
+    expect(index).toContain('The demo is not a production registry')
+
+    for (const principle of [
+      'Transparent',
+      'Secure',
+      'Modern',
+      'Scalable',
+      'Community-driven',
+    ]) {
+      expect(index).toContain(`**${principle}:**`)
+    }
+  })
+
   it('publishes parseable JSON Schema and OpenAPI references', async () => {
     const schema = await readJson(schemaPath)
     const openapi = await readJson(openapiPath)
