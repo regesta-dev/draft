@@ -277,6 +277,30 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects event log pages with unknown fields', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventPageExtras: {
+            operatorHint: 'trust me',
+          },
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror JSON request failed: Mirror event log page must not include unknown field: operatorHint',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects empty event log pages that include nextAfter', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -597,6 +621,7 @@ function mirrorFetch(
     duplicateEventPage?: boolean
     emptyEventPageNextAfter?: string
     emptyObjectInventoryNextAfter?: string
+    eventPageExtras?: Record<string, unknown>
     eventEndpointText?: string
     omitEventPageContentLength?: boolean
     objectCacheControls?: ReadonlyMap<string, string>
@@ -677,6 +702,7 @@ function mirrorFetch(
         jsonResponse(
           {
             events,
+            ...options.eventPageExtras,
             nextAfter: fixture.event.id,
           },
           { omitContentLength: options.omitEventPageContentLength },

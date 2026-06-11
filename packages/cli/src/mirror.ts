@@ -1035,6 +1035,16 @@ function parseEventLogPage(value: unknown): EventLogPage {
   if (!isRecord(value)) {
     throw new TypeError('Mirror event log page must be an object')
   }
+
+  const unknownField = Object.keys(value).find((key) => {
+    return !['events', 'nextAfter'].includes(key)
+  })
+  if (unknownField) {
+    throw new TypeError(
+      `Mirror event log page must not include unknown field: ${unknownField}`,
+    )
+  }
+
   if (!Array.isArray(value.events)) {
     throw new TypeError('Mirror event log page events must be an array')
   }
