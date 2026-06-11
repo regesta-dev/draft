@@ -4,6 +4,7 @@ import type { Context } from 'hono'
 export interface KnownTransportError {
   code: string
   match: (error: Error) => boolean
+  message?: string
   status: 400 | 401 | 403 | 404 | 409 | 422
 }
 
@@ -19,8 +20,10 @@ export function createTransportErrorBoundary(
     const knownError = knownErrors.find((item) => item.match(error))
 
     if (knownError) {
+      const message = knownError.message ?? error.message
+
       return context.json(
-        errorResponse(knownError.code, error.message, errorIssues(error)),
+        errorResponse(knownError.code, message, errorIssues(error)),
         knownError.status,
       )
     }

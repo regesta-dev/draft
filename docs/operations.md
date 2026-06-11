@@ -189,6 +189,8 @@ Current hot-path boundaries:
 - root deployment info does not run readiness probes;
 - core package-state reads use adapter-owned event indexes instead of replaying
   the event log on every request;
+- event and object collection reads rely on adapter-owned cursor validation
+  inside the paginated read instead of separate cursor preflight reads;
 - npm tag and version reads use indexed channel and release state;
 - npm tarball routes redirect to the canonical object or upstream URL instead
   of proxying bytes through the npm compatibility layer;
@@ -269,10 +271,12 @@ is not set.
 The root deployment info endpoint caches advisory package statistics for 10s by
 default. Operators can tune this with `REGESTA_STATISTICS_CACHE_TTL_MS`; set it
 to `0` to disable cross-request statistics caching. In-flight statistics reads
-are still coalesced. Storage adapters should serve these statistics from cheap
-counters or indexes. In the local SQLite adapter, package count is maintained in
-`registry_stats`; startup migration or repair may scan releases to backfill the
-counter, but normal root requests should not.
+are still coalesced. When a refresh read fails after a cached value exists, the
+default server serves the stale cached statistics and logs the refresh failure;
+schema-invalid statistics still fail closed. Storage adapters should serve
+these statistics from cheap counters or indexes. In the local SQLite adapter,
+package count is maintained in `registry_stats`; startup migration or repair
+may scan releases to backfill the counter, but normal root requests should not.
 
 The npm projection bounds upstream npm metadata fallback requests with
 `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`, falling back to a 10s timeout when the

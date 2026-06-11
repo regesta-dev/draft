@@ -41,6 +41,35 @@ describe('createTransportErrorBoundary', () => {
     expect(consoleError).not.toHaveBeenCalled()
   })
 
+  it('uses public messages for known errors when configured', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const app = new Hono()
+    app.onError(
+      createTransportErrorBoundary([
+        {
+          code: 'expected_error',
+          match: (error) => error instanceof ExpectedError,
+          message: 'Public request error',
+          status: 400,
+        },
+      ]),
+    )
+    app.get('/known-public-message', () => {
+      throw new ExpectedError('Internal known request details')
+    })
+
+    const response = await app.request('/known-public-message')
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      code: 'expected_error',
+      error: 'Public request error',
+      issues: ['field: Must be valid'],
+      message: 'Public request error',
+    })
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
   it('logs unknown errors and hides their details', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const app = new Hono()

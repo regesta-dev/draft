@@ -696,6 +696,11 @@ describe('documentation references', () => {
     ).resolves.toContain('Advisory deployment statistics')
     await expect(
       openapiValueAtPointer(
+        '#/components/schemas/DeploymentInfo/properties/statistics/description',
+      ),
+    ).resolves.toContain('stale cached statistics')
+    await expect(
+      openapiValueAtPointer(
         '#/components/schemas/DeploymentInfo/properties/statistics/properties/packages/description',
       ),
     ).resolves.toContain('not a consistency boundary')
@@ -704,6 +709,9 @@ describe('documentation references', () => {
     )
     await expect(readText('api.md')).resolves.toContain(
       'briefly to keep status checks cheap under load.',
+    )
+    await expect(readText('api.md')).resolves.toMatch(
+      /stale cached\s+statistics/u,
     )
     await expect(readText('api.md')).resolves.toContain(
       'not by replaying events or scanning',
@@ -748,8 +756,13 @@ describe('documentation references', () => {
     expect(operations).toContain(
       'root deployment info does not run readiness probes',
     )
+    expect(operations).toContain('serves the stale cached statistics')
+    expect(operations).toContain('schema-invalid statistics still fail closed')
     expect(operations).toContain(
       'core package-state reads use adapter-owned event indexes',
+    )
+    expect(operations).toContain(
+      'event and object collection reads rely on adapter-owned cursor validation',
     )
     expect(operations).toContain(
       'npm tarball routes redirect to the canonical object or upstream URL',
@@ -760,6 +773,27 @@ describe('documentation references', () => {
     expect(operations).toContain('newline-delimited JSON entries')
     expect(operations).toContain('`topic`, `payload`,')
     expect(operations).toContain('`enqueuedAt` operational metadata')
+  })
+
+  it('documents architecture read-flow cost boundaries', async () => {
+    const architecture = await readText('architecture.md')
+
+    expect(architecture).toContain('## Read Flow')
+    expect(architecture).toContain(
+      'Performance-sensitive mutable reads should be backed by adapter-owned indexes',
+    )
+    expect(architecture).toMatch(
+      /Package state reads\s+use event-derived state indexes/u,
+    )
+    expect(architecture).toContain(
+      'deployment statistics use advisory counters',
+    )
+    expect(architecture).toContain(
+      'paginated event or object collection reads let the storage adapter validate',
+    )
+    expect(architecture).toMatch(
+      /HTTP routes should not add separate\s+cursor preflight reads/u,
+    )
   })
 
   it('keeps the machine-readable core schema free of ecosystem projection terms', async () => {

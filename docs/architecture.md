@@ -305,6 +305,13 @@ This shape is cache-friendly. Immutable objects can be cached aggressively.
 Mutable views can use validators and revalidation because they are derived from
 stable facts.
 
+Performance-sensitive mutable reads should be backed by adapter-owned indexes
+or counters instead of replaying full logs on every request. Package state reads
+use event-derived state indexes, deployment statistics use advisory counters,
+and paginated event or object collection reads let the storage adapter validate
+the cursor inside the bounded page read. HTTP routes should not add separate
+cursor preflight reads on top of the adapter call.
+
 ## Ops And Governance
 
 Operational features are not package protocol details, but they matter for a

@@ -367,6 +367,116 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('serves stale cached deployment statistics when a refresh read fails', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refreshError = new Error('statistics store unavailable')
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi
+      .fn<() => Promise<number>>()
+      .mockResolvedValueOnce(3)
+      .mockRejectedValueOnce(refreshError)
+      .mockResolvedValueOnce(4)
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters, {
+      deploymentStatistics: {
+        cacheTtlMs: 25,
+      },
+    })
+
+    try {
+      const first = await app.request('http://registry.test/')
+      dateNow.mockReturnValue(1_025)
+      const stale = await app.request('http://registry.test/')
+      dateNow.mockReturnValue(1_026)
+      const recovered = await app.request('http://registry.test/')
+
+      expect(first.status).toBe(200)
+      await expect(first.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 3,
+        },
+      })
+      expect(stale.status).toBe(200)
+      await expect(stale.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 3,
+        },
+      })
+      expect(recovered.status).toBe(200)
+      await expect(recovered.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 4,
+        },
+      })
+      expect(countPackages).toHaveBeenCalledTimes(3)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Deployment statistics refresh failed; serving cached value',
+        {
+          error: refreshError,
+          kind: 'regesta.deployment-statistics-refresh-failure',
+        },
+      )
+    } finally {
+      consoleError.mockRestore()
+      dateNow.mockRestore()
+    }
+  })
+
+  it('does not serve stale statistics for schema-invalid refreshes', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi
+      .fn<() => Promise<number>>()
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(-1)
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters, {
+      deploymentStatistics: {
+        cacheTtlMs: 25,
+      },
+    })
+
+    try {
+      const first = await app.request('http://registry.test/')
+      dateNow.mockReturnValue(1_025)
+      const invalid = await app.request('http://registry.test/', {
+        headers: {
+          'x-request-id': 'invalid-stale-statistics-001',
+        },
+      })
+
+      expect(first.status).toBe(200)
+      await expect(first.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 3,
+        },
+      })
+      expect(invalid.status).toBe(500)
+      await expect(invalid.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(countPackages).toHaveBeenCalledTimes(2)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              'Deployment package statistics must be a non-negative safe integer',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-stale-statistics-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+      dateNow.mockRestore()
+    }
+  })
+
   it('can disable deployment statistics caching between requests', async () => {
     const adapters = createMemoryRegistryAdapters()
     const countPackages = vi.fn(() =>
@@ -1639,6 +1749,10 @@ describe('createRegestaApp', () => {
     const sorted = descriptors.toSorted((left, right) => {
       return left.digest.localeCompare(right.digest)
     })
+    const getDescriptor = vi.fn(() => {
+      throw new Error('object inventory reads should not preflight cursors')
+    })
+    adapters.objects.getDescriptor = getDescriptor
 
     const firstPage = await app.request('/objects?limit=2')
     const firstEtag = firstPage.headers.get('etag')
@@ -1745,6 +1859,7 @@ describe('createRegestaApp', () => {
     await expect(missingCursor.json()).resolves.toMatchObject({
       code: 'object_cursor_not_found',
     })
+    expect(getDescriptor).not.toHaveBeenCalled()
     expect(invalidQuery.status).toBe(400)
     await expect(invalidQuery.json()).resolves.toMatchObject({
       error: 'Invalid object inventory query',
@@ -2175,6 +2290,10 @@ describe('createRegestaApp', () => {
         'paginated event reads should not scan the full event log',
       )
     }
+    const getEvent = vi.fn(() => {
+      throw new Error('event log pages should not preflight cursors')
+    })
+    adapters.database.getEvent = getEvent
 
     const fullPage = await app.request('/events')
     const firstPage = await app.request('/events?limit=1')
@@ -2319,6 +2438,7 @@ describe('createRegestaApp', () => {
       error: 'Event cursor not found',
       message: 'Event cursor not found',
     })
+    expect(getEvent).not.toHaveBeenCalled()
     expect(invalid.status).toBe(400)
     await expect(invalid.json()).resolves.toMatchObject({
       error: 'Invalid event log query',

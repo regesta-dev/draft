@@ -595,13 +595,6 @@ async function serveEventLogRequest(
   const limit = query.limit ? Number(query.limit) : defaultEventLogPageLimit
   const after = query.after ? assertSha256Digest(query.after) : undefined
 
-  if (after && !(await adapters.database.getEvent(after))) {
-    return context.json(
-      errorResponse('event_cursor_not_found', 'Event cursor not found'),
-      404,
-    )
-  }
-
   const events = await adapters.database.listEvents({
     after,
     limit,
@@ -657,16 +650,6 @@ async function serveObjectInventoryRequest(
       query.limit === undefined
         ? defaultObjectInventoryPageLimit
         : Number(query.limit),
-  }
-
-  if (
-    options.after !== undefined &&
-    !(await adapters.objects.getDescriptor(options.after))
-  ) {
-    return context.json(
-      errorResponse('object_cursor_not_found', 'Object cursor not found'),
-      404,
-    )
   }
 
   const descriptors = await adapters.objects.listDescriptors(options)

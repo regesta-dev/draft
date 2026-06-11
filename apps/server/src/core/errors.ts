@@ -11,6 +11,7 @@ import {
 export interface CoreRegistryKnownError {
   code: string
   match: (error: Error) => boolean
+  message?: string
   status: 400 | 401 | 403 | 404 | 409 | 422
 }
 
@@ -28,11 +29,13 @@ export const coreRegistryKnownErrors = [
   {
     code: 'event_cursor_not_found',
     match: (error) => error instanceof RegistryEventCursorNotFoundError,
+    message: 'Event cursor not found',
     status: 404,
   },
   {
     code: 'object_cursor_not_found',
     match: (error) => error instanceof ObjectCursorNotFoundError,
+    message: 'Object cursor not found',
     status: 404,
   },
   {

@@ -175,6 +175,30 @@ describe('server layer boundaries', () => {
     expect(coreSource).not.toContain('replayPackageState')
   })
 
+  it('keeps core collection reads on adapter-owned cursor validation', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+    const eventLogSource = sourceBetween(
+      coreSource,
+      'async function serveEventLogRequest',
+      'async function serveEventRequest',
+    )
+    const objectInventorySource = sourceBetween(
+      coreSource,
+      'async function serveObjectInventoryRequest',
+      'async function servePackageStateRequest',
+    )
+
+    expect(eventLogSource).toContain('listEvents')
+    expect(eventLogSource).not.toContain('getEvent')
+    expect(eventLogSource).not.toContain('event_cursor_not_found')
+    expect(objectInventorySource).toContain('listDescriptors')
+    expect(objectInventorySource).not.toContain('getDescriptor')
+    expect(objectInventorySource).not.toContain('object_cursor_not_found')
+  })
+
   it('keeps local npm projection mechanics outside route handlers', async () => {
     const routeSource = await readFile(
       join(serverSourceRoot, 'npm/app.ts'),
@@ -846,6 +870,16 @@ async function expectNoForbiddenSourcePatterns(
   }
 
   expect(violations).toEqual([])
+}
+
+function sourceBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start)
+  const endIndex = source.indexOf(end)
+
+  expect(startIndex).toBeGreaterThanOrEqual(0)
+  expect(endIndex).toBeGreaterThan(startIndex)
+
+  return source.slice(startIndex, endIndex)
 }
 
 async function sourceFiles(path: string): Promise<string[]> {

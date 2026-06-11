@@ -100,22 +100,47 @@ export function createDeploymentStatisticsRead(
       return cached.value
     }
 
-    pending ??= Promise.resolve(reader.countPackages())
-      .then((packages) => {
-        const value = normalizeDeploymentStatistics({ packages })
-        if (cacheTtlMs > 0) {
-          cached = {
-            expiresAt: Date.now() + cacheTtlMs,
-            value,
-          }
-        } else {
-          cached = undefined
+    if (!pending) {
+      let packagesRead: number | Promise<number>
+
+      try {
+        packagesRead = reader.countPackages()
+      } catch (error) {
+        if (cached) {
+          logStaleDeploymentStatisticsRefresh(error)
+          return cached.value
         }
-        return value
-      })
-      .finally(() => {
-        pending = undefined
-      })
+
+        throw error
+      }
+
+      pending = Promise.resolve(packagesRead)
+        .then(
+          (packages) => {
+            const value = normalizeDeploymentStatistics({ packages })
+            if (cacheTtlMs > 0) {
+              cached = {
+                expiresAt: Date.now() + cacheTtlMs,
+                value,
+              }
+            } else {
+              cached = undefined
+            }
+            return value
+          },
+          (error: unknown) => {
+            if (cached) {
+              logStaleDeploymentStatisticsRefresh(error)
+              return cached.value
+            }
+
+            throw error
+          },
+        )
+        .finally(() => {
+          pending = undefined
+        })
+    }
 
     return pending
   }
@@ -220,6 +245,13 @@ function normalizeDeploymentStatisticsCacheTtlMs(
   }
 
   return value
+}
+
+function logStaleDeploymentStatisticsRefresh(error: unknown): void {
+  console.error('Deployment statistics refresh failed; serving cached value', {
+    error,
+    kind: 'regesta.deployment-statistics-refresh-failure',
+  })
 }
 
 function transportJson(

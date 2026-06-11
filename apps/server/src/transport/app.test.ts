@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { createTransportApp, createTransportRoutes } from './app.ts'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  createDeploymentStatisticsRead,
+  createTransportApp,
+  createTransportRoutes,
+} from './app.ts'
 import type { RequestLogEntry } from './logging.ts'
 
 class ExpectedTransportError extends Error {
@@ -128,5 +132,56 @@ describe('createTransportRoutes', () => {
       expect(response.headers.get('cache-control')).toBe('no-store')
       await expect(response.text()).resolves.toBe('')
     }
+  })
+})
+
+describe('createDeploymentStatisticsRead', () => {
+  it('serves stale cached statistics when a synchronous refresh read fails', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refreshError = new Error('statistics adapter sync failure')
+    const countPackages = vi
+      .fn<() => number>()
+      .mockReturnValueOnce(8)
+      .mockImplementationOnce(() => {
+        throw refreshError
+      })
+    const readStatistics = createDeploymentStatisticsRead(
+      {
+        countPackages,
+      },
+      {
+        cacheTtlMs: 25,
+      },
+    )
+
+    try {
+      await expect(readStatistics()).resolves.toEqual({ packages: 8 })
+      dateNow.mockReturnValue(1_025)
+
+      expect(readStatistics()).toEqual({ packages: 8 })
+      expect(countPackages).toHaveBeenCalledTimes(2)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Deployment statistics refresh failed; serving cached value',
+        {
+          error: refreshError,
+          kind: 'regesta.deployment-statistics-refresh-failure',
+        },
+      )
+    } finally {
+      consoleError.mockRestore()
+      dateNow.mockRestore()
+    }
+  })
+
+  it('throws synchronous statistics read failures when no cached value exists', () => {
+    const readError = new Error('statistics adapter cold failure')
+    const readStatistics = createDeploymentStatisticsRead({
+      countPackages: () => {
+        throw readError
+      },
+    })
+
+    expect(() => readStatistics()).toThrow(readError)
   })
 })

@@ -26,10 +26,12 @@ describe('coreRegistryKnownErrors', () => {
     })
     expect(matchedError(new RegistryEventCursorNotFoundError(digest))).toEqual({
       code: 'event_cursor_not_found',
+      message: 'Event cursor not found',
       status: 404,
     })
     expect(matchedError(new ObjectCursorNotFoundError(digest))).toEqual({
       code: 'object_cursor_not_found',
+      message: 'Object cursor not found',
       status: 404,
     })
     expect(
@@ -60,10 +62,17 @@ describe('coreRegistryKnownErrors', () => {
 function matchedError(error: Error):
   | {
       code: string
+      message?: string
       status: number
     }
   | undefined {
   const match = coreRegistryKnownErrors.find((item) => item.match(error))
 
-  return match ? { code: match.code, status: match.status } : undefined
+  return match
+    ? {
+        code: match.code,
+        ...(match.message ? { message: match.message } : {}),
+        status: match.status,
+      }
+    : undefined
 }
