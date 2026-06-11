@@ -60,6 +60,29 @@ need repository and tag rules.
 Those mappings are client and projection concerns. They do not change the core
 id shape.
 
+### Mapping Rule Requirements
+
+Every ecosystem mapping must preserve a clear route back to the canonical
+Regesta id. A client or projection must define:
+
+- how the owner domain is represented in the ecosystem-native name;
+- how the package name is represented after the owner domain;
+- which characters are accepted, escaped, normalized, or rejected;
+- whether the mapping is fully reversible from the native name alone;
+- when a native manifest field is only a hint and `regesta.json` remains the
+  authority;
+- how collisions are detected after ecosystem-specific normalization;
+- how package managers should display the native name without changing the
+  stored core id.
+
+For npm, this is already defined: `npm:some.dev/sdk` maps to `@some.dev/sdk`,
+and the CLI can infer the Regesta id from `package.json` during publish.
+
+For other ecosystems, Regesta should not assume that npm-style `@scope/name`
+syntax is valid or neutral. If an ecosystem cannot represent the owner domain
+and package name natively without lossy normalization, the client should require
+an explicit `regesta.json` id instead of guessing.
+
 ## Metadata
 
 Core can expose small neutral metadata, such as `metadata.description`, when it
