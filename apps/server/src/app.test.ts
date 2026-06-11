@@ -2632,6 +2632,14 @@ describe('createRegestaApp', () => {
     expect(conditionalChannel.headers.get('content-length')).toBeNull()
     expect(await conditionalChannel.text()).toBe('')
     expect(verification.status).toBe(200)
+    expect(verification.headers.get('cache-control')).toBe('no-cache')
+    expect(verification.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    const verificationText = await verification.clone().text()
+    expect(verification.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(verificationText)),
+    )
     await expect(verification.json()).resolves.toMatchObject({
       manifest: {
         id: packageId,

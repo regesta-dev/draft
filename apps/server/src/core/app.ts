@@ -418,7 +418,17 @@ export function createCoreRegistryApp(
       const version = parseRequestVersion(context.req.param('version'))
       const verification = await verifyRelease(adapters, packageId, version)
 
-      return context.json(verification, verification.ok ? 200 : 422)
+      return serveJson(
+        context,
+        verification,
+        {
+          'cache-control': 'no-cache',
+          'content-type': 'application/json; charset=UTF-8',
+        },
+        {
+          status: verification.ok ? 200 : 422,
+        },
+      )
     },
   )
 
@@ -904,6 +914,7 @@ function serveJson(
   context: Context,
   body: unknown,
   headers: Record<string, string>,
+  init: { status?: number; statusText?: string } = {},
 ): Response {
   const bytes = new TextEncoder().encode(JSON.stringify(body))
   const responseHeaders = {
@@ -912,8 +923,8 @@ function serveJson(
   }
 
   return context.req.method === 'HEAD'
-    ? new Response(null, { headers: responseHeaders })
-    : new Response(bytes, { headers: responseHeaders })
+    ? new Response(null, { ...init, headers: responseHeaders })
+    : new Response(bytes, { ...init, headers: responseHeaders })
 }
 
 async function serveObject(
