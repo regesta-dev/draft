@@ -87,6 +87,8 @@ try {
     description: 'Minimal Regesta v0 example package.',
     name: '@dev.localhost/hello-regesta',
   })
+  await assertPackumentObjectTarball(packument, new URL(baseUrl).port)
+  await assertNpmTarballRedirect(baseUrl)
 
   await npmInstallSmoke(baseUrl)
 
@@ -197,6 +199,51 @@ async function npmInstallSmoke(baseUrl) {
   })
 }
 
+async function assertPackumentObjectTarball(packument, port) {
+  const tarball = packument.versions?.['0.0.5']?.dist?.tarball
+  if (typeof tarball !== 'string') {
+    throw new TypeError('npm packument version did not include dist.tarball')
+  }
+
+  const tarballUrl = new URL(tarball)
+  if (
+    tarballUrl.hostname !== 'localhost' ||
+    tarballUrl.port !== port ||
+    !tarballUrl.pathname.startsWith('/objects/sha256:')
+  ) {
+    throw new Error(
+      `Expected npm metadata tarball to be a core object URL: ${tarball}`,
+    )
+  }
+
+  const response = await fetch(tarballUrl)
+  if (!response.ok) {
+    throw new Error(
+      `${tarball} returned ${response.status}: ${await response.text()}`,
+    )
+  }
+
+  if ((await response.arrayBuffer()).byteLength === 0) {
+    throw new Error(`Core object tarball was empty: ${tarball}`)
+  }
+}
+
+async function assertNpmTarballRedirect(baseUrl) {
+  const port = new URL(baseUrl).port
+  const location = await getRedirectWithHostHeader(
+    `${baseUrl}/@dev.localhost/hello-regesta/-/hello-regesta-0.0.5.tgz`,
+    `npm.localhost:${port}`,
+  )
+  const expected =
+    'https://registry.npmjs.org/%40dev.localhost%2Fhello-regesta/-/hello-regesta-0.0.5.tgz'
+
+  if (location !== expected) {
+    throw new Error(
+      `Expected npm tarball route to redirect to ${expected}, got ${location}`,
+    )
+  }
+}
+
 async function getJson(url, host) {
   if (host) {
     return getJsonWithHostHeader(url, host)
@@ -255,6 +302,42 @@ function getJsonWithHostHeader(rawUrl, host) {
           } catch (error) {
             reject(error)
           }
+        })
+      },
+    )
+
+    request.on('error', reject)
+    request.end()
+  })
+}
+
+function getRedirectWithHostHeader(rawUrl, host) {
+  const url = new URL(rawUrl)
+
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        headers: {
+          host,
+        },
+        hostname: url.hostname,
+        method: 'GET',
+        path: `${url.pathname}${url.search}`,
+        port: url.port,
+      },
+      (response) => {
+        response.resume()
+        response.on('end', () => {
+          if (response.statusCode !== 302) {
+            reject(
+              new Error(
+                `${rawUrl} returned ${response.statusCode ?? 'unknown'}, expected 302`,
+              ),
+            )
+            return
+          }
+
+          resolve(response.headers.location)
         })
       },
     )
