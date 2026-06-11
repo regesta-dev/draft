@@ -377,8 +377,10 @@ async function fetchUpstreamNpm(
     copyHeader(context.req.raw.headers, requestHeaders, 'if-none-match')
 
     response = await upstreamFetch(url, {
+      credentials: 'omit',
       headers: requestHeaders,
       method: context.req.method === 'HEAD' ? 'HEAD' : 'GET',
+      redirect: 'error',
     })
   } catch (error) {
     const id = requestId(context)
@@ -418,8 +420,10 @@ async function fetchUpstreamNpmJsonWithTarballRedirects(
     copyHeader(context.req.raw.headers, requestHeaders, 'if-modified-since')
 
     response = await upstreamFetch(url, {
+      credentials: 'omit',
       headers: requestHeaders,
       method: context.req.method === 'HEAD' ? 'HEAD' : 'GET',
+      redirect: 'error',
     })
   } catch (error) {
     const id = requestId(context)

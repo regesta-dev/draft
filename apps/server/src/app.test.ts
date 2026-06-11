@@ -4901,8 +4901,13 @@ describe('createRegestaApp', () => {
   })
 
   it('falls back to npmjs packuments without proxying tarballs', async () => {
-    const fetchCalls: Array<{ headers: Headers; method: string; url: string }> =
-      []
+    const fetchCalls: Array<{
+      credentials?: string
+      headers: Headers
+      method: string
+      redirect?: string
+      url: string
+    }> = []
     const upstreamHeaders = {
       'cache-control': 'public, max-age=300',
       etag: '"upstream-etag"',
@@ -4910,8 +4915,10 @@ describe('createRegestaApp', () => {
     }
     const fetchMock: typeof fetch = (input, init) => {
       const request = {
+        credentials: init?.credentials,
         headers: new Headers(init?.headers),
         method: init?.method ?? 'GET',
+        redirect: init?.redirect,
         url: String(input),
       }
       fetchCalls.push(request)
@@ -5026,7 +5033,9 @@ describe('createRegestaApp', () => {
     expect(fetchCalls[0]!.headers.get('accept')).toBe('application/json')
     expect(fetchCalls[0]!.headers.get('authorization')).toBeNull()
     expect(fetchCalls[0]!.headers.get('cookie')).toBeNull()
+    expect(fetchCalls[0]!.credentials).toBe('omit')
     expect(fetchCalls[0]!.method).toBe('GET')
+    expect(fetchCalls[0]!.redirect).toBe('error')
     await expect(packument.json()).resolves.toMatchObject({
       name: '@upstream/pkg',
       versions: {
@@ -5141,6 +5150,11 @@ describe('createRegestaApp', () => {
     expect(fetchCalls.at(-1)?.url).toBe(
       'https://registry.npmjs.org/-/package/%40upstream%2Fpkg/dist-tags',
     )
+    expect(
+      fetchCalls.every((request) => {
+        return request.credentials === 'omit' && request.redirect === 'error'
+      }),
+    ).toBe(true)
 
     const fetchCallsBeforeTarballs = fetchCalls.length
     const tarball = await app.request(
