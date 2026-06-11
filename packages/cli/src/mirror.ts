@@ -16,6 +16,7 @@ import {
   type ReleaseManifest,
   type Sha256Digest,
 } from '@regesta/protocol'
+import { normalizeRegistryUrl } from './registry-url.ts'
 
 export interface MirrorRegistryInput {
   fetch?: typeof fetch
@@ -95,7 +96,7 @@ export async function mirrorRegistry(
   input: MirrorRegistryInput,
 ): Promise<MirrorRegistryResult> {
   const fetchImpl = input.fetch ?? fetch
-  const registry = normalizeRegistry(input.registry)
+  const registry = normalizeRegistryUrl(input.registry)
   const limit = input.limit ?? defaultEventLogPageLimit
   const maxPages = input.maxPages ?? defaultEventLogMaxPages
   const eventIds: Sha256Digest[] = []
@@ -1125,10 +1126,6 @@ function validatePositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(`${label} must be a positive safe integer`)
   }
-}
-
-function normalizeRegistry(registry: string): string {
-  return registry.replace(/\/$/, '')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

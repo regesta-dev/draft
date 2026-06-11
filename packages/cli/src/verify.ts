@@ -25,6 +25,7 @@ import {
   type ReleaseManifest,
   type Sha256Digest,
 } from '@regesta/protocol'
+import { normalizeRegistryUrl } from './registry-url.ts'
 
 export interface VerifyReleaseFromRegistryInput {
   fetch?: typeof fetch
@@ -106,7 +107,7 @@ export async function verifyReleaseFromRegistry(
   input: VerifyReleaseFromRegistryInput,
 ): Promise<VerificationResult> {
   const fetchImpl = input.fetch ?? fetch
-  const registry = normalizeRegistry(input.registry)
+  const registry = normalizeRegistryUrl(input.registry)
   const releaseFetch = await fetchPublicCanonicalJson(
     fetchImpl,
     releaseUrl(registry, input.packageId, input.version),
@@ -284,7 +285,7 @@ export async function verifyEventLogFromRegistry(
   input: VerifyEventLogFromRegistryInput,
 ): Promise<EventLogVerificationResult> {
   const fetchImpl = input.fetch ?? fetch
-  const registry = normalizeRegistry(input.registry)
+  const registry = normalizeRegistryUrl(input.registry)
   const limit = input.limit ?? defaultEventLogPageLimit
   const maxPages = input.maxPages ?? defaultEventLogMaxPages
 
@@ -334,8 +335,8 @@ export async function compareEventLogsFromRegistries(
   input: CompareEventLogsFromRegistriesInput,
 ): Promise<EventLogComparisonResult> {
   const fetchImpl = input.fetch ?? fetch
-  const leftRegistry = normalizeRegistry(input.leftRegistry)
-  const rightRegistry = normalizeRegistry(input.rightRegistry)
+  const leftRegistry = normalizeRegistryUrl(input.leftRegistry)
+  const rightRegistry = normalizeRegistryUrl(input.rightRegistry)
   const limit = input.limit ?? defaultEventLogPageLimit
   const maxPages = input.maxPages ?? defaultEventLogMaxPages
 
@@ -396,7 +397,7 @@ export async function verifyPackageStateFromRegistry(
   input: VerifyPackageStateFromRegistryInput,
 ): Promise<PackageStateVerificationResult> {
   const fetchImpl = input.fetch ?? fetch
-  const registry = normalizeRegistry(input.registry)
+  const registry = normalizeRegistryUrl(input.registry)
   const limit = input.limit ?? defaultEventLogPageLimit
   const maxPages = input.maxPages ?? defaultEventLogMaxPages
 
@@ -1575,10 +1576,6 @@ function digestParts(digest: Sha256Digest): {
     algorithm: algorithm!,
     hex: hex!,
   }
-}
-
-function normalizeRegistry(registry: string): string {
-  return registry.replace(/\/$/, '')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

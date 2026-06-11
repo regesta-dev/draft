@@ -16,6 +16,7 @@ import { writeGeneratedKeyFiles } from './keygen.ts'
 import { compareMirrorDirectories, mirrorRegistry } from './mirror.ts'
 import { prepareNpmPublish } from './npm-publish.ts'
 import { releasePublishArtifactDescriptors } from './publish-intent.ts'
+import { normalizeRegistryUrl } from './registry-url.ts'
 import {
   compareEventLogsFromRegistries,
   verifyEventLogFromRegistry,
@@ -58,7 +59,7 @@ cli
       cwd: string | undefined,
       options: { authKey?: string; kid?: string; registry: string },
     ) => {
-      const registry = normalizeRegistry(options.registry)
+      const registry = normalizeRegistryUrl(options.registry)
       const projectDir = cwd ?? process.cwd()
       const prepared = await prepareNpmPublish(projectDir)
       const key = await readAuthKey(options.authKey, options.kid)
@@ -305,10 +306,6 @@ cli
   })
 
 cli.help().version(pkg.version).parse()
-
-function normalizeRegistry(registry: string): string {
-  return registry.replace(/\/$/, '')
-}
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength)
