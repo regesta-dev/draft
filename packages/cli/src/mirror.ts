@@ -763,6 +763,22 @@ function parseLocalMirrorInventory(
       `${label} inventory kind must be regesta.local-mirror.inventory`,
     )
   }
+  assertKnownFields(
+    value,
+    [
+      'events',
+      'kind',
+      'lastEventId',
+      'mirroredAt',
+      'objects',
+      'ok',
+      'packages',
+      'problems',
+      'registry',
+      'releases',
+    ],
+    `${label} inventory`,
+  )
 
   return {
     events: readDigestArray(value.events, `${label} inventory events`),
@@ -787,6 +803,21 @@ function parseLocalMirrorInventory(
       value.releases,
       `${label} inventory releases`,
     ),
+  }
+}
+
+function assertKnownFields(
+  record: Record<string, unknown>,
+  knownFields: string[],
+  label: string,
+): void {
+  const known = new Set(knownFields)
+  const unknown = Object.keys(record).find((key) => {
+    return !known.has(key)
+  })
+
+  if (unknown) {
+    throw new TypeError(`${label} must not include unknown field: ${unknown}`)
   }
 }
 
