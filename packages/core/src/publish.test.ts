@@ -910,6 +910,8 @@ describe('publishRelease', () => {
 
   it('does not update release projections when publish commit fails', async () => {
     const adapters = createTestRegistryAdapters()
+    const enqueue = vi.fn(() => Promise.resolve())
+    adapters.queue.enqueue = enqueue
     adapters.database.commitPublishedRelease = () => {
       throw new Error('publish commit failed')
     }
@@ -930,6 +932,7 @@ describe('publishRelease', () => {
     await expect(
       adapters.database.getPackageChannels('npm:example.com/hello-regesta'),
     ).resolves.toEqual({})
+    expect(enqueue).not.toHaveBeenCalled()
   })
 
   it('keeps committed releases visible when derived queue enqueue fails', async () => {
@@ -1041,6 +1044,8 @@ describe('publishRelease', () => {
       },
       adapters,
     )
+    const enqueue = vi.fn(() => Promise.resolve())
+    adapters.queue.enqueue = enqueue
     adapters.database.commitPackageChannelUpdate = () => {
       throw new Error('channel commit failed')
     }
@@ -1067,6 +1072,7 @@ describe('publishRelease', () => {
     await expect(
       adapters.database.getPackageChannels('npm:example.com/hello-regesta'),
     ).resolves.toEqual({ latest: '0.0.1' })
+    expect(enqueue).not.toHaveBeenCalled()
   })
 
   it('keeps committed channel mutations visible when derived queue enqueue fails', async () => {

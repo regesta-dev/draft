@@ -4886,6 +4886,20 @@ describe('createRegestaApp', () => {
       },
     })
 
+    const deployedUnscopedManifest = await app.request(
+      'https://npm.regesta.dev/tinyexec/latest',
+    )
+
+    expect(deployedUnscopedManifest.status).toBe(200)
+    expect(fetchCalls.at(-1)?.url).toBe(
+      'https://registry.npmjs.org/tinyexec/latest',
+    )
+    await expect(deployedUnscopedManifest.json()).resolves.toMatchObject({
+      dist: {
+        tarball: 'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
+      },
+    })
+
     const distTags = await app.request(
       'http://npm.registry.test/-/package/@upstream/pkg/dist-tags',
     )
@@ -4913,7 +4927,16 @@ describe('createRegestaApp', () => {
       'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
     )
     expect(await unscopedTarball.text()).toBe('')
-    expect(fetchCalls).toHaveLength(6)
+    const deployedUnscopedTarball = await app.request(
+      'https://npm.regesta.dev/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+
+    expect(deployedUnscopedTarball.status).toBe(302)
+    expect(deployedUnscopedTarball.headers.get('location')).toBe(
+      'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    expect(await deployedUnscopedTarball.text()).toBe('')
+    expect(fetchCalls).toHaveLength(7)
   })
 
   it('logs upstream npm fallback failures while returning structured errors', async () => {
