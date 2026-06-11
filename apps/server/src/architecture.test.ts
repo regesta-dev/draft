@@ -421,11 +421,17 @@ describe('workspace layer boundaries', () => {
     )
   })
 
-  it('keeps the auth package independent from registry and ecosystem implementations', async () => {
+  it('keeps the auth package independent from registry, ecosystem, storage, and transport implementations', async () => {
     await expectNoForbiddenImports(join(workspaceRoot, 'packages/auth/src'), [
       '@regesta/adapters',
       '@regesta/core',
       '@regesta/npm',
+      'hono',
+      'node:fs',
+      'node:fs/promises',
+      'node:path',
+      'node:sqlite',
+      'valibot',
       '../adapters/',
       '../core/',
       '../npm/',
