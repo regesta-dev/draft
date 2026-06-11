@@ -306,6 +306,21 @@ describe('workspace layer boundaries', () => {
     ])
   })
 
+  it('keeps package-manager process execution inside publisher clients', async () => {
+    for (const sourceRoot of [
+      'packages/protocol/src',
+      'packages/core/src',
+      'packages/auth/src',
+      'packages/npm/src',
+      'packages/adapters/src',
+    ]) {
+      await expectNoForbiddenImports(join(workspaceRoot, sourceRoot), [
+        'child_process',
+        'node:child_process',
+      ])
+    }
+  })
+
   it('keeps the core package independent from ecosystem and trust implementations', async () => {
     await expectNoForbiddenImports(join(workspaceRoot, 'packages/core/src'), [
       '@regesta/adapters',
