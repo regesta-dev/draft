@@ -25,14 +25,20 @@ export interface NpmRegistryReader {
 
 export interface NpmRegistryRouteOptions {
   upstreamFetch?: typeof fetch
+  upstreamTimeoutMs?: number
 }
+
+const defaultUpstreamNpmFetchTimeoutMs = 10_000
 
 export function createNpmRegistryRoutes(
   adapters: NpmRegistryReader,
   options: NpmRegistryRouteOptions = {},
 ): Hono {
   const app = new Hono()
-  const upstreamFetch = options.upstreamFetch ?? fetch
+  const upstreamFetch = createBoundedUpstreamNpmFetch(
+    options.upstreamFetch ?? fetch,
+    options.upstreamTimeoutMs,
+  )
 
   app.get('/-/ping', (context) => {
     return context.json({ ping: 'pong' })
@@ -223,6 +229,70 @@ export function createNpmRegistryRoutes(
   })
 
   return app
+}
+
+function createBoundedUpstreamNpmFetch(
+  upstreamFetch: typeof fetch,
+  timeoutMs: number | undefined,
+): typeof fetch {
+  const normalizedTimeoutMs = normalizeUpstreamNpmFetchTimeoutMs(timeoutMs)
+
+  if (normalizedTimeoutMs === 0) {
+    return upstreamFetch
+  }
+
+  return async (input, init = {}) => {
+    const controller = new AbortController()
+    const upstreamSignal = init.signal
+    let timeout: ReturnType<typeof setTimeout> | undefined
+
+    const abortFromUpstreamSignal = () => {
+      controller.abort(upstreamSignal?.reason)
+    }
+
+    if (upstreamSignal?.aborted) {
+      controller.abort(upstreamSignal.reason)
+    } else {
+      upstreamSignal?.addEventListener('abort', abortFromUpstreamSignal, {
+        once: true,
+      })
+    }
+
+    try {
+      return await Promise.race([
+        upstreamFetch(input, {
+          ...init,
+          signal: controller.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            const error = new Error('Upstream npm registry request timed out')
+            controller.abort(error)
+            reject(error)
+          }, normalizedTimeoutMs)
+        }),
+      ])
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout)
+      }
+      upstreamSignal?.removeEventListener('abort', abortFromUpstreamSignal)
+    }
+  }
+}
+
+function normalizeUpstreamNpmFetchTimeoutMs(
+  timeoutMs: number | undefined,
+): number {
+  const value = timeoutMs ?? defaultUpstreamNpmFetchTimeoutMs
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(
+      'Upstream npm fetch timeout must be a non-negative safe integer',
+    )
+  }
+
+  return value
 }
 
 async function serveNpmDistTags(

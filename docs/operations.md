@@ -26,6 +26,24 @@ container, `/data` is the durable mount. In another deployment, the equivalent
 state must live in external services such as a managed database, object store,
 queue, signer, or KMS.
 
+## Runtime Configuration
+
+The default Node server accepts these deployment environment variables:
+
+| Variable                             | Default         | Purpose                                                           |
+| ------------------------------------ | --------------- | ----------------------------------------------------------------- |
+| `REGESTA_DATA_DIR`                   | `.regesta-data` | Local SQLite, filesystem object storage, queue, and signer state. |
+| `REGESTA_MAX_REQUEST_BYTES`          | unlimited       | Maximum declared HTTP request body size.                          |
+| `REGESTA_MAX_PUBLISH_ARTIFACT_BYTES` | unlimited       | Maximum uploaded install artifact size per publish request.       |
+| `REGESTA_MAX_PUBLISH_SOURCE_BYTES`   | unlimited       | Maximum uploaded source archive size per publish request.         |
+| `REGESTA_READINESS_TIMEOUT_MS`       | `5000`          | Per-adapter readiness probe timeout.                              |
+| `REGESTA_STATISTICS_CACHE_TTL_MS`    | `10000`         | Root deployment statistics cache TTL. Set `0` to disable caching. |
+| `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`    | `10000`         | npm upstream metadata fallback timeout. Set `0` to disable it.    |
+
+Numeric runtime values must be decimal safe integers without whitespace,
+fractional notation, exponent notation, or leading zeroes. Timeout and cache
+values are milliseconds. Request and publish limits are byte counts.
+
 ## Backup Boundary
 
 A backup must preserve a consistent view of:
@@ -198,6 +216,16 @@ adapters:
 The default server bounds each readiness probe with
 `REGESTA_READINESS_TIMEOUT_MS`, falling back to a 5s timeout when the variable
 is not set.
+
+The root deployment info endpoint caches advisory package statistics for 10s by
+default. Operators can tune this with `REGESTA_STATISTICS_CACHE_TTL_MS`; set it
+to `0` to disable cross-request statistics caching. In-flight statistics reads
+are still coalesced.
+
+The npm projection bounds upstream npm metadata fallback requests with
+`REGESTA_NPM_UPSTREAM_TIMEOUT_MS`, falling back to a 10s timeout when the
+variable is not set. Set it to `0` to disable the timeout. This does not affect
+tarball routes, which remain redirect-only.
 
 The backend can be Postgres, DynamoDB, S3, R2, GCS, a platform queue, KMS, or
 another service. The registry core should continue to see only adapters.

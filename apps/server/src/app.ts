@@ -18,7 +18,11 @@ import {
   type PublishUploadLimits,
 } from './core/app.ts'
 import { domainBindingFetchForRequest } from './dev/domain-binding.ts'
-import { createNpmRegistryRoutes, type NpmRegistryReader } from './npm/app.ts'
+import {
+  createNpmRegistryRoutes,
+  type NpmRegistryReader,
+  type NpmRegistryRouteOptions,
+} from './npm/app.ts'
 import { RequestValidationError } from './request.ts'
 import {
   createStorageReadinessCheck,
@@ -42,10 +46,21 @@ import { registryRoutePath } from './transport/routing.ts'
 import { isWriteAuthorizationError } from './trust/errors.ts'
 import { createTrustServices } from './trust/services.ts'
 
-const deploymentStatisticsCacheTtlMs = 10_000
+const defaultDeploymentStatisticsCacheTtlMs = 10_000
+
+export interface DeploymentStatisticsReadOptions {
+  cacheTtlMs?: number
+}
+
+export type NpmUpstreamOptions = Pick<
+  NpmRegistryRouteOptions,
+  'upstreamTimeoutMs'
+>
 
 export interface RegestaAppOptions {
   auditLog?: CoreRegistryAuditSink
+  deploymentStatistics?: DeploymentStatisticsReadOptions
+  npmUpstream?: NpmUpstreamOptions
   npmUpstreamFetch?: typeof fetch
   publishUploadLimits?: PublishUploadLimits
   requestLog?: RequestLogSink
@@ -127,7 +142,10 @@ export function createRegestaApp(
     '/root',
     createTransportRoutes({
       readiness: createStorageReadinessCheck(adapters, options.readiness),
-      statistics: createDeploymentStatisticsRead(adapters),
+      statistics: createDeploymentStatisticsRead(
+        adapters,
+        options.deploymentStatistics,
+      ),
     }),
   )
   app.route(
@@ -150,6 +168,7 @@ export function createRegestaApp(
     '/npm',
     createNpmRegistryRoutes(createNpmRegistryReader(adapters), {
       upstreamFetch: options.npmUpstreamFetch,
+      upstreamTimeoutMs: options.npmUpstream?.upstreamTimeoutMs,
     }),
   )
   if (import.meta.dev || process.env.NODE_ENV === 'development') {
@@ -164,7 +183,9 @@ export function createRegestaApp(
 
 function createDeploymentStatisticsRead(
   adapters: RegistryAdapters,
+  options: DeploymentStatisticsReadOptions = {},
 ): StatisticsRead {
+  const cacheTtlMs = normalizeDeploymentStatisticsCacheTtlMs(options.cacheTtlMs)
   let cached:
     | {
         expiresAt: number
@@ -176,7 +197,7 @@ function createDeploymentStatisticsRead(
   return () => {
     const now = Date.now()
 
-    if (cached && cached.expiresAt > now) {
+    if (cacheTtlMs > 0 && cached && cached.expiresAt > now) {
       return cached.value
     }
 
@@ -184,9 +205,13 @@ function createDeploymentStatisticsRead(
       .countPackages()
       .then((packages) => {
         const value = normalizeDeploymentStatistics({ packages })
-        cached = {
-          expiresAt: Date.now() + deploymentStatisticsCacheTtlMs,
-          value,
+        if (cacheTtlMs > 0) {
+          cached = {
+            expiresAt: Date.now() + cacheTtlMs,
+            value,
+          }
+        } else {
+          cached = undefined
         }
         return value
       })
@@ -196,6 +221,20 @@ function createDeploymentStatisticsRead(
 
     return pending
   }
+}
+
+function normalizeDeploymentStatisticsCacheTtlMs(
+  cacheTtlMs: number | undefined,
+): number {
+  const value = cacheTtlMs ?? defaultDeploymentStatisticsCacheTtlMs
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(
+      'Deployment statistics cache TTL must be a non-negative safe integer',
+    )
+  }
+
+  return value
 }
 
 function createNpmRegistryReader(

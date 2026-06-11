@@ -241,6 +241,122 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('uses the configured deployment statistics cache ttl', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() =>
+      Promise.resolve(countPackages.mock.calls.length),
+    )
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters, {
+      deploymentStatistics: {
+        cacheTtlMs: 25,
+      },
+    })
+
+    try {
+      const first = await app.request('/')
+      dateNow.mockReturnValue(1_024)
+      const cached = await app.request('/')
+      dateNow.mockReturnValue(1_025)
+      const refreshed = await app.request('/')
+
+      await expect(first.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 1,
+        },
+      })
+      await expect(cached.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 1,
+        },
+      })
+      await expect(refreshed.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 2,
+        },
+      })
+      expect(countPackages).toHaveBeenCalledTimes(2)
+    } finally {
+      dateNow.mockRestore()
+    }
+  })
+
+  it('can disable deployment statistics caching between requests', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() =>
+      Promise.resolve(countPackages.mock.calls.length),
+    )
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters, {
+      deploymentStatistics: {
+        cacheTtlMs: 0,
+      },
+    })
+
+    const first = await app.request('/')
+    const second = await app.request('/')
+
+    await expect(first.json()).resolves.toMatchObject({
+      statistics: {
+        packages: 1,
+      },
+    })
+    await expect(second.json()).resolves.toMatchObject({
+      statistics: {
+        packages: 2,
+      },
+    })
+    expect(countPackages).toHaveBeenCalledTimes(2)
+  })
+
+  it('still coalesces concurrent deployment statistics reads when caching is disabled', async () => {
+    const pendingCount = deferred<number>()
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() => pendingCount.promise)
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters, {
+      deploymentStatistics: {
+        cacheTtlMs: 0,
+      },
+    })
+
+    const first = app.request('/')
+    const second = app.request('/')
+
+    await Promise.resolve()
+    expect(countPackages).toHaveBeenCalledTimes(1)
+
+    pendingCount.resolve(19)
+    const responses = await Promise.all([first, second])
+
+    for (const response of responses) {
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({
+        statistics: {
+          packages: 19,
+        },
+      })
+    }
+    expect(countPackages).toHaveBeenCalledTimes(1)
+
+    await app.request('/')
+
+    expect(countPackages).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects invalid deployment statistics cache configuration', () => {
+    expect(() =>
+      createRegestaApp(createMemoryRegistryAdapters(), {
+        deploymentStatistics: {
+          cacheTtlMs: -1,
+        },
+      }),
+    ).toThrow(
+      'Deployment statistics cache TTL must be a non-negative safe integer',
+    )
+  })
+
   it('does not cache failed deployment statistics reads', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const adapters = createMemoryRegistryAdapters()
@@ -5664,6 +5780,116 @@ describe('createRegestaApp', () => {
     } finally {
       consoleError.mockRestore()
     }
+  })
+
+  it('rejects invalid upstream npm fallback timeout configuration', () => {
+    expect(() =>
+      createRegestaApp(createMemoryRegistryAdapters(), {
+        npmUpstream: {
+          upstreamTimeoutMs: -1,
+        },
+      }),
+    ).toThrow('Upstream npm fetch timeout must be a non-negative safe integer')
+  })
+
+  it('bounds upstream npm fallback metadata requests with configured timeouts', async () => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock: typeof fetch = (_input, init) => {
+      const signal = init?.signal
+
+      if (!signal) {
+        return Promise.reject(new Error('missing upstream abort signal'))
+      }
+
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), {
+          once: true,
+        })
+      })
+    }
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstream: {
+        upstreamTimeoutMs: 50,
+      },
+      npmUpstreamFetch: fetchMock,
+    })
+
+    try {
+      const pendingResponse = app.request(
+        'http://npm.registry.test/@upstream/pkg',
+        {
+          headers: {
+            'x-request-id': 'upstream-timeout-001',
+          },
+        },
+      )
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      const response = await pendingResponse
+      expect(response.status).toBe(502)
+      expect(response.headers.get('x-request-id')).toBe('upstream-timeout-001')
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'upstream_npm_registry_unavailable',
+        error: 'Upstream npm registry unavailable',
+        message: 'Upstream npm registry unavailable',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry request failed',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: 'Upstream npm registry request timed out',
+          }),
+          kind: 'regesta.npm-upstream-failure',
+          requestId: 'upstream-timeout-001',
+          url: 'https://registry.npmjs.org/%40upstream%2Fpkg',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('can disable upstream npm fallback timeout handling', async () => {
+    const signals: Array<RequestInit['signal'] | undefined> = []
+    const fetchMock: typeof fetch = (_input, init) => {
+      signals.push(init?.signal)
+
+      return Promise.resolve(
+        Response.json({
+          'dist-tags': {
+            latest: '1.0.0',
+          },
+          name: 'no-timeout',
+          versions: {
+            '1.0.0': {
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/no-timeout/-/no-timeout-1.0.0.tgz',
+              },
+              name: 'no-timeout',
+              version: '1.0.0',
+            },
+          },
+        }),
+      )
+    }
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstream: {
+        upstreamTimeoutMs: 0,
+      },
+      npmUpstreamFetch: fetchMock,
+    })
+
+    const response = await app.request('http://npm.registry.test/no-timeout')
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      name: 'no-timeout',
+    })
+    expect(signals).toEqual([undefined])
   })
 
   it('logs upstream npm fallback 5xx responses while returning structured errors', async () => {

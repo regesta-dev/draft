@@ -270,6 +270,51 @@ describe('server layer boundaries', () => {
     expect(source).not.toContain('createMemoryRegistryAdapters')
   })
 
+  it('keeps server runtime limits wired at the composition root', async () => {
+    const source = await readFile(
+      join(workspaceRoot, 'apps/server/server.ts'),
+      'utf8',
+    )
+    const runtimeOptionsSource = await readFile(
+      join(serverSourceRoot, 'runtime-options.ts'),
+      'utf8',
+    )
+
+    expect(source).toContain('runtimeOptionsFromEnv(process.env)')
+
+    for (const text of [
+      'REGESTA_MAX_PUBLISH_ARTIFACT_BYTES',
+      'REGESTA_MAX_PUBLISH_SOURCE_BYTES',
+      'REGESTA_MAX_REQUEST_BYTES',
+      'REGESTA_NPM_UPSTREAM_TIMEOUT_MS',
+      'REGESTA_READINESS_TIMEOUT_MS',
+      'REGESTA_STATISTICS_CACHE_TTL_MS',
+    ]) {
+      expect(runtimeOptionsSource).toContain(text)
+    }
+  })
+
+  it('keeps runtime option parsing independent from route assembly and business layers', async () => {
+    await expectNoForbiddenImports('runtime-options.ts', [
+      '@regesta/adapters',
+      '@regesta/auth',
+      '@regesta/core',
+      '@regesta/npm',
+      '@regesta/protocol',
+      './app.ts',
+      './core/',
+      './npm/',
+      './transport/',
+      './trust/',
+      'hono',
+      'node:process',
+      'valibot',
+    ])
+    await expectNoForbiddenSourcePatterns('runtime-options.ts', [
+      { label: 'direct process access', pattern: /\bprocess\./u },
+    ])
+  })
+
   it('keeps container deployment data on a persistent volume', async () => {
     const dockerfile = await readFile(join(workspaceRoot, 'Dockerfile'), 'utf8')
     const compose = await readFile(join(workspaceRoot, 'compose.yaml'), 'utf8')
