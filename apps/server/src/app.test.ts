@@ -4737,12 +4737,20 @@ describe('createRegestaApp', () => {
     const response = await app.request(
       'http://npm.registry.test/@example.com/descriptor-tarball/-/descriptor-tarball-9.9.9.tgz',
     )
+    const head = await app.request(
+      'http://npm.registry.test/@example.com/descriptor-tarball/-/descriptor-tarball-9.9.9.tgz',
+      {
+        method: 'HEAD',
+      },
+    )
 
     expect(response.status).toBe(404)
     expect(response.headers.get('location')).toBeNull()
     await expect(response.json()).resolves.toMatchObject({
       code: 'tarball_not_found',
     })
+    expect(head.status).toBe(404)
+    expect(head.headers.get('location')).toBeNull()
     expect(upstreamCalls).toEqual([])
   })
 
