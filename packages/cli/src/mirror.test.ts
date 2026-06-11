@@ -372,6 +372,31 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects release envelopes with unknown fields', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          releaseEnvelope: {
+            ...fixture.releaseEnvelope,
+            operatorHint: 'not a protocol field',
+          },
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror JSON request failed: Mirror release response must not include unknown field: operatorHint',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects public JSON responses without Content-Length', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))

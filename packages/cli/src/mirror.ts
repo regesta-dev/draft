@@ -1271,6 +1271,15 @@ function parsePublicReleaseEnvelope(value: unknown): PublicReleaseEnvelope {
     throw new TypeError('Mirror release response must be an object')
   }
 
+  const unknownField = Object.keys(value).find((key) => {
+    return !['event', 'manifest', 'manifestDescriptor'].includes(key)
+  })
+  if (unknownField) {
+    throw new TypeError(
+      `Mirror release response must not include unknown field: ${unknownField}`,
+    )
+  }
+
   return {
     event: parseRegistryEvent(value.event),
     manifest: parseReleaseManifest(value.manifest),
