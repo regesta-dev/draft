@@ -194,6 +194,35 @@ describe('server layer boundaries', () => {
     expect(projectionSource).not.toContain('getPackageChannels')
   })
 
+  it('keeps npm tarball routes redirect-only and storage-free', async () => {
+    const routeSource = await readFile(
+      join(serverSourceRoot, 'npm/app.ts'),
+      'utf8',
+    )
+    const tarballSource = sourceBetween(
+      routeSource,
+      'function serveNpmTarball',
+      'function scopedNpmPackageName',
+    )
+
+    expect(tarballSource).toContain('redirectToTarball')
+    expect(tarballSource).toContain('upstream.tarballUrl')
+    expect(tarballSource).toContain('status: 302')
+    for (const text of [
+      'adapters',
+      'database',
+      'getPackageChannels',
+      'getPackageEventState',
+      'getRelease',
+      'hasPackage',
+      'listPackageReleases',
+      'upstreamFetch',
+      'fetch(',
+    ]) {
+      expect(tarballSource).not.toContain(text)
+    }
+  })
+
   it('keeps core package state reads on adapter-owned event indexes', async () => {
     const coreSource = await readFile(
       join(serverSourceRoot, 'core/app.ts'),

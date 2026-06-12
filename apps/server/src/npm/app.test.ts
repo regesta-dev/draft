@@ -109,6 +109,172 @@ describe('createNpmRegistryRoutes', () => {
     await expect(rootHead.text()).resolves.toBe('')
   })
 
+  it('falls back to upstream npm metadata without rewriting native fields', async () => {
+    const fallbackPackageId = parsePackageId('npm:fallback.dev/pkg').id
+    const upstreamTarball =
+      'https://registry.npmjs.org/@fallback.dev/pkg/-/pkg-1.0.0.tgz'
+    const upstreamFetch = vi.fn<typeof fetch>((input, init) => {
+      expect(init?.credentials).toBe('omit')
+      expect(init?.redirect).toBe('error')
+
+      if (input === 'https://registry.npmjs.org/%40fallback.dev%2Fpkg') {
+        return Promise.resolve(
+          Response.json({
+            'dist-tags': {
+              latest: '1.0.0',
+            },
+            name: '@fallback.dev/pkg',
+            versions: {
+              '1.0.0': {
+                dist: {
+                  tarball: upstreamTarball,
+                },
+                name: '@fallback.dev/pkg',
+                version: '1.0.0',
+              },
+            },
+          }),
+        )
+      }
+
+      if (input === 'https://registry.npmjs.org/%40fallback.dev%2Fpkg/latest') {
+        return Promise.resolve(
+          Response.json({
+            dist: {
+              tarball: upstreamTarball,
+            },
+            name: '@fallback.dev/pkg',
+            version: '1.0.0',
+          }),
+        )
+      }
+
+      if (
+        input ===
+        'https://registry.npmjs.org/-/package/%40fallback.dev%2Fpkg/dist-tags'
+      ) {
+        return Promise.resolve(
+          Response.json({
+            latest: '1.0.0',
+          }),
+        )
+      }
+
+      throw new Error(`Unexpected upstream npm metadata request: ${input}`)
+    })
+    const reader = missingNpmPackageReader()
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const packument = await app.request(
+      'https://npm.registry.test/@fallback.dev/pkg',
+    )
+    const packumentHead = await app.request(
+      'https://npm.registry.test/@fallback.dev/pkg',
+      {
+        method: 'HEAD',
+      },
+    )
+    const version = await app.request(
+      'https://npm.registry.test/@fallback.dev/pkg/latest',
+    )
+    const versionHead = await app.request(
+      'https://npm.registry.test/@fallback.dev/pkg/latest',
+      {
+        method: 'HEAD',
+      },
+    )
+    const distTags = await app.request(
+      'https://npm.registry.test/-/package/@fallback.dev/pkg/dist-tags',
+    )
+    const distTagsHead = await app.request(
+      'https://npm.registry.test/-/package/@fallback.dev/pkg/dist-tags',
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(packument.status).toBe(200)
+    await expect(packument.json()).resolves.toMatchObject({
+      name: '@fallback.dev/pkg',
+      versions: {
+        '1.0.0': {
+          dist: {
+            tarball: upstreamTarball,
+          },
+        },
+      },
+    })
+    expect(packumentHead.status).toBe(200)
+    await expect(packumentHead.text()).resolves.toBe('')
+    expect(version.status).toBe(200)
+    await expect(version.json()).resolves.toEqual({
+      dist: {
+        tarball: upstreamTarball,
+      },
+      name: '@fallback.dev/pkg',
+      version: '1.0.0',
+    })
+    expect(versionHead.status).toBe(200)
+    await expect(versionHead.text()).resolves.toBe('')
+    expect(distTags.status).toBe(200)
+    await expect(distTags.json()).resolves.toEqual({
+      latest: '1.0.0',
+    })
+    expect(distTagsHead.status).toBe(200)
+    await expect(distTagsHead.text()).resolves.toBe('')
+
+    expect(reader.database.getPackageChannels).toHaveBeenCalledTimes(4)
+    expect(reader.database.getPackageChannels).toHaveBeenCalledWith(
+      fallbackPackageId,
+    )
+    expect(reader.database.getRelease).toHaveBeenCalledWith(
+      fallbackPackageId,
+      'latest',
+    )
+    expect(reader.database.hasPackage).toHaveBeenCalledTimes(4)
+    expect(reader.database.hasPackage).toHaveBeenCalledWith(fallbackPackageId)
+    expect(reader.database.listPackageReleases).toHaveBeenCalledTimes(2)
+    expect(reader.database.listPackageReleases).toHaveBeenCalledWith(
+      fallbackPackageId,
+    )
+    expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
+    expect(upstreamFetch).toHaveBeenCalledTimes(6)
+    expect(
+      upstreamFetch.mock.calls.map(([input, init]) => ({
+        method: init?.method,
+        url: String(input),
+      })),
+    ).toEqual([
+      {
+        method: 'GET',
+        url: 'https://registry.npmjs.org/%40fallback.dev%2Fpkg',
+      },
+      {
+        method: 'HEAD',
+        url: 'https://registry.npmjs.org/%40fallback.dev%2Fpkg',
+      },
+      {
+        method: 'GET',
+        url: 'https://registry.npmjs.org/%40fallback.dev%2Fpkg/latest',
+      },
+      {
+        method: 'HEAD',
+        url: 'https://registry.npmjs.org/%40fallback.dev%2Fpkg/latest',
+      },
+      {
+        method: 'GET',
+        url: 'https://registry.npmjs.org/-/package/%40fallback.dev%2Fpkg/dist-tags',
+      },
+      {
+        method: 'HEAD',
+        url: 'https://registry.npmjs.org/-/package/%40fallback.dev%2Fpkg/dist-tags',
+      },
+    ])
+  })
+
   it('serves local npm packuments from the narrow registry reader', async () => {
     const manifest = releaseManifest()
     const event = publishEvent(manifest)
@@ -426,6 +592,57 @@ describe('createNpmRegistryRoutes', () => {
     expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
+
+  it('redirects direct npm tarball routes without fetching bytes or storage state', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('tarball routes must not proxy upstream bytes')
+    })
+    const reader = storageFreeNpmTarballReader()
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const unscoped = await app.request(
+      'https://npm.registry.test/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    const scoped = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-1.0.0.tgz',
+    )
+    const scopedHead = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-1.0.0.tgz',
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(unscoped.status).toBe(302)
+    expect(unscoped.headers.get('cache-control')).toBe('no-cache')
+    expect(unscoped.headers.get('location')).toBe(
+      'https://registry.npmjs.org/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    await expect(unscoped.text()).resolves.toBe('')
+
+    expect(scoped.status).toBe(302)
+    expect(scoped.headers.get('cache-control')).toBe('no-cache')
+    expect(scoped.headers.get('location')).toBe(
+      'https://registry.npmjs.org/%40example.com%2Fhello-regesta/-/hello-regesta-1.0.0.tgz',
+    )
+    await expect(scoped.text()).resolves.toBe('')
+
+    expect(scopedHead.status).toBe(302)
+    expect(scopedHead.headers.get('location')).toBe(
+      'https://registry.npmjs.org/%40example.com%2Fhello-regesta/-/hello-regesta-1.0.0.tgz',
+    )
+    await expect(scopedHead.text()).resolves.toBe('')
+
+    expect(reader.database.getPackageChannels).not.toHaveBeenCalled()
+    expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
+    expect(reader.database.getRelease).not.toHaveBeenCalled()
+    expect(reader.database.hasPackage).not.toHaveBeenCalled()
+    expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
 })
 
 function releaseManifest(): ReleaseManifest {
@@ -512,4 +729,42 @@ function packageStateSnapshot(event: RegistryEvent): PackageStateSnapshot {
       ],
     },
   }
+}
+
+function missingNpmPackageReader() {
+  return {
+    database: {
+      getPackageChannels: vi.fn(() => Promise.resolve({})),
+      getPackageEventState: vi.fn(() =>
+        Promise.reject(
+          new Error('fallback metadata should not read package event state'),
+        ),
+      ),
+      getRelease: vi.fn(() => Promise.resolve(undefined)),
+      hasPackage: vi.fn(() => Promise.resolve(false)),
+      listPackageReleases: vi.fn(() => Promise.resolve([])),
+    },
+  } satisfies NpmRegistryReader
+}
+
+function storageFreeNpmTarballReader() {
+  return {
+    database: {
+      getPackageChannels: vi.fn(() => {
+        throw new Error('tarball routes must not read channels')
+      }),
+      getPackageEventState: vi.fn(() => {
+        throw new Error('tarball routes must not read package event state')
+      }),
+      getRelease: vi.fn(() => {
+        throw new Error('tarball routes must not read releases')
+      }),
+      hasPackage: vi.fn(() => {
+        throw new Error('tarball routes must not check package existence')
+      }),
+      listPackageReleases: vi.fn(() => {
+        throw new Error('tarball routes must not list releases')
+      }),
+    },
+  } satisfies NpmRegistryReader
 }
