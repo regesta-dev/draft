@@ -4994,6 +4994,72 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('applies configured domain binding fetch timeouts to publish authorization checks', async () => {
+    const prepared = await prepareFixtureNpmPublish(
+      await createFixtureProject(),
+    )
+    const now = new Date('2026-06-12T00:00:00.000Z')
+
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      trust: {
+        domainBindingFetchTimeoutMs: 50,
+      },
+    })
+    const auth = createTestDomainAuth()
+    const form = createSignedPublishForm({
+      auth,
+      nonce: 'publish-domain-binding-timeout',
+      prepared,
+      timestamp: now.toISOString(),
+    })
+    let resolveFetchCalled: (() => void) | undefined
+    const fetchCalled = new Promise<void>((resolve) => {
+      resolveFetchCalled = resolve
+    })
+    const fetchBinding = vi.fn(
+      (_input: Parameters<typeof fetch>[0], init: RequestInit | undefined) =>
+        new Promise<Response>((_resolve, reject) => {
+          resolveFetchCalled?.()
+          const signal = init?.signal
+
+          if (!(signal instanceof AbortSignal)) {
+            reject(new Error('missing abort signal'))
+            return
+          }
+
+          signal.addEventListener('abort', () => {
+            reject(new Error('configured domain binding timeout'))
+          })
+        }),
+    )
+    vi.stubGlobal('fetch', fetchBinding)
+
+    try {
+      const responsePromise = app.request('/releases', {
+        body: form,
+        method: 'POST',
+      })
+
+      await fetchCalled
+      await vi.advanceTimersByTimeAsync(50)
+
+      const response = await responsePromise
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'write_authorization_invalid',
+        issues: ['configured domain binding timeout'],
+        message: 'Domain binding fetch failed',
+      })
+      expect(fetchBinding).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
   it('infers core release description from npm install artifacts before verifying publish signatures', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const prepared = await prepareFixtureNpmPublish(

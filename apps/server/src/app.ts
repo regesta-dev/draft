@@ -45,6 +45,11 @@ export interface RegestaAppOptions {
   requestLog?: RequestLogSink
   readiness?: StorageReadinessCheckOptions
   requestSizeLimit?: RequestSizeLimitOptions
+  trust?: TrustOptions
+}
+
+export interface TrustOptions {
+  domainBindingFetchTimeoutMs?: number
 }
 
 export function createRegestaApp(
@@ -80,6 +85,12 @@ export function createRegestaApp(
         processPublishArtifacts,
         ...createTrustServices({
           domainBindingFetchForRequest,
+          ...(options.trust?.domainBindingFetchTimeoutMs === undefined
+            ? {}
+            : {
+                domainBindingFetchTimeoutMs:
+                  options.trust.domainBindingFetchTimeoutMs,
+              }),
         }),
       },
       {

@@ -661,6 +661,7 @@ describe('documentation references', () => {
       'reads the npm projection',
       'Runtime Configuration',
       'REGESTA_DATA_DIR',
+      'REGESTA_DOMAIN_BINDING_TIMEOUT_MS',
       'REGESTA_MAX_REQUEST_BYTES',
       'REGESTA_MAX_PUBLISH_ARTIFACT_BYTES',
       'REGESTA_MAX_PUBLISH_SOURCE_BYTES',
@@ -673,6 +674,7 @@ describe('documentation references', () => {
       'falling back to a 5s timeout',
       'REGESTA_NPM_UPSTREAM_TIMEOUT_MS',
       'falling back to a 10s timeout',
+      'domain well-known binding discovery',
       'tarball routes, which remain redirect-only',
       'REGESTA_STATISTICS_CACHE_TTL_MS',
       'disable cross-request statistics caching',
@@ -1691,6 +1693,9 @@ describe('documentation references', () => {
     expect(operations).toContain('schema-invalid statistics still fail closed')
     expect(operations).toContain(
       'core package-state reads use adapter-owned event indexes',
+    )
+    expect(operations).toContain(
+      'domain well-known binding discovery for write authorization is bounded',
     )
     expect(operations).toContain(
       'event and object collection reads rely on adapter-owned cursor validation',

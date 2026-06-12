@@ -53,7 +53,6 @@ import {
 } from '../responses.ts'
 
 export interface CoreRegistryServices {
-  domainBindingFetchForRequest?: DomainBindingFetchForRequest
   processPublishArtifacts?: PublishArtifactProcessor
   readWriteAuthorization: ReadWriteAuthorization
   verifyChannelDeleteAuthorization: VerifyChannelDeleteAuthorization
@@ -130,7 +129,6 @@ export type PublishArtifactProcessor = (
   input: ProcessPublishArtifactsInput,
 ) => Promise<ProcessPublishArtifactsOutput> | ProcessPublishArtifactsOutput
 
-export type DomainBindingFetchForRequest = (requestUrl: string) => typeof fetch
 export type ReadWriteAuthorization = (authorization: unknown) => unknown
 
 export interface VerifyPublishAuthorizationInput {
@@ -144,8 +142,8 @@ export interface VerifyPublishAuthorizationInput {
   }>
   authorization: unknown
   configDigest: Sha256Digest
-  fetchBinding: typeof fetch
   packageId: PackageId
+  requestUrl: string
   source: Uint8Array
   version: string
 }
@@ -153,18 +151,18 @@ export interface VerifyPublishAuthorizationInput {
 export interface VerifyChannelUpdateAuthorizationInput {
   authorization: unknown
   channel: string
-  fetchBinding: typeof fetch
   packageId: PackageId
   previousVersion?: string
+  requestUrl: string
   version: string
 }
 
 export interface VerifyChannelDeleteAuthorizationInput {
   authorization: unknown
   channel: string
-  fetchBinding: typeof fetch
   packageId: PackageId
   previousVersion?: string
+  requestUrl: string
 }
 
 export type VerifyPublishAuthorization = (
@@ -456,9 +454,9 @@ export function createCoreRegistryApp(
       const authorization = await services.verifyChannelUpdateAuthorization({
         authorization: body.authorization,
         channel,
-        fetchBinding: bindingFetchForRequest(services, context.req.url),
         packageId,
         ...(previousVersion === undefined ? {} : { previousVersion }),
+        requestUrl: context.req.url,
         version,
       })
 
@@ -533,9 +531,9 @@ export function createCoreRegistryApp(
       const authorization = await services.verifyChannelDeleteAuthorization({
         authorization: body.authorization,
         channel,
-        fetchBinding: bindingFetchForRequest(services, context.req.url),
         packageId,
         ...(previousVersion === undefined ? {} : { previousVersion }),
+        requestUrl: context.req.url,
       })
       result = await deletePackageChannel(adapters, {
         authorization,
@@ -1126,8 +1124,8 @@ async function publishFromRequest(
       artifacts: processed.artifacts,
       authorization: input.authorization,
       configDigest: configDigest(processed.config),
-      fetchBinding: bindingFetchForRequest(services, input.requestUrl),
       packageId: processed.config.id,
+      requestUrl: input.requestUrl,
       source: input.source,
       version: processed.config.version,
     })
@@ -1188,15 +1186,6 @@ function parseRequestVersion(value: string | undefined): string {
       error instanceof Error ? error.message : 'Invalid version',
     ])
   }
-}
-
-function bindingFetchForRequest(
-  services: CoreRegistryServices,
-  requestUrl: string,
-): typeof fetch {
-  return services.domainBindingFetchForRequest
-    ? services.domainBindingFetchForRequest(requestUrl)
-    : fetch
 }
 
 function normalizePublishUploadLimits(

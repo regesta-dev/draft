@@ -337,6 +337,82 @@ describe('verifyWriteAuthorization', () => {
     }
   })
 
+  it('uses configured domain binding fetch timeouts', async () => {
+    const fixture = createAuthorizationFixture()
+    vi.useFakeTimers()
+
+    try {
+      const verification = verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        domainBindingFetchTimeoutMs: 25,
+        expectedIntent: fixture.intent,
+        fetchBinding: (_input, init) =>
+          new Promise((_resolve, reject) => {
+            const signal = init?.signal
+
+            if (!(signal instanceof AbortSignal)) {
+              reject(new Error('missing abort signal'))
+              return
+            }
+
+            signal.addEventListener('abort', () => {
+              reject(new Error('custom domain binding fetch timeout'))
+            })
+          }),
+        now: fixture.now,
+      })
+      const rejected = expect(verification).rejects.toMatchObject({
+        issues: ['custom domain binding fetch timeout'],
+        message: 'Domain binding fetch failed',
+        name: WriteAuthorizationError.name,
+      })
+
+      await vi.advanceTimersByTimeAsync(25)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('can disable domain binding fetch timeout handling', async () => {
+    const fixture = createAuthorizationFixture()
+    let capturedSignal: AbortSignal | null | undefined
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        domainBindingFetchTimeoutMs: 0,
+        expectedIntent: fixture.intent,
+        fetchBinding: (_input, init) => {
+          capturedSignal = init?.signal
+
+          return Promise.resolve(Response.json(fixture.binding))
+        },
+        now: fixture.now,
+      }),
+    ).resolves.toMatchObject({
+      kid: 'ed25519:test',
+    })
+
+    expect(capturedSignal).toBeUndefined()
+  })
+
+  it('rejects invalid domain binding fetch timeout configuration', async () => {
+    const fixture = createAuthorizationFixture()
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        domainBindingFetchTimeoutMs: -1,
+        expectedIntent: fixture.intent,
+        fetchBinding: bindingFetch(fixture.binding),
+        now: fixture.now,
+      }),
+    ).rejects.toThrow(
+      'Domain binding fetch timeout must be a non-negative safe integer',
+    )
+  })
+
   it('rejects oversized domain binding responses', async () => {
     const fixture = createAuthorizationFixture()
     const oversizedBinding = 'x'.repeat(64 * 1024 + 1)

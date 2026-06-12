@@ -33,6 +33,7 @@ The default Node server accepts these deployment environment variables:
 | Variable                             | Default         | Purpose                                                           |
 | ------------------------------------ | --------------- | ----------------------------------------------------------------- |
 | `REGESTA_DATA_DIR`                   | `.regesta-data` | Local SQLite, filesystem object storage, queue, and signer state. |
+| `REGESTA_DOMAIN_BINDING_TIMEOUT_MS`  | `10000`         | Domain well-known binding fetch timeout. Set `0` to disable it.   |
 | `REGESTA_MAX_REQUEST_BYTES`          | unlimited       | Maximum declared HTTP request body size.                          |
 | `REGESTA_MAX_PUBLISH_ARTIFACT_BYTES` | unlimited       | Maximum uploaded install artifact size per publish request.       |
 | `REGESTA_MAX_PUBLISH_SOURCE_BYTES`   | unlimited       | Maximum uploaded source archive size per publish request.         |
@@ -206,6 +207,8 @@ Current hot-path boundaries:
 - root deployment info does not run readiness probes;
 - core package-state reads use adapter-owned event indexes instead of replaying
   the event log on every request;
+- domain well-known binding discovery for write authorization is bounded by
+  `REGESTA_DOMAIN_BINDING_TIMEOUT_MS`;
 - event and object collection reads rely on adapter-owned cursor validation
   inside the paginated read instead of separate cursor preflight reads;
 - npm tag and version reads use indexed channel and release state;
@@ -284,6 +287,11 @@ adapters:
 The default server bounds each readiness probe with
 `REGESTA_READINESS_TIMEOUT_MS`, falling back to a 5s timeout when the variable
 is not set.
+
+The default server bounds domain well-known binding discovery with
+`REGESTA_DOMAIN_BINDING_TIMEOUT_MS`, falling back to a 10s timeout when the
+variable is not set. Set it to `0` to disable the timeout when a deployment
+uses an external fetch boundary.
 
 The root deployment info endpoint caches advisory package statistics for 10s by
 default. Operators can tune this with `REGESTA_STATISTICS_CACHE_TTL_MS`; set it

@@ -12,6 +12,7 @@ describe('runtimeOptionsFromEnv', () => {
       publishUploadLimits: undefined,
       readiness: undefined,
       requestSizeLimit: undefined,
+      trust: undefined,
     })
   })
 
@@ -21,6 +22,7 @@ describe('runtimeOptionsFromEnv', () => {
         REGESTA_MAX_PUBLISH_ARTIFACT_BYTES: '100',
         REGESTA_MAX_PUBLISH_SOURCE_BYTES: '200',
         REGESTA_MAX_REQUEST_BYTES: '300',
+        REGESTA_DOMAIN_BINDING_TIMEOUT_MS: '325',
         REGESTA_NPM_UPSTREAM_TIMEOUT_MS: '350',
         REGESTA_READINESS_TIMEOUT_MS: '400',
         REGESTA_STATISTICS_CACHE_TTL_MS: '500',
@@ -42,6 +44,9 @@ describe('runtimeOptionsFromEnv', () => {
       requestSizeLimit: {
         maxBytes: 300,
       },
+      trust: {
+        domainBindingFetchTimeoutMs: 325,
+      },
     })
   })
 
@@ -51,6 +56,7 @@ describe('runtimeOptionsFromEnv', () => {
         REGESTA_MAX_PUBLISH_ARTIFACT_BYTES: '0',
         REGESTA_MAX_PUBLISH_SOURCE_BYTES: '0',
         REGESTA_MAX_REQUEST_BYTES: '0',
+        REGESTA_DOMAIN_BINDING_TIMEOUT_MS: '0',
         REGESTA_NPM_UPSTREAM_TIMEOUT_MS: '0',
         REGESTA_STATISTICS_CACHE_TTL_MS: '0',
       }),
@@ -69,6 +75,9 @@ describe('runtimeOptionsFromEnv', () => {
       requestSizeLimit: {
         maxBytes: 0,
       },
+      trust: {
+        domainBindingFetchTimeoutMs: 0,
+      },
     })
   })
 
@@ -76,6 +85,8 @@ describe('runtimeOptionsFromEnv', () => {
     ['REGESTA_MAX_PUBLISH_ARTIFACT_BYTES', '-1', 'non-negative safe integer'],
     ['REGESTA_MAX_PUBLISH_SOURCE_BYTES', '1.5', 'non-negative safe integer'],
     ['REGESTA_MAX_REQUEST_BYTES', 'Infinity', 'non-negative safe integer'],
+    ['REGESTA_DOMAIN_BINDING_TIMEOUT_MS', '-1', 'non-negative safe integer'],
+    ['REGESTA_DOMAIN_BINDING_TIMEOUT_MS', '1.0', 'non-negative safe integer'],
     ['REGESTA_NPM_UPSTREAM_TIMEOUT_MS', '-1', 'non-negative safe integer'],
     ['REGESTA_NPM_UPSTREAM_TIMEOUT_MS', ' 10', 'non-negative safe integer'],
     ['REGESTA_STATISTICS_CACHE_TTL_MS', '-1', 'non-negative safe integer'],

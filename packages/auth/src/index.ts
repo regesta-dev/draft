@@ -161,6 +161,7 @@ export interface CreateSshWriteAuthorizationInput {
 
 export interface VerifyWriteAuthorizationInput {
   authorization: unknown
+  domainBindingFetchTimeoutMs?: number
   expectedIntent: WriteIntent
   fetchBinding?: typeof fetch
   now?: Date
@@ -178,6 +179,7 @@ export interface VerifyPublishAuthorizationInput {
   }>
   authorization: unknown
   configDigest: Sha256Digest
+  domainBindingFetchTimeoutMs?: number
   fetchBinding: typeof fetch
   packageId: PackageId
   source: Uint8Array
@@ -187,6 +189,7 @@ export interface VerifyPublishAuthorizationInput {
 export interface VerifyChannelUpdateAuthorizationInput {
   authorization: unknown
   channel: string
+  domainBindingFetchTimeoutMs?: number
   fetchBinding: typeof fetch
   packageId: PackageId
   previousVersion?: string
@@ -196,6 +199,7 @@ export interface VerifyChannelUpdateAuthorizationInput {
 export interface VerifyChannelDeleteAuthorizationInput {
   authorization: unknown
   channel: string
+  domainBindingFetchTimeoutMs?: number
   fetchBinding: typeof fetch
   packageId: PackageId
   previousVersion?: string
@@ -388,6 +392,9 @@ export function verifyPublishAuthorization(
       timestamp: authorization.payload.timestamp,
       version: input.version,
     }),
+    ...(input.domainBindingFetchTimeoutMs === undefined
+      ? {}
+      : { domainBindingFetchTimeoutMs: input.domainBindingFetchTimeoutMs }),
     fetchBinding: input.fetchBinding,
   })
 }
@@ -429,6 +436,9 @@ export function verifyChannelUpdateAuthorization(
       timestamp: authorization.payload.timestamp,
       version: input.version,
     }),
+    ...(input.domainBindingFetchTimeoutMs === undefined
+      ? {}
+      : { domainBindingFetchTimeoutMs: input.domainBindingFetchTimeoutMs }),
     fetchBinding: input.fetchBinding,
   })
 }
@@ -449,6 +459,9 @@ export function verifyChannelDeleteAuthorization(
         : { previousVersion: input.previousVersion }),
       timestamp: authorization.payload.timestamp,
     }),
+    ...(input.domainBindingFetchTimeoutMs === undefined
+      ? {}
+      : { domainBindingFetchTimeoutMs: input.domainBindingFetchTimeoutMs }),
     fetchBinding: input.fetchBinding,
   })
 }
@@ -475,6 +488,7 @@ export async function verifyWriteAuthorization(
   const bindingResponse = await fetchDomainBinding(
     authorization.payload.domain,
     input.fetchBinding ?? fetch,
+    normalizeDomainBindingFetchTimeoutMs(input.domainBindingFetchTimeoutMs),
   )
   const binding = normalizeDomainBindingText(
     bindingResponse.text,
@@ -632,30 +646,38 @@ export function domainBindingUrl(domain: string): string {
 async function fetchDomainBinding(
   domain: string,
   fetchBinding: typeof fetch,
+  timeoutMs: number,
 ): Promise<{ digest: Sha256Digest; text: string }> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => {
-    controller.abort()
-  }, defaultDomainBindingFetchTimeoutMs)
+  const init: RequestInit = {
+    cache: 'no-store',
+    credentials: 'omit',
+    headers: {
+      accept: 'application/json',
+    },
+    method: 'GET',
+    redirect: 'error',
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined
   let response: Response
 
+  if (timeoutMs > 0) {
+    const controller = new AbortController()
+    timeout = setTimeout(() => {
+      controller.abort()
+    }, timeoutMs)
+    init.signal = controller.signal
+  }
+
   try {
-    response = await fetchBinding(domainBindingUrl(domain), {
-      cache: 'no-store',
-      credentials: 'omit',
-      headers: {
-        accept: 'application/json',
-      },
-      method: 'GET',
-      redirect: 'error',
-      signal: controller.signal,
-    })
+    response = await fetchBinding(domainBindingUrl(domain), init)
   } catch (error) {
     throw new WriteAuthorizationError('Domain binding fetch failed', [
       error instanceof Error ? error.message : String(error),
     ])
   } finally {
-    clearTimeout(timeout)
+    if (timeout) {
+      clearTimeout(timeout)
+    }
   }
 
   if (!response.ok) {
@@ -673,6 +695,20 @@ async function fetchDomainBinding(
       error instanceof Error ? error.message : String(error),
     ])
   }
+}
+
+function normalizeDomainBindingFetchTimeoutMs(
+  timeoutMs: number | undefined,
+): number {
+  const value = timeoutMs ?? defaultDomainBindingFetchTimeoutMs
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(
+      'Domain binding fetch timeout must be a non-negative safe integer',
+    )
+  }
+
+  return value
 }
 
 async function readDomainBinding(

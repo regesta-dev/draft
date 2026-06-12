@@ -21,12 +21,17 @@ export interface RuntimeRequestSizeLimitOptions {
   maxBytes?: number
 }
 
+export interface RuntimeTrustOptions {
+  domainBindingFetchTimeoutMs?: number
+}
+
 export interface RuntimeOptions {
   deploymentStatistics?: RuntimeDeploymentStatisticsOptions
   npmUpstream?: RuntimeNpmUpstreamOptions
   publishUploadLimits?: RuntimePublishUploadLimits
   readiness?: RuntimeReadinessOptions
   requestSizeLimit?: RuntimeRequestSizeLimitOptions
+  trust?: RuntimeTrustOptions
 }
 
 const nonNegativeIntegerPattern = /^(?:0|[1-9]\d*)$/
@@ -39,7 +44,21 @@ export function runtimeOptionsFromEnv(env: RuntimeEnvironment): RuntimeOptions {
     publishUploadLimits: readPublishUploadLimits(env),
     readiness: readReadinessOptions(env),
     requestSizeLimit: readRequestSizeLimit(env),
+    trust: readTrustOptions(env),
   }
+}
+
+function readTrustOptions(
+  env: RuntimeEnvironment,
+): RuntimeTrustOptions | undefined {
+  const domainBindingFetchTimeoutMs = readOptionalNonNegativeInteger(
+    env.REGESTA_DOMAIN_BINDING_TIMEOUT_MS,
+    'REGESTA_DOMAIN_BINDING_TIMEOUT_MS',
+  )
+
+  return domainBindingFetchTimeoutMs === undefined
+    ? undefined
+    : { domainBindingFetchTimeoutMs }
 }
 
 function readPublishUploadLimits(

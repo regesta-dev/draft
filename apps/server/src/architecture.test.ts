@@ -17,6 +17,11 @@ describe('server layer boundaries', () => {
       '../transport/',
       '../trust/',
     ])
+
+    const source = await readFile(join(serverSourceRoot, 'core/app.ts'), 'utf8')
+
+    expect(source).not.toContain('domainBindingFetchForRequest')
+    expect(source).not.toContain('fetchBinding')
   })
 
   it('keeps core routes independent from local storage implementations', async () => {
@@ -617,6 +622,7 @@ describe('server layer boundaries', () => {
       'REGESTA_MAX_PUBLISH_ARTIFACT_BYTES',
       'REGESTA_MAX_PUBLISH_SOURCE_BYTES',
       'REGESTA_MAX_REQUEST_BYTES',
+      'REGESTA_DOMAIN_BINDING_TIMEOUT_MS',
       'REGESTA_NPM_UPSTREAM_TIMEOUT_MS',
       'REGESTA_READINESS_TIMEOUT_MS',
       'REGESTA_STATISTICS_CACHE_TTL_MS',
