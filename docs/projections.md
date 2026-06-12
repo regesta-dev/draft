@@ -92,6 +92,20 @@ Artifact processors may enrich neutral release metadata and artifact-level
 `ecosystemMetadata`, but they must not change package identity, source intent,
 provenance, language hints, or cross-ecosystem family identity.
 
+Processor selection is a deployment composition concern. The default V0 server
+wires the npm processor so the npm compatibility layer can be tested end to
+end, but a deployment can replace that pipeline with processors for another
+ecosystem mix without changing core registry semantics.
+The server app module exposes the generic processor contract and pipeline
+helper for that composition; ecosystem packages provide the concrete
+processors.
+The default npm projection mount can also be disabled for deployments that do
+not want to expose npm compatibility routes.
+
+When a deployment replaces the default processor pipeline, that deployment is
+responsible for the ecosystem-specific validation it needs. Core still enforces
+neutral release boundaries, but artifact internals remain processor concerns.
+
 Core should not define a universal dependency model. Dependency and resolver
 metadata belong to artifact-level `ecosystemMetadata`, extracted by artifact
 processors and consumed by projections.

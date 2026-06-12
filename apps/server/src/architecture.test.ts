@@ -1,6 +1,8 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { PublishArtifactProcessor } from './app.ts'
+import type { CoreRegistryServices } from './core/app.ts'
 
 const serverSourceRoot = new URL('.', import.meta.url).pathname
 const workspaceRoot = join(serverSourceRoot, '../../..')
@@ -791,8 +793,20 @@ describe('server layer boundaries', () => {
     )
 
     expect(appSource).toContain('createDefaultPublishArtifactProcessor')
+    expect(appSource).toContain('npmProjection?: boolean')
+    expect(appSource).toContain('options.npmProjection !== false')
+    expect(appSource).toContain(
+      'processPublishArtifacts?: PublishArtifactProcessor',
+    )
+    expect(appSource).toContain('export { createPublishArtifactProcessor }')
+    expect(appSource).toContain('ProcessPublishArtifactsInput')
+    expect(appSource).toContain('ProcessPublishArtifactsOutput')
+    expect(appSource).toContain('PublishArtifactForProcessing')
+    expect(appSource).toContain('PublishArtifactProcessor')
+    expect(appSource).toContain("} from './artifacts/process.ts'")
     expect(appSource).not.toContain('processNpmArtifacts')
-    expect(appSource).not.toContain('createPublishArtifactProcessor')
+    expect(appSource).not.toMatch(/\bcreatePublishArtifactProcessor\(/u)
+    expect(appSource).not.toContain("from '@regesta/npm'")
     expect(artifactAppSource).toContain('createPublishArtifactProcessor')
     expect(artifactAppSource).toContain('processNpmArtifacts')
 
@@ -809,6 +823,17 @@ describe('server layer boundaries', () => {
     }
 
     expect(violations).toEqual([])
+  })
+
+  it('keeps the app-level artifact processor contract compatible with core services', () => {
+    const processor: PublishArtifactProcessor = (input) => {
+      return input
+    }
+    const services = {
+      processPublishArtifacts: processor,
+    } satisfies Pick<CoreRegistryServices, 'processPublishArtifacts'>
+
+    expect(services.processPublishArtifacts).toBe(processor)
   })
 
   it('normalizes processed publish config before authorization verification', async () => {

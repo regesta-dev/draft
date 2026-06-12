@@ -45,7 +45,7 @@ import {
   type RegestaConfig,
 } from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { createRegestaApp } from './app.ts'
+import { createPublishArtifactProcessor, createRegestaApp } from './app.ts'
 import {
   devLocalhostDomainBinding,
   devLocalhostKeyId,
@@ -189,6 +189,140 @@ describe('createRegestaApp', () => {
       },
     })
     expect(countPackages).toHaveBeenCalledTimes(1)
+  })
+
+  it('can disable the default npm projection mount for non-npm deployments', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('disabled npm projection must not fetch upstream npm')
+    })
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmProjection: false,
+      npmUpstreamFetch: upstreamFetch,
+    })
+
+    const npmRoot = await app.request('http://npm.registry.test/')
+    const npmPackage = await app.request(
+      'http://npm.registry.test/@example.com/hello-regesta',
+    )
+    const coreRoot = await app.request('http://registry.test/')
+
+    expect(npmRoot.status).toBe(404)
+    expect(npmPackage.status).toBe(404)
+    expect(coreRoot.status).toBe(200)
+    await expect(coreRoot.json()).resolves.toMatchObject({
+      object: 'regesta.deployment-info',
+    })
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps the npm projection mounted when explicitly enabled', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmProjection: true,
+      npmUpstreamFetch: () =>
+        Promise.resolve(
+          Response.json({
+            'dist-tags': {},
+            name: 'tinyexec',
+            versions: {},
+          }),
+        ),
+    })
+
+    const response = await app.request('http://npm.registry.test/tinyexec')
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      name: 'tinyexec',
+    })
+  })
+
+  it('allows deployments to compose and replace the default publish artifact processor', async () => {
+    const description = 'Deployment processor description'
+    const addInitialDescription = vi.fn((input) => {
+      return {
+        artifacts: input.artifacts,
+        config: {
+          ...input.config,
+          description: 'Initial processor description',
+        },
+      }
+    })
+    const finalizeDescription = vi.fn((input) => {
+      return {
+        artifacts: input.artifacts,
+        config: {
+          ...input.config,
+          description,
+        },
+      }
+    })
+    const processPublishArtifacts = createPublishArtifactProcessor([
+      addInitialDescription,
+      finalizeDescription,
+    ])
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      processPublishArtifacts,
+    })
+    const prepared = await prepareFixtureNpmPublish(
+      await createFixtureProject(),
+    )
+    const auth = createTestDomainAuth()
+    const timestamp = new Date().toISOString()
+    const inputConfig = withoutDescription(prepared.config)
+    const processedConfig = {
+      ...inputConfig,
+      description,
+    }
+    const form = createSignedPublishForm({
+      auth,
+      nonce: 'deployment-artifact-processor',
+      prepared: {
+        ...prepared,
+        config: processedConfig,
+      },
+      timestamp,
+    })
+    form.set('config', JSON.stringify(inputConfig))
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request('/releases', {
+        body: form,
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(201)
+      const body = await response.json()
+      expect(body).toMatchObject({
+        manifest: {
+          metadata: {
+            description,
+          },
+        },
+      })
+      expect(body).toMatchObject({
+        manifest: {
+          artifacts: [
+            expect.not.objectContaining({
+              ecosystemMetadata: expect.objectContaining({
+                npm: expect.anything(),
+              }),
+            }),
+          ],
+        },
+      })
+      expect(addInitialDescription).toHaveBeenCalledOnce()
+      expect(finalizeDescription).toHaveBeenCalledOnce()
+      expect(addInitialDescription.mock.calls[0]?.[0].config).toEqual(
+        inputConfig,
+      )
+      expect(finalizeDescription.mock.calls[0]?.[0].config).toMatchObject({
+        description: 'Initial processor description',
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('caches deployment statistics between root path reads', async () => {

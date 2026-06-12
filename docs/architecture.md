@@ -181,6 +181,22 @@ Other processors can do the same for wheels, sdists, crates, Go modules, OCI
 layers, or future package formats. The processor interprets the artifact. Core
 preserves the neutral release facts.
 
+The server composition chooses which artifact processors run. The default V0
+deployment wires the npm processor for compatibility testing, but deployments
+can replace that processor pipeline when they need a different ecosystem mix.
+This keeps ecosystem interpretation at the artifact-processing boundary instead
+of turning npm behavior into a core registry dependency.
+
+The same composition boundary applies to projection mounts. The default V0
+server mounts the npm projection, but deployments that target another ecosystem
+mix can disable that default npm projection mount without changing core
+registry behavior.
+
+A replacement pipeline is responsible for the ecosystem validation it needs.
+Core still enforces neutral package identity, release metadata, object
+addressing, and signed intent boundaries, but it does not know whether a wheel,
+crate, npm tarball, Go module, or OCI artifact is internally valid.
+
 ## Ecosystem Projections
 
 Projection layers expose package-manager-native APIs from Regesta-native data.

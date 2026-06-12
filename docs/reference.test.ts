@@ -1065,6 +1065,27 @@ describe('documentation references', () => {
       'they must not change package identity, source intent, provenance, language hints, or cross-ecosystem family identity',
     )
     expect(normalizedProjections).toContain(
+      'Processor selection is a deployment composition concern.',
+    )
+    expect(normalizedProjections).toContain(
+      'a deployment can replace that pipeline with processors for another ecosystem mix without changing core registry semantics',
+    )
+    expect(normalizedProjections).toContain(
+      'The server app module exposes the generic processor contract and pipeline helper for that composition',
+    )
+    expect(normalizedProjections).toContain(
+      'The default npm projection mount can also be disabled for deployments that do not want to expose npm compatibility routes.',
+    )
+    expect(normalizedProjections).toContain(
+      'that deployment is responsible for the ecosystem-specific validation it needs',
+    )
+    expect(await readText('roadmap.md')).toContain(
+      'Allow deployment composition to replace the default artifact processor',
+    )
+    expect(await readText('roadmap.md')).toContain(
+      'Allow deployment composition to disable the default npm projection mount',
+    )
+    expect(normalizedProjections).toContain(
       'emits only the supported npm resolver metadata fields',
     )
     expect(normalizedProjections).toContain(

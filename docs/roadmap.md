@@ -54,6 +54,9 @@ server behavior.
       projection.
 - [x] Keep V0 progressive migration fallback policies in projections or clients,
       not in core registry state.
+- [x] Allow deployment composition to replace the default artifact processor
+      pipeline without changing core semantics.
+- [x] Allow deployment composition to disable the default npm projection mount.
 - [x] Document ecosystem projection boundaries and mapping responsibilities.
 - [x] Define PyPI Simple API projection behavior.
 - [x] Define Cargo crate index projection behavior.

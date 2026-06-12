@@ -26,9 +26,17 @@ import {
 } from './transport/app.ts'
 import { trustKnownErrors } from './trust/errors.ts'
 import { createTrustServices } from './trust/services.ts'
+import type { PublishArtifactProcessor } from './artifacts/process.ts'
 import type { RegistryAdapters } from '@regesta/core'
 import type { Hono } from 'hono'
 
+export { createPublishArtifactProcessor } from './artifacts/process.ts'
+export type {
+  ProcessPublishArtifactsInput,
+  ProcessPublishArtifactsOutput,
+  PublishArtifactForProcessing,
+  PublishArtifactProcessor,
+} from './artifacts/process.ts'
 export type { DeploymentStatisticsReadOptions } from './transport/app.ts'
 
 export type NpmUpstreamOptions = Pick<
@@ -39,8 +47,10 @@ export type NpmUpstreamOptions = Pick<
 export interface RegestaAppOptions {
   auditLog?: CoreRegistryAuditSink
   deploymentStatistics?: DeploymentStatisticsReadOptions
+  npmProjection?: boolean
   npmUpstream?: NpmUpstreamOptions
   npmUpstreamFetch?: typeof fetch
+  processPublishArtifacts?: PublishArtifactProcessor
   publishUploadLimits?: PublishUploadLimits
   requestLog?: RequestLogSink
   readiness?: StorageReadinessCheckOptions
@@ -56,7 +66,8 @@ export function createRegestaApp(
   adapters: RegistryAdapters,
   options: RegestaAppOptions = {},
 ): Hono {
-  const processPublishArtifacts = createDefaultPublishArtifactProcessor()
+  const processPublishArtifacts =
+    options.processPublishArtifacts ?? createDefaultPublishArtifactProcessor()
   const app = createTransportApp({
     knownErrors: [
       ...requestKnownErrors,
@@ -99,18 +110,20 @@ export function createRegestaApp(
       },
     ),
   )
-  app.route(
-    '/npm',
-    createNpmProjectionApp(
-      {
-        database: adapters.database,
-      },
-      {
-        upstreamFetch: options.npmUpstreamFetch,
-        upstreamTimeoutMs: options.npmUpstream?.upstreamTimeoutMs,
-      },
-    ),
-  )
+  if (options.npmProjection !== false) {
+    app.route(
+      '/npm',
+      createNpmProjectionApp(
+        {
+          database: adapters.database,
+        },
+        {
+          upstreamFetch: options.npmUpstreamFetch,
+          upstreamTimeoutMs: options.npmUpstream?.upstreamTimeoutMs,
+        },
+      ),
+    )
+  }
   mountDevLocalhostRoutes(app)
 
   return app
