@@ -240,6 +240,23 @@ describe('createTransportRoutes', () => {
       await expect(response.text()).resolves.toBe('')
     }
   })
+
+  it('does not read deployment statistics for root HEAD requests', async () => {
+    const statistics = vi.fn(() => {
+      throw new Error('HEAD root must not read deployment statistics')
+    })
+    const app = createTransportRoutes({ statistics })
+
+    const response = await app.request('/', { method: 'HEAD' })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    await expect(response.text()).resolves.toBe('')
+    expect(statistics).not.toHaveBeenCalled()
+  })
 })
 
 describe('createDeploymentStatisticsRead', () => {

@@ -341,11 +341,19 @@ describe('server layer boundaries', () => {
       'async function servePackageStateRequest',
       'async function serveReleaseEnvelopeRequest',
     )
+    const packageStateHeadSource = sourceBetween(
+      coreSource,
+      'async function servePackageStateHeadRequest',
+      'async function serveConditionalPackageState',
+    )
 
+    expect(packageStateSource).toContain('servePackageStateHeadRequest')
     expect(packageStateSource).toContain('getPackageEventHead')
     expect(packageStateSource).toContain('getPackageEventState')
     expect(packageStateSource).not.toContain('listPackageEvents')
     expect(packageStateSource).not.toContain('replayPackageState')
+    expect(packageStateHeadSource).toContain('getPackageEventHead')
+    expect(packageStateHeadSource).not.toContain('getPackageEventState')
   })
 
   it('keeps core package channel reads on single-channel indexes', async () => {

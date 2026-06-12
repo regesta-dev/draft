@@ -211,6 +211,8 @@ Current hot-path boundaries:
 - root deployment info does not run readiness probes;
 - core package-state reads use adapter-owned event indexes instead of replaying
   the event log on every request;
+- core package-state `HEAD` reads use indexed package heads instead of reading
+  full package state;
 - domain well-known binding discovery for write authorization is bounded by
   `REGESTA_DOMAIN_BINDING_TIMEOUT_MS`;
 - event and object collection reads rely on adapter-owned cursor validation
@@ -306,6 +308,8 @@ schema-invalid statistics still fail closed. Storage adapters should serve
 these statistics from cheap counters or indexes. In the local SQLite adapter,
 package count is maintained in `registry_stats`; startup migration or repair
 may scan releases to backfill the counter, but normal root requests should not.
+`HEAD /` is a lightweight metadata probe and does not refresh or read package
+statistics.
 
 The npm projection bounds upstream npm metadata fallback requests with
 `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`, falling back to a 10s timeout when the

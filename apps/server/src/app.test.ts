@@ -105,9 +105,7 @@ describe('createRegestaApp', () => {
     expect(head.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(head.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(deploymentInfoText)),
-    )
+    expect(head.headers.get('content-length')).toBeNull()
     expect(head.headers.get('cache-control')).toBe('no-store')
     expect(await head.text()).toBe('')
     expect(health.status).toBe(200)
@@ -219,6 +217,27 @@ describe('createRegestaApp', () => {
       },
     })
     expect(countPackages).toHaveBeenCalledTimes(1)
+  })
+
+  it('serves root HEAD without reading deployment statistics', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() => {
+      throw new Error('root HEAD must not read deployment statistics')
+    })
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters)
+
+    const response = await app.request('http://registry.test/', {
+      method: 'HEAD',
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    await expect(response.text()).resolves.toBe('')
+    expect(countPackages).not.toHaveBeenCalled()
   })
 
   it('serves health without touching storage adapters or statistics', async () => {
@@ -3624,9 +3643,7 @@ describe('createRegestaApp', () => {
     expect(stateHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(stateHead.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(stateText)),
-    )
+    expect(stateHead.headers.get('content-length')).toBeNull()
     expect(stateHead.headers.get('etag')).toBe(`W/"${published.event.id}"`)
     expect(await stateHead.text()).toBe('')
     expect(conditionalState.status).toBe(304)
@@ -3883,6 +3900,106 @@ describe('createRegestaApp', () => {
     expect(conditional.headers.get('cache-control')).toBe('no-cache')
     expect(conditional.headers.get('etag')).toBe(etag)
     expect(await conditional.text()).toBe('')
+
+    adapters.database.getPackageEventState = () => {
+      throw new Error('package state HEAD must not read full package state')
+    }
+
+    const head = await app.request(
+      `/packages/${encodeURIComponent(packageId)}`,
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(head.status).toBe(200)
+    expect(head.headers.get('cache-control')).toBe('no-cache')
+    expect(head.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(head.headers.get('content-length')).toBeNull()
+    expect(head.headers.get('etag')).toBe(etag)
+    expect(await head.text()).toBe('')
+  })
+
+  it('uses event timestamps as package state conditional fallback metadata', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const packageId = 'npm:example.com/package-state-timestamp-fallback'
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    const channel = await updatePackageChannel(adapters, {
+      channel: 'beta',
+      packageId,
+      timestamp: '2026-06-01T00:01:00.000Z',
+      version: '0.0.1',
+    })
+    adapters.database.getPackageEventHead = () =>
+      Promise.resolve({
+        lastEventId: channel.event.id,
+        lastEventTimestamp: channel.event.timestamp,
+        releaseCount: 1,
+      })
+    adapters.database.getPackageEventState = () => {
+      throw new Error('conditional package state must not read full state')
+    }
+
+    const response = await app.request(
+      `/packages/${encodeURIComponent(packageId)}`,
+      {
+        headers: {
+          'if-modified-since': 'Mon, 01 Jun 2026 00:01:00 GMT',
+        },
+      },
+    )
+
+    expect(response.status).toBe(304)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get('etag')).toBe(`W/"${channel.event.id}"`)
+    expect(response.headers.get('last-modified')).toBe(
+      'Mon, 01 Jun 2026 00:01:00 GMT',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(await response.text()).toBe('')
+  })
+
+  it('serves missing package state HEAD responses from indexed heads only', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    adapters.database.getPackageEventState = () => {
+      throw new Error('missing package state HEAD must not read full state')
+    }
+    const app = createRegestaApp(adapters)
+    const packageId = 'npm:example.com/missing-package-state-head'
+
+    const response = await app.request(
+      `/packages/${encodeURIComponent(packageId)}`,
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(await response.text()).toBe('')
   })
 
   it('validates adapter package state at the transport boundary', async () => {

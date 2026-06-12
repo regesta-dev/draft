@@ -156,10 +156,6 @@ export function createTransportRoutes(
     return deploymentInfoResponse(context.req.method, options.statistics)
   })
 
-  app.on('HEAD', '/', (context) => {
-    return deploymentInfoResponse(context.req.method, options.statistics)
-  })
-
   app.get('/health', (context) => {
     return healthResponse(context.req.method)
   })
@@ -188,10 +184,23 @@ export function createTransportRoutes(
   return app
 }
 
+function deploymentInfoHeadResponse(): Response {
+  return new Response(null, {
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'application/json; charset=UTF-8',
+    },
+  })
+}
+
 async function deploymentInfoResponse(
   method: string,
   statistics: StatisticsRead | undefined,
 ): Promise<Response> {
+  if (method === 'HEAD') {
+    return deploymentInfoHeadResponse()
+  }
+
   return transportJson(
     method,
     createDeploymentInfo({

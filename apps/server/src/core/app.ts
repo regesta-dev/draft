@@ -704,6 +704,11 @@ async function servePackageStateRequest(
   const packageId = parseRequestPackageId(
     requiredParam(context.req.param('packageId'), 'packageId'),
   )
+
+  if (context.req.method === 'HEAD') {
+    return servePackageStateHeadRequest(context, adapters, packageId)
+  }
+
   const conditionalResponse = await serveConditionalPackageState(
     context,
     adapters,
@@ -730,6 +735,49 @@ async function servePackageStateRequest(
   })
 }
 
+async function servePackageStateHeadRequest(
+  context: Context,
+  adapters: RegistryAdapters,
+  packageId: PackageId,
+): Promise<Response> {
+  const head = await adapters.database.getPackageEventHead(packageId)
+  const lastEventId = head.lastEventId
+
+  if (!lastEventId || head.releaseCount === 0) {
+    return serveJson(
+      context,
+      errorResponse('package_not_found', 'Package not found'),
+      {
+        'cache-control': 'no-cache',
+        'content-type': 'application/json; charset=UTF-8',
+      },
+      {
+        status: 404,
+      },
+    )
+  }
+
+  const responseHead = {
+    ...head,
+    lastEventId,
+  }
+  const conditionalResponse = serveConditionalPackageStateHead(
+    context,
+    responseHead,
+  )
+
+  if (conditionalResponse) {
+    return conditionalResponse
+  }
+
+  return new Response(null, {
+    headers: packageStateHeaders({
+      lastEventId,
+      lastModified: head.modifiedAt ?? head.lastEventTimestamp,
+    }),
+  })
+}
+
 async function serveConditionalPackageState(
   context: Context,
   adapters: RegistryAdapters,
@@ -748,6 +796,18 @@ async function serveConditionalPackageState(
     return undefined
   }
 
+  return serveConditionalPackageStateHead(context, {
+    ...head,
+    lastEventId: head.lastEventId,
+  })
+}
+
+function serveConditionalPackageStateHead(
+  context: Context,
+  head: PackageEventHead & { lastEventId: Sha256Digest },
+): Response | undefined {
+  const ifNoneMatch = context.req.header('if-none-match')
+  const ifModifiedSince = context.req.header('if-modified-since')
   const etag = packageStateEtag(head.lastEventId)
 
   if (ifNoneMatch) {
@@ -756,7 +816,8 @@ async function serveConditionalPackageState(
       : undefined
   }
 
-  const lastModified = head.modifiedAt ? httpDate(head.modifiedAt) : undefined
+  const modifiedAt = head.modifiedAt ?? head.lastEventTimestamp
+  const lastModified = modifiedAt ? httpDate(modifiedAt) : undefined
 
   return matchesIfModifiedSince(ifModifiedSince, lastModified)
     ? packageStateNotModified(head)
@@ -1029,7 +1090,7 @@ function packageStateNotModified(head: PackageEventHead): Response {
   return new Response(null, {
     headers: packageStateHeaders({
       lastEventId: head.lastEventId,
-      lastModified: head.modifiedAt,
+      lastModified: head.modifiedAt ?? head.lastEventTimestamp,
     }),
     status: 304,
   })
