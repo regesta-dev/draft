@@ -46,6 +46,8 @@ export type {
   CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
+  PackageEventHead,
+  PackageReleaseHead,
   PackageStateSnapshot,
   QueueAdapter,
   RegistryAdapters,

@@ -2299,6 +2299,32 @@ function createTestRegistryAdapters(): RegistryAdapters {
 
         return Promise.resolve(packageChannels ? { ...packageChannels } : {})
       },
+      getPackageEventHead: (packageId) => {
+        const packageEvents = events.filter((event) => {
+          return eventPackageId(event) === packageId
+        })
+        const lastEvent = packageEvents.at(-1)
+        const releaseTimestamps = [
+          ...(releases.get(packageId)?.values() ?? []),
+        ].map((release) => release.manifest.createdAt)
+        const modifiedAt = [
+          ...releaseTimestamps,
+          ...(lastEvent ? [lastEvent.timestamp] : []),
+        ]
+          .toSorted()
+          .at(-1)
+
+        return Promise.resolve({
+          ...(lastEvent
+            ? {
+                lastEventId: lastEvent.id,
+                lastEventTimestamp: lastEvent.timestamp,
+              }
+            : {}),
+          ...(modifiedAt ? { modifiedAt } : {}),
+          releaseCount: releases.get(packageId)?.size ?? 0,
+        })
+      },
       getPackageEventState: (packageId) => {
         const packageEvents = events.filter((event) => {
           return eventPackageId(event) === packageId
@@ -2313,6 +2339,18 @@ function createTestRegistryAdapters(): RegistryAdapters {
               }
             : {}),
           state: replayPackageState(packageEvents, packageId),
+        })
+      },
+      getPackageReleaseHead: (packageId) => {
+        const packageReleases = [...(releases.get(packageId)?.values() ?? [])]
+        const modifiedAt = packageReleases
+          .map((release) => release.manifest.createdAt)
+          .toSorted()
+          .at(-1)
+
+        return Promise.resolve({
+          ...(modifiedAt ? { modifiedAt } : {}),
+          releaseCount: packageReleases.length,
         })
       },
       getRelease: (packageId, version) =>

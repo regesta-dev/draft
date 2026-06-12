@@ -164,6 +164,39 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('reads package release heads from indexed release state', async () => {
+      await withDatabase(target, async (database) => {
+        const firstRelease = storedRelease(
+          'npm:example.com/release-head',
+          '0.0.1',
+        )
+        const secondRelease = storedRelease(
+          'npm:example.com/release-head',
+          '0.0.2',
+        )
+
+        await expect(
+          database.getPackageReleaseHead(firstRelease.manifest.id),
+        ).resolves.toEqual({
+          releaseCount: 0,
+        })
+        await database.commitPublishedRelease(firstRelease, 'latest')
+        await expect(
+          database.getPackageReleaseHead(firstRelease.manifest.id),
+        ).resolves.toEqual({
+          modifiedAt: firstRelease.manifest.createdAt,
+          releaseCount: 1,
+        })
+        await database.commitPublishedRelease(secondRelease, 'latest')
+        await expect(
+          database.getPackageReleaseHead(firstRelease.manifest.id),
+        ).resolves.toEqual({
+          modifiedAt: secondRelease.manifest.createdAt,
+          releaseCount: 2,
+        })
+      })
+    })
+
     it('stores package state for future ecosystem keys without adapter-specific assumptions', async () => {
       await withDatabase(target, async (database) => {
         const release = storedRelease(
@@ -273,6 +306,41 @@ export function describeRegistryDatabaseConformance<
             },
           },
         )
+      })
+    })
+
+    it('reads package event heads from indexed package state', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/event-head'
+        const firstEvent = publishEventForPackage(
+          packageId,
+          '0.0.1',
+          '2026-06-01T00:00:00.000Z',
+        )
+        const secondEvent = publishEventForPackage(
+          packageId,
+          '0.0.2',
+          '2026-06-01T00:01:00.000Z',
+        )
+        const updateEvent = channelUpdatedEvent(packageId, {
+          previousVersion: '0.0.2',
+          version: '0.0.1',
+        })
+
+        await expect(database.getPackageEventHead(packageId)).resolves.toEqual({
+          releaseCount: 0,
+        })
+
+        await database.appendEvent(firstEvent)
+        await database.appendEvent(secondEvent)
+        await database.appendEvent(updateEvent)
+
+        await expect(database.getPackageEventHead(packageId)).resolves.toEqual({
+          lastEventId: updateEvent.id,
+          lastEventTimestamp: updateEvent.timestamp,
+          modifiedAt: '2026-06-01T00:01:00.000Z',
+          releaseCount: 2,
+        })
       })
     })
 

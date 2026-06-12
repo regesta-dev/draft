@@ -29,12 +29,20 @@ export interface NpmPackageEventHead {
   releaseCount: number
 }
 
+export interface NpmPackageReleaseHead {
+  modifiedAt?: string
+  releaseCount: number
+}
+
 export interface NpmProjectionStateReader {
   database: {
-    getPackageEventHead?: (packageId: PackageId) => Promise<NpmPackageEventHead>
+    getPackageEventHead: (packageId: PackageId) => Promise<NpmPackageEventHead>
     getPackageEventState: (
       packageId: PackageId,
     ) => Promise<NpmPackageStateSnapshot>
+    getPackageReleaseHead: (
+      packageId: PackageId,
+    ) => Promise<NpmPackageReleaseHead>
     listPackageReleases: (
       packageId: PackageId,
     ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
@@ -57,6 +65,7 @@ export interface LocalNpmPackageProjectionCache {
 export interface LocalNpmPackageProjectionCacheEntry {
   lastEventId: string
   projection: LocalNpmPackageProjection
+  releaseCount: number
 }
 
 const defaultLocalNpmPackageProjectionCacheEntries = 128
@@ -78,34 +87,24 @@ export async function readLocalNpmPackageProjection(
 ): Promise<LocalNpmPackageProjection | undefined> {
   const cacheKey = localNpmPackageProjectionCacheKey(packageId, requestUrl)
   const cached = cache?.get(cacheKey)
-  let snapshot: NpmPackageStateSnapshot | undefined
 
   if (cached) {
-    const head = await reader.database.getPackageEventHead?.(packageId)
+    const [eventHead, releaseHead] = await Promise.all([
+      reader.database.getPackageEventHead(packageId),
+      reader.database.getPackageReleaseHead(packageId),
+    ])
 
-    if (head) {
-      if (head.releaseCount > 0 && head.lastEventId === cached.lastEventId) {
-        return cached.projection
-      }
+    if (
+      eventHead.releaseCount > 0 &&
+      eventHead.lastEventId === cached.lastEventId &&
+      releaseHead.releaseCount === cached.releaseCount
+    ) {
+      return cached.projection
+    }
 
-      if (head.releaseCount === 0) {
-        cache?.delete(cacheKey)
-        return undefined
-      }
-    } else {
-      snapshot = await reader.database.getPackageEventState(packageId)
-
-      if (
-        snapshot.state.releases.length > 0 &&
-        snapshot.lastEventId === cached.lastEventId
-      ) {
-        return cached.projection
-      }
-
-      if (snapshot.state.releases.length === 0) {
-        cache?.delete(cacheKey)
-        return undefined
-      }
+    if (releaseHead.releaseCount === 0) {
+      cache?.delete(cacheKey)
+      return undefined
     }
   }
 
@@ -126,6 +125,7 @@ export async function readLocalNpmPackageProjection(
     cache?.set(cacheKey, {
       lastEventId: read.snapshot.lastEventId ?? 'empty',
       projection,
+      releaseCount: read.releases.length,
     })
   }
 
@@ -136,13 +136,20 @@ export async function readLocalNpmPackageProjectionHead(
   reader: NpmProjectionStateReader,
   packageId: PackageId,
 ): Promise<NpmPackageEventHead | undefined> {
-  const head = await reader.database.getPackageEventHead?.(packageId)
+  const [eventHead, releaseHead] = await Promise.all([
+    reader.database.getPackageEventHead(packageId),
+    reader.database.getPackageReleaseHead(packageId),
+  ])
 
-  if (!head || head.releaseCount === 0 || !head.lastEventId) {
+  if (
+    !eventHead.lastEventId ||
+    eventHead.releaseCount === 0 ||
+    releaseHead.releaseCount !== eventHead.releaseCount
+  ) {
     return undefined
   }
 
-  return head
+  return eventHead
 }
 
 async function readFreshLocalNpmPackageProjectionInput(
@@ -180,11 +187,26 @@ async function readFreshLocalNpmPackageProjectionInput(
     if (localNpmProjectionReadIsConsistent(releases, snapshot)) {
       return { ...latest, cacheable: true }
     }
+
+    if (localNpmProjectionReadIsDirectProjectionOnly(releases, snapshot)) {
+      return { ...latest, cacheable: false }
+    }
   }
 
   return latest && latest.releases.length > 0
     ? { ...latest, cacheable: false }
     : undefined
+}
+
+function localNpmProjectionReadIsDirectProjectionOnly(
+  releases: Array<{ event: RegistryEvent }>,
+  snapshot: NpmPackageStateSnapshot,
+): boolean {
+  return (
+    releases.length > 0 &&
+    snapshot.lastEventId === undefined &&
+    snapshot.state.releases.length === 0
+  )
 }
 
 function localNpmProjectionReadIsConsistent(

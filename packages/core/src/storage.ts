@@ -95,6 +95,18 @@ export interface PackageStateSnapshot {
   state: PackageState
 }
 
+export interface PackageEventHead {
+  lastEventId?: Sha256Digest
+  lastEventTimestamp?: string
+  modifiedAt?: string
+  releaseCount: number
+}
+
+export interface PackageReleaseHead {
+  modifiedAt?: string
+  releaseCount: number
+}
+
 export interface RegistryEventListOptions {
   after?: Sha256Digest
   limit?: number
@@ -130,7 +142,9 @@ export interface RegistryDatabase {
   getEvent: (id: Sha256Digest) => Promise<RegistryEvent | undefined>
   getEventLog: () => Promise<RegistryEvent[]>
   getPackageChannels: (packageId: PackageId) => Promise<Record<string, string>>
+  getPackageEventHead: (packageId: PackageId) => Promise<PackageEventHead>
   getPackageEventState: (packageId: PackageId) => Promise<PackageStateSnapshot>
+  getPackageReleaseHead: (packageId: PackageId) => Promise<PackageReleaseHead>
   getRelease: (
     packageId: PackageId,
     version: string,

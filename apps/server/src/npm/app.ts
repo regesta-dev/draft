@@ -357,8 +357,9 @@ async function serveConditionalNpmPackument(
   packageId: PackageId,
 ): Promise<Response | undefined> {
   const ifNoneMatch = context.req.header('if-none-match')
+  const ifModifiedSince = context.req.header('if-modified-since')
 
-  if (!ifNoneMatch) {
+  if (!ifNoneMatch && !ifModifiedSince) {
     return undefined
   }
 
@@ -374,7 +375,17 @@ async function serveConditionalNpmPackument(
 
   const etag = npmPackumentEtag(head.lastEventId)
 
-  if (!matchesIfNoneMatch(ifNoneMatch, etag)) {
+  if (ifNoneMatch) {
+    return matchesIfNoneMatch(ifNoneMatch, etag)
+      ? npmProjectionNotModified(etag, {
+          lastModified: head.modifiedAt,
+        })
+      : undefined
+  }
+
+  const lastModified = head.modifiedAt ? httpDate(head.modifiedAt) : undefined
+
+  if (!matchesIfModifiedSince(ifModifiedSince, lastModified)) {
     return undefined
   }
 

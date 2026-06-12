@@ -10,6 +10,7 @@ describe('createNpmRegistryReader', () => {
     const getPackageChannels = vi.spyOn(database, 'getPackageChannels')
     const getPackageEventHead = vi.spyOn(database, 'getPackageEventHead')
     const getPackageEventState = vi.spyOn(database, 'getPackageEventState')
+    const getPackageReleaseHead = vi.spyOn(database, 'getPackageReleaseHead')
     const getRelease = vi.spyOn(database, 'getRelease')
     const hasPackage = vi.spyOn(database, 'hasPackage')
     const listPackageReleases = vi.spyOn(database, 'listPackageReleases')
@@ -27,7 +28,12 @@ describe('createNpmRegistryReader', () => {
       },
     })
     await expect(
-      reader.database.getPackageEventHead?.(packageId),
+      reader.database.getPackageEventHead(packageId),
+    ).resolves.toEqual({
+      releaseCount: 0,
+    })
+    await expect(
+      reader.database.getPackageReleaseHead(packageId),
     ).resolves.toEqual({
       releaseCount: 0,
     })
@@ -44,6 +50,7 @@ describe('createNpmRegistryReader', () => {
       'getPackageChannels',
       'getPackageEventHead',
       'getPackageEventState',
+      'getPackageReleaseHead',
       'getRelease',
       'hasPackage',
       'listPackageReleases',
@@ -51,6 +58,7 @@ describe('createNpmRegistryReader', () => {
     expect(getPackageChannels).toHaveBeenCalledWith(packageId)
     expect(getPackageEventHead).toHaveBeenCalledWith(packageId)
     expect(getPackageEventState).toHaveBeenCalledWith(packageId)
+    expect(getPackageReleaseHead).toHaveBeenCalledWith(packageId)
     expect(getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(hasPackage).toHaveBeenCalledWith(packageId)
     expect(listPackageReleases).toHaveBeenCalledWith(packageId)

@@ -291,6 +291,20 @@ describe('createNpmRegistryRoutes', () => {
         getPackageEventState: vi.fn(() =>
           Promise.resolve(packageStateSnapshot(event)),
         ),
+        getPackageEventHead: vi.fn(() =>
+          Promise.resolve({
+            lastEventId: event.id,
+            lastEventTimestamp: event.timestamp,
+            modifiedAt: event.timestamp,
+            releaseCount: 1,
+          }),
+        ),
+        getPackageReleaseHead: vi.fn(() =>
+          Promise.resolve({
+            modifiedAt: manifest.createdAt,
+            releaseCount: 1,
+          }),
+        ),
         getRelease: vi.fn(() => Promise.resolve(undefined)),
         hasPackage: vi.fn(() => Promise.resolve(true)),
         listPackageReleases: vi.fn(() =>
@@ -370,7 +384,7 @@ describe('createNpmRegistryRoutes', () => {
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
-  it('serves conditional local npm packument hits from package event head', async () => {
+  it('serves conditional local npm packument hits from package event heads', async () => {
     const manifest = releaseManifest()
     const event = publishEvent(manifest)
     const upstreamFetch = vi.fn<typeof fetch>(() => {
@@ -386,6 +400,12 @@ describe('createNpmRegistryRoutes', () => {
             lastEventId: event.id,
             lastEventTimestamp: event.timestamp,
             modifiedAt: event.timestamp,
+            releaseCount: 1,
+          }),
+        ),
+        getPackageReleaseHead: vi.fn(() =>
+          Promise.resolve({
+            modifiedAt: manifest.createdAt,
             releaseCount: 1,
           }),
         ),
@@ -412,7 +432,7 @@ describe('createNpmRegistryRoutes', () => {
       upstreamTimeoutMs: 0,
     })
 
-    const response = await app.request(
+    const etagResponse = await app.request(
       'https://npm.registry.test/@example.com/hello-regesta',
       {
         headers: {
@@ -420,16 +440,33 @@ describe('createNpmRegistryRoutes', () => {
         },
       },
     )
+    const modifiedSinceResponse = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta',
+      {
+        headers: {
+          'if-modified-since': 'Wed, 01 Jan 2025 00:00:00 GMT',
+        },
+      },
+    )
 
-    expect(response.status).toBe(304)
-    expect(response.headers.get('etag')).toBe(
+    expect(etagResponse.status).toBe(304)
+    expect(etagResponse.headers.get('etag')).toBe(
       `W/"regesta.npm-projection:${event.id}"`,
     )
-    expect(response.headers.get('last-modified')).toBe(
+    expect(etagResponse.headers.get('last-modified')).toBe(
       'Wed, 01 Jan 2025 00:00:00 GMT',
     )
-    expect(await response.text()).toBe('')
-    expect(reader.database.getPackageEventHead).toHaveBeenCalledOnce()
+    expect(await etagResponse.text()).toBe('')
+    expect(modifiedSinceResponse.status).toBe(304)
+    expect(modifiedSinceResponse.headers.get('etag')).toBe(
+      `W/"regesta.npm-projection:${event.id}"`,
+    )
+    expect(modifiedSinceResponse.headers.get('last-modified')).toBe(
+      'Wed, 01 Jan 2025 00:00:00 GMT',
+    )
+    expect(await modifiedSinceResponse.text()).toBe('')
+    expect(reader.database.getPackageEventHead).toHaveBeenCalledTimes(2)
+    expect(reader.database.getPackageReleaseHead).toHaveBeenCalledTimes(2)
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
@@ -450,6 +487,12 @@ describe('createNpmRegistryRoutes', () => {
             new Error('dist-tags should not read package event state'),
           ),
         ),
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('dist-tags should not read package event head')
+        }),
+        getPackageReleaseHead: vi.fn(() => {
+          throw new Error('dist-tags should not read package release head')
+        }),
         getRelease: vi.fn(() => Promise.resolve(undefined)),
         hasPackage: vi.fn(() => Promise.resolve(true)),
         listPackageReleases: vi.fn(() => Promise.resolve([])),
@@ -494,6 +537,14 @@ describe('createNpmRegistryRoutes', () => {
             new Error('tagged manifests should not read package event state'),
           ),
         ),
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('tagged manifests should not read package event head')
+        }),
+        getPackageReleaseHead: vi.fn(() => {
+          throw new Error(
+            'tagged manifests should not read package release head',
+          )
+        }),
         getRelease: vi.fn(() =>
           Promise.resolve({
             event,
@@ -550,6 +601,14 @@ describe('createNpmRegistryRoutes', () => {
             new Error('direct manifests should not read package event state'),
           ),
         ),
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('direct manifests should not read package event head')
+        }),
+        getPackageReleaseHead: vi.fn(() => {
+          throw new Error(
+            'direct manifests should not read package release head',
+          )
+        }),
         getRelease: vi.fn(() =>
           Promise.resolve({
             event,
@@ -632,6 +691,14 @@ describe('createNpmRegistryRoutes', () => {
             new Error('missing versions should not read package event state'),
           ),
         ),
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('missing versions should not read package event head')
+        }),
+        getPackageReleaseHead: vi.fn(() => {
+          throw new Error(
+            'missing versions should not read package release head',
+          )
+        }),
         getRelease: vi.fn(() => Promise.resolve(undefined)),
         hasPackage: vi.fn(() => Promise.resolve(true)),
         listPackageReleases: vi.fn(() => Promise.resolve([])),
@@ -792,6 +859,16 @@ function missingNpmPackageReader() {
   return {
     database: {
       getPackageChannels: vi.fn(() => Promise.resolve({})),
+      getPackageEventHead: vi.fn(() =>
+        Promise.reject(
+          new Error('fallback metadata should not read package event head'),
+        ),
+      ),
+      getPackageReleaseHead: vi.fn(() =>
+        Promise.reject(
+          new Error('fallback metadata should not read package release head'),
+        ),
+      ),
       getPackageEventState: vi.fn(() =>
         Promise.reject(
           new Error('fallback metadata should not read package event state'),
@@ -812,6 +889,12 @@ function storageFreeNpmTarballReader() {
     database: {
       getPackageChannels: vi.fn(() => {
         throw new Error('tarball routes must not read channels')
+      }),
+      getPackageEventHead: vi.fn(() => {
+        throw new Error('tarball routes must not read package event head')
+      }),
+      getPackageReleaseHead: vi.fn(() => {
+        throw new Error('tarball routes must not read package release head')
       }),
       getPackageEventState: vi.fn(() => {
         throw new Error('tarball routes must not read package event state')

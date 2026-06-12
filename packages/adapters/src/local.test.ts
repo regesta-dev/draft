@@ -1289,6 +1289,84 @@ describe('SQLiteRegistryDatabase', () => {
         await expect(migratedDatabase.getEvent(update.id)).resolves.toEqual(
           update,
         )
+        await expect(
+          migratedDatabase.getPackageEventHead(release.manifest.id),
+        ).resolves.toEqual({
+          lastEventId: update.id,
+          lastEventTimestamp: update.timestamp,
+          modifiedAt: update.timestamp,
+          releaseCount: 1,
+        })
+      } finally {
+        migratedDatabase.close()
+      }
+
+      const migratedRawDatabase = new DatabaseSync(databasePath)
+      try {
+        expect(
+          Boolean(
+            migratedRawDatabase
+              .prepare(
+                `SELECT 1
+                  FROM registry_event_state_meta
+                  WHERE key = 'package_heads_rebuilt'
+                  LIMIT 1`,
+              )
+              .get(),
+          ),
+        ).toBe(true)
+      } finally {
+        migratedRawDatabase.close()
+      }
+    } finally {
+      if (!firstDatabaseClosed) {
+        firstDatabase.close()
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('backfills package event heads for existing event state', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-heads-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const firstDatabase = new SQLiteRegistryDatabase(databasePath)
+    let firstDatabaseClosed = false
+
+    try {
+      const release = storedRelease(
+        'npm:example.com/package-head-migration',
+        '0.0.1',
+      )
+      const update = channelUpdatedEvent(release.manifest.id, {
+        previousVersion: release.manifest.version,
+        version: release.manifest.version,
+      })
+
+      await firstDatabase.commitPublishedRelease(release, 'latest')
+      await firstDatabase.commitPackageChannelUpdate(update)
+      firstDatabase.close()
+      firstDatabaseClosed = true
+
+      const rawDatabase = new DatabaseSync(databasePath)
+      rawDatabase.prepare(`DELETE FROM registry_package_heads`).run()
+      rawDatabase
+        .prepare(
+          `DELETE FROM registry_event_state_meta
+            WHERE key = 'package_heads_rebuilt'`,
+        )
+        .run()
+      rawDatabase.close()
+
+      const migratedDatabase = new SQLiteRegistryDatabase(databasePath)
+      try {
+        await expect(
+          migratedDatabase.getPackageEventHead(release.manifest.id),
+        ).resolves.toEqual({
+          lastEventId: update.id,
+          lastEventTimestamp: update.timestamp,
+          modifiedAt: update.timestamp,
+          releaseCount: 1,
+        })
       } finally {
         migratedDatabase.close()
       }
@@ -1309,16 +1387,76 @@ describe('SQLiteRegistryDatabase', () => {
         storedRelease('npm:example.com/direct-package-count', '0.0.1'),
       )
       await expect(database.countPackages()).resolves.toBe(1)
+      await expect(
+        database.getPackageReleaseHead('npm:example.com/direct-package-count'),
+      ).resolves.toMatchObject({
+        releaseCount: 1,
+      })
       await database.putRelease(
         storedRelease('npm:example.com/direct-package-count', '0.0.2'),
       )
       await expect(database.countPackages()).resolves.toBe(1)
+      await expect(
+        database.getPackageReleaseHead('npm:example.com/direct-package-count'),
+      ).resolves.toMatchObject({
+        releaseCount: 2,
+      })
       await database.putRelease(
         storedRelease('npm:example.com/other-direct-package-count', '0.0.1'),
       )
       await expect(database.countPackages()).resolves.toBe(2)
     } finally {
       database.close()
+    }
+  })
+
+  it('backfills package release heads for existing release tables', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-release-heads-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const firstDatabase = new SQLiteRegistryDatabase(databasePath)
+    let firstDatabaseClosed = false
+
+    try {
+      const firstRelease = storedRelease(
+        'npm:example.com/release-head-migration',
+        '0.0.1',
+      )
+      const secondRelease = storedRelease(
+        'npm:example.com/release-head-migration',
+        '0.0.2',
+      )
+
+      await firstDatabase.putRelease(firstRelease)
+      await firstDatabase.putRelease(secondRelease)
+      firstDatabase.close()
+      firstDatabaseClosed = true
+
+      const rawDatabase = new DatabaseSync(databasePath)
+      rawDatabase.prepare(`DELETE FROM registry_package_release_heads`).run()
+      rawDatabase
+        .prepare(
+          `DELETE FROM registry_event_state_meta
+            WHERE key = 'package_release_heads_rebuilt'`,
+        )
+        .run()
+      rawDatabase.close()
+
+      const migratedDatabase = new SQLiteRegistryDatabase(databasePath)
+      try {
+        await expect(
+          migratedDatabase.getPackageReleaseHead(firstRelease.manifest.id),
+        ).resolves.toEqual({
+          modifiedAt: secondRelease.manifest.createdAt,
+          releaseCount: 2,
+        })
+      } finally {
+        migratedDatabase.close()
+      }
+    } finally {
+      if (!firstDatabaseClosed) {
+        firstDatabase.close()
+      }
+      await rm(root, { force: true, recursive: true })
     }
   })
 

@@ -19,15 +19,23 @@ export interface NpmPackageEventHead {
   releaseCount: number
 }
 
+export interface NpmPackageReleaseHead {
+  modifiedAt?: string
+  releaseCount: number
+}
+
 export interface NpmRegistryReader {
   database: {
     getPackageChannels: (
       packageId: PackageId,
     ) => Promise<Record<string, string>>
-    getPackageEventHead?: (packageId: PackageId) => Promise<NpmPackageEventHead>
+    getPackageEventHead: (packageId: PackageId) => Promise<NpmPackageEventHead>
     getPackageEventState: (
       packageId: PackageId,
     ) => Promise<NpmPackageStateSnapshot>
+    getPackageReleaseHead: (
+      packageId: PackageId,
+    ) => Promise<NpmPackageReleaseHead>
     getRelease: (
       packageId: PackageId,
       version: string,
@@ -48,20 +56,19 @@ export interface NpmRegistryReaderSource {
 export function createNpmRegistryReader(
   adapters: NpmRegistryReaderSource,
 ): NpmRegistryReader {
-  const getPackageEventHead = packageEventHeadReader(adapters.database)
-
   return {
     database: {
-      ...(getPackageEventHead
-        ? {
-            getPackageEventHead,
-          }
-        : {}),
       getPackageChannels: (packageId) => {
         return adapters.database.getPackageChannels(packageId)
       },
+      getPackageEventHead: (packageId) => {
+        return adapters.database.getPackageEventHead(packageId)
+      },
       getPackageEventState: (packageId) => {
         return adapters.database.getPackageEventState(packageId)
+      },
+      getPackageReleaseHead: (packageId) => {
+        return adapters.database.getPackageReleaseHead(packageId)
       },
       getRelease: (packageId, version) => {
         return adapters.database.getRelease(packageId, version)
@@ -74,16 +81,4 @@ export function createNpmRegistryReader(
       },
     },
   }
-}
-
-function packageEventHeadReader(
-  database: NpmRegistryReaderSource['database'],
-): ((packageId: PackageId) => Promise<NpmPackageEventHead>) | undefined {
-  const method = database.getPackageEventHead
-
-  return method
-    ? (packageId) => {
-        return method.call(database, packageId)
-      }
-    : undefined
 }

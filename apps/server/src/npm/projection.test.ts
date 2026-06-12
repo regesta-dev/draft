@@ -40,6 +40,18 @@ describe('local npm projection', () => {
     const projection = await readLocalNpmPackageProjection(
       {
         database: {
+          getPackageEventHead: () =>
+            Promise.resolve({
+              lastEventId: latestUpdated.id,
+              lastEventTimestamp: latestUpdated.timestamp,
+              modifiedAt: latestUpdated.timestamp,
+              releaseCount: 2,
+            }),
+          getPackageReleaseHead: () =>
+            Promise.resolve({
+              modifiedAt: second.createdAt,
+              releaseCount: 2,
+            }),
           getPackageEventState: () =>
             Promise.resolve({
               lastEventId: latestUpdated.id,
@@ -156,10 +168,17 @@ describe('local npm projection', () => {
         releaseCount: 1,
       }),
     )
+    const getPackageReleaseHead = vi.fn(() =>
+      Promise.resolve({
+        modifiedAt: first.createdAt,
+        releaseCount: 1,
+      }),
+    )
     const reader = {
       database: {
         getPackageEventHead,
         getPackageEventState,
+        getPackageReleaseHead,
         listPackageReleases,
       },
     } satisfies NpmProjectionStateReader
@@ -185,6 +204,7 @@ describe('local npm projection', () => {
     expect(listPackageReleases).toHaveBeenCalledOnce()
     expect(getPackageEventState).toHaveBeenCalledOnce()
     expect(getPackageEventHead).toHaveBeenCalledOnce()
+    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
   })
 
   it('retries before caching when package state changes during projection reads', async () => {
@@ -224,19 +244,24 @@ describe('local npm projection', () => {
       .fn<NpmProjectionStateReader['database']['getPackageEventState']>()
       .mockResolvedValue(latestSnapshot)
     const getPackageEventHead = vi
-      .fn<
-        NonNullable<NpmProjectionStateReader['database']['getPackageEventHead']>
-      >()
+      .fn<NpmProjectionStateReader['database']['getPackageEventHead']>()
       .mockResolvedValue({
         lastEventId: secondPublished.id,
         lastEventTimestamp: secondPublished.timestamp,
         modifiedAt: secondPublished.timestamp,
         releaseCount: 2,
       })
+    const getPackageReleaseHead = vi
+      .fn<NpmProjectionStateReader['database']['getPackageReleaseHead']>()
+      .mockResolvedValue({
+        modifiedAt: second.createdAt,
+        releaseCount: 2,
+      })
     const reader = {
       database: {
         getPackageEventHead,
         getPackageEventState,
+        getPackageReleaseHead,
         listPackageReleases,
       },
     } satisfies NpmProjectionStateReader
@@ -266,6 +291,145 @@ describe('local npm projection', () => {
     expect(listPackageReleases).toHaveBeenCalledTimes(2)
     expect(getPackageEventState).toHaveBeenCalledTimes(2)
     expect(getPackageEventHead).toHaveBeenCalledOnce()
+    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
+  })
+
+  it('invalidates cached packuments when stored releases change without event state changes', async () => {
+    const first = release('1.0.0', '2025-01-01T00:00:00.000Z')
+    const second = release('2.0.0', '2025-01-02T00:00:00.000Z')
+    const firstPublished = publish(first, 'latest', '2025-01-01T00:00:00.000Z')
+    const secondPublished = publish(
+      second,
+      'latest',
+      '2025-01-02T00:00:00.000Z',
+    )
+    const cache = createLocalNpmPackageProjectionCache()
+    const getPackageEventState = vi
+      .fn<NpmProjectionStateReader['database']['getPackageEventState']>()
+      .mockResolvedValue(packageStateSnapshot(firstPublished))
+    const getPackageEventHead = vi
+      .fn<NpmProjectionStateReader['database']['getPackageEventHead']>()
+      .mockResolvedValue({
+        lastEventId: firstPublished.id,
+        lastEventTimestamp: firstPublished.timestamp,
+        modifiedAt: firstPublished.timestamp,
+        releaseCount: 1,
+      })
+    const getPackageReleaseHead = vi
+      .fn<NpmProjectionStateReader['database']['getPackageReleaseHead']>()
+      .mockResolvedValueOnce({
+        modifiedAt: first.createdAt,
+        releaseCount: 2,
+      })
+      .mockResolvedValueOnce({
+        modifiedAt: second.createdAt,
+        releaseCount: 2,
+      })
+    const listPackageReleases = vi
+      .fn<NpmProjectionStateReader['database']['listPackageReleases']>()
+      .mockResolvedValueOnce([
+        {
+          event: firstPublished,
+          manifest: first,
+        },
+      ])
+      .mockResolvedValue([
+        {
+          event: firstPublished,
+          manifest: first,
+        },
+        {
+          event: secondPublished,
+          manifest: second,
+        },
+      ])
+    const reader = {
+      database: {
+        getPackageEventHead,
+        getPackageEventState,
+        getPackageReleaseHead,
+        listPackageReleases,
+      },
+    } satisfies NpmProjectionStateReader
+
+    const firstProjection = await readLocalNpmPackageProjection(
+      reader,
+      packageId,
+      new URL('https://npm.registry.test/@example.com/hello-regesta'),
+      cache,
+    )
+    const refreshedProjection = await readLocalNpmPackageProjection(
+      reader,
+      packageId,
+      new URL('https://npm.registry.test/@example.com/hello-regesta'),
+      cache,
+    )
+
+    if (!firstProjection || !refreshedProjection) {
+      throw new Error('Expected local npm projections')
+    }
+
+    expect(refreshedProjection).not.toBe(firstProjection)
+    expect(refreshedProjection.packument.versions).toHaveProperty('2.0.0')
+    expect(listPackageReleases).toHaveBeenCalledTimes(4)
+    expect(getPackageEventState).toHaveBeenCalledTimes(4)
+    expect(getPackageEventHead).toHaveBeenCalledOnce()
+    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
+  })
+
+  it('does not retry direct projection-only package reads', async () => {
+    const first = release('1.0.0', '2025-01-01T00:00:00.000Z')
+    const firstPublished = publish(first, 'latest', '2025-01-01T00:00:00.000Z')
+    const cache = createLocalNpmPackageProjectionCache()
+    const listPackageReleases = vi.fn(() =>
+      Promise.resolve([
+        {
+          event: firstPublished,
+          manifest: first,
+        },
+      ]),
+    )
+    const getPackageEventState = vi.fn(() =>
+      Promise.resolve({
+        state: {
+          ecosystem: 'npm',
+          id: packageId,
+          name: 'example.com/hello-regesta',
+          object: 'regesta.package-state',
+          releases: [],
+        },
+      } satisfies NpmPackageStateSnapshot),
+    )
+    const reader = {
+      database: {
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('uncached reads should not read package event heads')
+        }),
+        getPackageEventState,
+        getPackageReleaseHead: vi.fn(() => {
+          throw new Error(
+            'uncached reads should not read package release heads',
+          )
+        }),
+        listPackageReleases,
+      },
+    } satisfies NpmProjectionStateReader
+
+    const projection = await readLocalNpmPackageProjection(
+      reader,
+      packageId,
+      new URL('https://npm.registry.test/@example.com/hello-regesta'),
+      cache,
+    )
+
+    if (!projection) {
+      throw new Error('Expected direct projection-only npm projection')
+    }
+
+    expect(projection.packument.versions).toHaveProperty('1.0.0')
+    expect(projection.etag).toBe('W/"regesta.npm-projection:empty"')
+    expect(listPackageReleases).toHaveBeenCalledOnce()
+    expect(getPackageEventState).toHaveBeenCalledOnce()
   })
 })
 

@@ -27,6 +27,8 @@ import {
 } from './events.ts'
 import { assertEventListOptions } from './pagination.ts'
 import type {
+  PackageEventHead,
+  PackageReleaseHead,
   PackageStateSnapshot,
   RegistryDatabase,
   RegistryEventListOptions,
@@ -101,6 +103,20 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         value TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS registry_package_heads (
+        package_id TEXT PRIMARY KEY,
+        last_event_id TEXT NOT NULL,
+        last_event_timestamp TEXT NOT NULL,
+        modified_at TEXT NOT NULL,
+        release_count INTEGER NOT NULL CHECK (release_count >= 0)
+      );
+
+      CREATE TABLE IF NOT EXISTS registry_package_release_heads (
+        package_id TEXT PRIMARY KEY,
+        modified_at TEXT NOT NULL,
+        release_count INTEGER NOT NULL CHECK (release_count >= 0)
+      );
+
       CREATE TABLE IF NOT EXISTS registry_stats (
         key TEXT PRIMARY KEY,
         value INTEGER NOT NULL CHECK (value >= 0)
@@ -110,6 +126,8 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     this.ensureRegistryEventColumns()
     this.ensureRegistryEventReleaseColumns()
     this.ensureRegistryEventState()
+    this.ensureRegistryPackageHeads()
+    this.ensureRegistryPackageReleaseHeads()
     this.ensureRegistryStats()
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS registry_events_authorization_payload_digest_unique_idx
@@ -307,6 +325,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           DO UPDATE SET version = excluded.version`,
         )
         .run(packageId, channel, release.manifest.version)
+      this.applyPackageReleaseHead(packageId, release.manifest.createdAt)
       if (newPackage) {
         this.incrementRegistryStat('package_count', 1)
       }
@@ -435,42 +454,24 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
   }
 
-  getPackageEventHead(packageId: PackageId): Promise<{
-    lastEventId?: Sha256Digest
-    lastEventTimestamp?: string
-    modifiedAt?: string
-    releaseCount: number
-  }> {
-    const releaseCountRow = this.db
+  getPackageEventHead(packageId: PackageId): Promise<PackageEventHead> {
+    const row = this.db
       .prepare(
-        `SELECT COUNT(*) AS count, MAX(created_at) AS modified_at
-          FROM registry_event_releases
+        `SELECT last_event_id, last_event_timestamp, modified_at, release_count
+          FROM registry_package_heads
           WHERE package_id = ?`,
       )
       .get(packageId)
-    const lastEventRow = this.db
-      .prepare(
-        `SELECT id, timestamp
-          FROM registry_events
-          WHERE package_id = ?
-          ORDER BY sequence DESC
-          LIMIT 1`,
-      )
-      .get(packageId)
 
-    if (!releaseCountRow) {
-      throw new TypeError('Package release count query did not return a row')
+    if (!row) {
+      return Promise.resolve({ releaseCount: 0 })
     }
 
     return Promise.resolve({
-      ...(lastEventRow
-        ? {
-            lastEventId: requiredSha256Digest(lastEventRow, 'id'),
-            lastEventTimestamp: requiredText(lastEventRow, 'timestamp'),
-          }
-        : {}),
-      ...optionalModifiedAt(releaseCountRow, lastEventRow),
-      releaseCount: requiredNonNegativeInteger(releaseCountRow, 'count'),
+      lastEventId: requiredSha256Digest(row, 'last_event_id'),
+      lastEventTimestamp: requiredText(row, 'last_event_timestamp'),
+      modifiedAt: requiredText(row, 'modified_at'),
+      releaseCount: requiredNonNegativeInteger(row, 'release_count'),
     })
   }
 
@@ -529,6 +530,25 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           } satisfies PackageStateRelease
         }),
       },
+    })
+  }
+
+  getPackageReleaseHead(packageId: PackageId): Promise<PackageReleaseHead> {
+    const row = this.db
+      .prepare(
+        `SELECT modified_at, release_count
+          FROM registry_package_release_heads
+          WHERE package_id = ?`,
+      )
+      .get(packageId)
+
+    if (!row) {
+      return Promise.resolve({ releaseCount: 0 })
+    }
+
+    return Promise.resolve({
+      modifiedAt: requiredText(row, 'modified_at'),
+      releaseCount: requiredNonNegativeInteger(row, 'release_count'),
     })
   }
 
@@ -623,6 +643,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           encodeJson(release.manifestDescriptor),
           encodeJson(release.event),
         )
+      this.applyPackageReleaseHead(packageId, release.manifest.createdAt)
       if (newPackage) {
         this.incrementRegistryStat('package_count', 1)
       }
@@ -787,7 +808,9 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       );
 
       DELETE FROM registry_event_state_meta
-        WHERE key = 'rebuilt';
+        WHERE key IN ('rebuilt', 'package_heads_rebuilt');
+
+      DELETE FROM registry_package_heads;
     `)
   }
 
@@ -800,6 +823,13 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       this.db.exec('BEGIN IMMEDIATE')
       this.db.prepare(`DELETE FROM registry_event_channels`).run()
       this.db.prepare(`DELETE FROM registry_event_releases`).run()
+      this.db.prepare(`DELETE FROM registry_package_heads`).run()
+      this.db
+        .prepare(
+          `DELETE FROM registry_event_state_meta
+            WHERE key = 'package_heads_rebuilt'`,
+        )
+        .run()
 
       const rows = this.db
         .prepare(
@@ -818,7 +848,9 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       this.db
         .prepare(
           `INSERT INTO registry_event_state_meta (key, value)
-            VALUES ('rebuilt', '1')
+            VALUES
+              ('rebuilt', '1'),
+              ('package_heads_rebuilt', '1')
             ON CONFLICT(key)
             DO UPDATE SET value = excluded.value`,
         )
@@ -837,6 +869,134 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           `SELECT 1
             FROM registry_event_state_meta
             WHERE key = 'rebuilt'
+            LIMIT 1`,
+        )
+        .get(),
+    )
+  }
+
+  private ensureRegistryPackageHeads(): void {
+    if (this.registryPackageHeadsExist()) {
+      return
+    }
+
+    try {
+      this.db.exec('BEGIN IMMEDIATE')
+      this.db.prepare(`DELETE FROM registry_package_heads`).run()
+      this.db
+        .prepare(
+          `INSERT INTO registry_package_heads (
+            package_id,
+            last_event_id,
+            last_event_timestamp,
+            modified_at,
+            release_count
+          )
+          SELECT
+            packages.package_id,
+            last_events.id,
+            last_events.timestamp,
+            CASE
+              WHEN release_stats.modified_at IS NULL
+                OR last_events.timestamp > release_stats.modified_at
+              THEN last_events.timestamp
+              ELSE release_stats.modified_at
+            END,
+            COALESCE(release_stats.release_count, 0)
+          FROM (
+            SELECT DISTINCT package_id
+              FROM registry_events
+          ) AS packages
+          JOIN registry_events AS last_events
+            ON last_events.sequence = (
+              SELECT MAX(sequence)
+                FROM registry_events
+                WHERE package_id = packages.package_id
+            )
+          LEFT JOIN (
+            SELECT
+              package_id,
+              COUNT(*) AS release_count,
+              MAX(created_at) AS modified_at
+              FROM registry_event_releases
+              GROUP BY package_id
+          ) AS release_stats
+            ON release_stats.package_id = packages.package_id`,
+        )
+        .run()
+      this.db
+        .prepare(
+          `INSERT INTO registry_event_state_meta (key, value)
+            VALUES ('package_heads_rebuilt', '1')
+            ON CONFLICT(key)
+            DO UPDATE SET value = excluded.value`,
+        )
+        .run()
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.rollbackTransaction()
+      throw error
+    }
+  }
+
+  private registryPackageHeadsExist(): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+            FROM registry_event_state_meta
+            WHERE key = 'package_heads_rebuilt'
+            LIMIT 1`,
+        )
+        .get(),
+    )
+  }
+
+  private ensureRegistryPackageReleaseHeads(): void {
+    if (this.registryPackageReleaseHeadsExist()) {
+      return
+    }
+
+    try {
+      this.db.exec('BEGIN IMMEDIATE')
+      this.db.prepare(`DELETE FROM registry_package_release_heads`).run()
+      this.db
+        .prepare(
+          `INSERT INTO registry_package_release_heads (
+            package_id,
+            modified_at,
+            release_count
+          )
+          SELECT
+            package_id,
+            MAX(created_at),
+            COUNT(*)
+            FROM releases
+            GROUP BY package_id`,
+        )
+        .run()
+      this.db
+        .prepare(
+          `INSERT INTO registry_event_state_meta (key, value)
+            VALUES ('package_release_heads_rebuilt', '1')
+            ON CONFLICT(key)
+            DO UPDATE SET value = excluded.value`,
+        )
+        .run()
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.rollbackTransaction()
+      throw error
+    }
+  }
+
+  private registryPackageReleaseHeadsExist(): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+            FROM registry_event_state_meta
+            WHERE key = 'package_release_heads_rebuilt'
             LIMIT 1`,
         )
         .get(),
@@ -874,6 +1034,12 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
   }
 
   private applyRegistryEventState(event: RegistryEvent): void {
+    this.applyPackageEventHead(
+      eventPackageId(event),
+      event,
+      event.eventType === 'release.published' ? 1 : 0,
+    )
+
     switch (event.eventType) {
       case 'release.published': {
         this.db
@@ -922,6 +1088,64 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         break
       }
     }
+  }
+
+  private applyPackageEventHead(
+    packageId: PackageId,
+    event: RegistryEvent,
+    releaseIncrement: number,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO registry_package_heads (
+          package_id,
+          last_event_id,
+          last_event_timestamp,
+          modified_at,
+          release_count
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(package_id)
+        DO UPDATE SET
+          last_event_id = excluded.last_event_id,
+          last_event_timestamp = excluded.last_event_timestamp,
+          modified_at = CASE
+            WHEN registry_package_heads.modified_at > excluded.modified_at
+            THEN registry_package_heads.modified_at
+            ELSE excluded.modified_at
+          END,
+          release_count = registry_package_heads.release_count + ?`,
+      )
+      .run(
+        packageId,
+        event.id,
+        event.timestamp,
+        event.timestamp,
+        releaseIncrement,
+        releaseIncrement,
+      )
+  }
+
+  private applyPackageReleaseHead(
+    packageId: PackageId,
+    modifiedAt: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO registry_package_release_heads (
+          package_id,
+          modified_at,
+          release_count
+        ) VALUES (?, ?, ?)
+        ON CONFLICT(package_id)
+        DO UPDATE SET
+          modified_at = CASE
+            WHEN registry_package_release_heads.modified_at > excluded.modified_at
+            THEN registry_package_release_heads.modified_at
+            ELSE excluded.modified_at
+          END,
+          release_count = registry_package_release_heads.release_count + 1`,
+      )
+      .run(packageId, modifiedAt, 1)
   }
 
   private ensureRegistryStats(): void {
@@ -1205,41 +1429,6 @@ function requiredNonNegativeInteger(row: SqliteRow, column: string): number {
   }
 
   return value
-}
-
-function optionalModifiedAt(
-  releaseCountRow: SqliteRow,
-  lastEventRow: SqliteRow | undefined,
-): { modifiedAt?: string } {
-  const releaseModifiedAt = optionalText(releaseCountRow, 'modified_at')
-  const lastEventTimestamp = lastEventRow
-    ? requiredText(lastEventRow, 'timestamp')
-    : undefined
-  const modifiedAt = latestTimestamp(
-    [releaseModifiedAt, lastEventTimestamp].filter(
-      (value) => value !== undefined,
-    ),
-  )
-
-  return modifiedAt ? { modifiedAt } : {}
-}
-
-function optionalText(row: SqliteRow, column: string): string | undefined {
-  const value = row[column]
-
-  if (value === null || value === undefined) {
-    return undefined
-  }
-
-  if (typeof value !== 'string') {
-    throw new TypeError(`SQLite column ${column} must be text`)
-  }
-
-  return value
-}
-
-function latestTimestamp(timestamps: string[]): string | undefined {
-  return timestamps.toSorted().at(-1)
 }
 
 function isSqliteUniqueAuthorizationPayloadDigestError(

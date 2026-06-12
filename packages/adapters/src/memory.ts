@@ -29,6 +29,8 @@ import type {
   CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
+  PackageEventHead,
+  PackageReleaseHead,
   PackageStateSnapshot,
   QueueAdapter,
   RegistryAdapters,
@@ -218,9 +220,11 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   readonly eventIds: Set<Sha256Digest> = new Set()
   readonly eventLast: Map<PackageId, { id: Sha256Digest; timestamp: string }> =
     new Map()
+  readonly eventHeads: Map<PackageId, PackageEventHead> = new Map()
   readonly eventReleases: Map<PackageId, Map<string, PackageStateRelease>> =
     new Map()
   readonly events: RegistryEvent[] = []
+  readonly releaseHeads: Map<PackageId, PackageReleaseHead> = new Map()
   readonly releases: Map<PackageId, Map<string, StoredRelease>> = new Map()
 
   checkReadiness(): Promise<void> {
@@ -292,6 +296,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     this.commitEventAfterChecks(release.event, payloadDigest)
     versions.set(release.manifest.version, copyStoredRelease(release))
     this.releases.set(packageId, versions)
+    this.applyPackageReleaseHead(packageId, release.manifest.createdAt)
 
     const packageChannels =
       this.channels.get(packageId) ?? new Map<string, string>()
@@ -357,31 +362,10 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     )
   }
 
-  getPackageEventHead(packageId: PackageId): Promise<{
-    lastEventId?: Sha256Digest
-    lastEventTimestamp?: string
-    modifiedAt?: string
-    releaseCount: number
-  }> {
-    const lastEvent = this.eventLast.get(packageId)
-    const releaseTimestamps = [
-      ...(this.eventReleases.get(packageId)?.values() ?? []),
-    ].map((release) => release.createdAt)
-    const modifiedAt = latestTimestamp([
-      ...releaseTimestamps,
-      ...(lastEvent ? [lastEvent.timestamp] : []),
-    ])
+  getPackageEventHead(packageId: PackageId): Promise<PackageEventHead> {
+    const head = this.eventHeads.get(packageId)
 
-    return Promise.resolve({
-      ...(lastEvent
-        ? {
-            lastEventId: lastEvent.id,
-            lastEventTimestamp: lastEvent.timestamp,
-          }
-        : {}),
-      ...(modifiedAt ? { modifiedAt } : {}),
-      releaseCount: this.eventReleases.get(packageId)?.size ?? 0,
-    })
+    return Promise.resolve(head ? { ...head } : { releaseCount: 0 })
   }
 
   getPackageEventState(packageId: PackageId): Promise<PackageStateSnapshot> {
@@ -412,6 +396,12 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
         releases,
       },
     })
+  }
+
+  getPackageReleaseHead(packageId: PackageId): Promise<PackageReleaseHead> {
+    const head = this.releaseHeads.get(packageId)
+
+    return Promise.resolve(head ? { ...head } : { releaseCount: 0 })
   }
 
   getRelease(
@@ -462,6 +452,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
 
     versions.set(release.manifest.version, copyStoredRelease(release))
     this.releases.set(packageId, versions)
+    this.applyPackageReleaseHead(packageId, release.manifest.createdAt)
     return Promise.resolve()
   }
 
@@ -540,10 +531,18 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   }
 
   private applyRegistryEventState(event: RegistryEvent): void {
-    this.eventLast.set(eventPackageId(event), {
+    const packageId = eventPackageId(event)
+    const lastEvent = {
       id: event.id,
       timestamp: event.timestamp,
-    })
+    }
+
+    this.eventLast.set(packageId, lastEvent)
+    this.applyPackageEventHead(
+      packageId,
+      lastEvent,
+      event.eventType === 'release.published' ? 1 : 0,
+    )
 
     switch (event.eventType) {
       case 'release.published': {
@@ -578,6 +577,42 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
         break
       }
     }
+  }
+
+  private applyPackageEventHead(
+    packageId: PackageId,
+    event: { id: Sha256Digest; timestamp: string },
+    releaseIncrement: number,
+  ): void {
+    const previous = this.eventHeads.get(packageId)
+    const modifiedAt =
+      latestTimestamp([
+        ...(previous?.modifiedAt ? [previous.modifiedAt] : []),
+        event.timestamp,
+      ]) ?? event.timestamp
+
+    this.eventHeads.set(packageId, {
+      lastEventId: event.id,
+      lastEventTimestamp: event.timestamp,
+      modifiedAt,
+      releaseCount: (previous?.releaseCount ?? 0) + releaseIncrement,
+    })
+  }
+
+  private applyPackageReleaseHead(
+    packageId: PackageId,
+    modifiedAt: string,
+  ): void {
+    const previous = this.releaseHeads.get(packageId)
+
+    this.releaseHeads.set(packageId, {
+      modifiedAt:
+        latestTimestamp([
+          ...(previous?.modifiedAt ? [previous.modifiedAt] : []),
+          modifiedAt,
+        ]) ?? modifiedAt,
+      releaseCount: (previous?.releaseCount ?? 0) + 1,
+    })
   }
 
   private assertExpectedChannelVersion(

@@ -146,6 +146,61 @@ describe('adapters package architecture', () => {
     expect(sqliteSource).toContain('registry_event_channels')
   })
 
+  it('keeps package event heads on indexed event state', async () => {
+    const sources = {
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
+    const memorySource = methodSource(
+      sources.memory,
+      'getPackageEventHead',
+      'getPackageEventState',
+    )
+    const sqliteSource = methodSource(
+      sources.sqlite,
+      'getPackageEventHead',
+      'getPackageEventState',
+    )
+
+    for (const source of [memorySource, sqliteSource]) {
+      expect(source).not.toContain('listPackageEvents')
+      expect(source).not.toContain('replayPackageState')
+      expect(source).not.toContain('event_json')
+    }
+
+    expect(memorySource).toContain('eventHeads')
+    expect(memorySource).not.toContain('eventReleases')
+    expect(sqliteSource).toContain('registry_package_heads')
+    expect(sqliteSource).not.toContain('registry_event_releases')
+    expect(sqliteSource).not.toContain('registry_events')
+    expect(sqliteSource).not.toContain('COUNT(')
+    expect(sqliteSource).not.toContain('LIMIT')
+  })
+
+  it('keeps package release heads on indexed release state', async () => {
+    const sources = {
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
+    const memorySource = methodSource(
+      sources.memory,
+      'getPackageReleaseHead',
+      'getRelease',
+    )
+    const sqliteSource = methodSource(
+      sources.sqlite,
+      'getPackageReleaseHead',
+      'getRelease',
+    )
+
+    expect(memorySource).toContain('releaseHeads')
+    expect(memorySource).not.toContain('releases.get')
+    expect(sqliteSource).toContain('registry_package_release_heads')
+    expect(sqliteSource).not.toContain('FROM releases')
+    expect(sqliteSource).not.toContain('COUNT(')
+    expect(sqliteSource).not.toContain('MAX(')
+  })
+
   it('keeps package counts on indexed adapter statistics', async () => {
     const sources = {
       memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
