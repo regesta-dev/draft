@@ -484,6 +484,53 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('returns single package channel versions from indexed channel state', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/single-channel-read'
+        const firstRelease = storedRelease(packageId, '0.0.1')
+        const secondRelease = storedRelease(packageId, '0.0.2')
+
+        await expect(
+          database.getPackageChannelVersion(packageId, 'latest'),
+        ).resolves.toBeUndefined()
+
+        await database.commitPublishedRelease(firstRelease, 'latest')
+        await expect(
+          database.getPackageChannelVersion(packageId, 'latest'),
+        ).resolves.toBe('0.0.1')
+        await expect(
+          database.getPackageChannelVersion(packageId, 'beta'),
+        ).resolves.toBeUndefined()
+
+        await database.commitPublishedRelease(secondRelease, 'latest')
+        await database.commitPackageChannelUpdate(
+          channelUpdatedEvent(packageId, {
+            channel: 'next',
+            version: '0.0.2',
+          }),
+        )
+        await expect(
+          database.getPackageChannelVersion(packageId, 'latest'),
+        ).resolves.toBe('0.0.2')
+        await expect(
+          database.getPackageChannelVersion(packageId, 'next'),
+        ).resolves.toBe('0.0.2')
+
+        await database.commitPackageChannelDelete(
+          channelDeletedEvent(packageId, {
+            channel: 'latest',
+            previousVersion: '0.0.2',
+          }),
+        )
+        await expect(
+          database.getPackageChannelVersion(packageId, 'latest'),
+        ).resolves.toBeUndefined()
+        await expect(database.getPackageChannels(packageId)).resolves.toEqual({
+          next: '0.0.2',
+        })
+      })
+    })
+
     it('rejects invalid event page limits', async () => {
       await withDatabase(target, async (database) => {
         for (const limit of [0, 1000, 1.5]) {
@@ -979,12 +1026,13 @@ function publishEventForPackage(
 function channelUpdatedEvent(
   packageId: PackageId,
   options: {
+    channel?: string
     previousVersion?: string
     version?: string
   } = {},
 ): ChannelUpdatedEvent {
   const event = {
-    channel: 'latest',
+    channel: options.channel ?? 'latest',
     eventType: 'channel.updated',
     object: 'regesta.event',
     package: packageId,
@@ -1004,13 +1052,14 @@ function channelUpdatedEvent(
 function channelDeletedEvent(
   packageId: PackageId,
   options?: {
+    channel?: string
     previousVersion?: string
   },
 ): ChannelDeletedEvent {
   const previousVersion =
     options === undefined ? '0.0.1' : options.previousVersion
   const event = {
-    channel: 'latest',
+    channel: options?.channel ?? 'latest',
     eventType: 'channel.deleted',
     object: 'regesta.event',
     package: packageId,

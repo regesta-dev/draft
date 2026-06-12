@@ -118,10 +118,7 @@ export class LocalObjectStore implements ObjectStore {
   async listDescriptors(
     options: ObjectDescriptorListOptions = {},
   ): Promise<StoredObject['descriptor'][]> {
-    const digests = await listLocalObjectDigests(this.root)
-    const start = localObjectPageStartIndex(digests, options.after)
-    const limit = options.limit ?? digests.length
-    const page = digests.slice(start, start + limit)
+    const page = await listLocalObjectPageDigests(this.root, options)
     const descriptors: StoredObject['descriptor'][] = []
 
     for (const digest of page) {
@@ -229,30 +226,43 @@ export class LocalObjectStore implements ObjectStore {
   }
 }
 
-async function listLocalObjectDigests(root: string): Promise<Sha256Digest[]> {
+async function listLocalObjectPageDigests(
+  root: string,
+  options: ObjectDescriptorListOptions,
+): Promise<Sha256Digest[]> {
   const objectRoot = join(root, 'objects')
+  const limit = options.limit ?? Number.POSITIVE_INFINITY
+  const page: Sha256Digest[] = []
+  let afterSeen = options.after === undefined
+
+  if (afterSeen && limit === 0) {
+    return page
+  }
+
   let prefixes: DirectoryEntry[]
 
   try {
     prefixes = await readDirectoryEntries(objectRoot)
   } catch (error) {
     if (isNotFoundError(error)) {
+      if (options.after) {
+        throw new ObjectCursorNotFoundError(options.after)
+      }
+
       return []
     }
 
     throw error
   }
 
-  const digests: Sha256Digest[] = []
-
-  for (const prefix of prefixes) {
+  for (const prefix of sortDirectoryEntries(prefixes)) {
     if (!prefix.isDirectory() || !/^[a-f0-9]{2}$/u.test(prefix.name)) {
       continue
     }
 
     const entries = await readDirectoryEntries(join(objectRoot, prefix.name))
 
-    for (const entry of entries) {
+    for (const entry of sortDirectoryEntries(entries)) {
       if (!entry.isFile()) {
         continue
       }
@@ -262,11 +272,26 @@ async function listLocalObjectDigests(root: string): Promise<Sha256Digest[]> {
         continue
       }
 
-      digests.push(assertSha256Digest(`sha256:${match[1]}`))
+      const digest = assertSha256Digest(`sha256:${match[1]}`)
+
+      if (!afterSeen) {
+        afterSeen = digest === options.after
+        continue
+      }
+
+      if (page.length >= limit) {
+        return page
+      }
+
+      page.push(digest)
     }
   }
 
-  return digests.toSorted()
+  if (!afterSeen && options.after) {
+    throw new ObjectCursorNotFoundError(options.after)
+  }
+
+  return page
 }
 
 type DirectoryEntry = Awaited<ReturnType<typeof readDirectoryEntries>>[number]
@@ -275,20 +300,8 @@ function readDirectoryEntries(path: string) {
   return readdir(path, { encoding: 'utf8', withFileTypes: true })
 }
 
-function localObjectPageStartIndex(
-  digests: Sha256Digest[],
-  after: Sha256Digest | undefined,
-): number {
-  if (!after) {
-    return 0
-  }
-
-  const index = digests.indexOf(after)
-  if (index === -1) {
-    throw new ObjectCursorNotFoundError(after)
-  }
-
-  return index + 1
+function sortDirectoryEntries(entries: DirectoryEntry[]): DirectoryEntry[] {
+  return entries.toSorted((left, right) => left.name.localeCompare(right.name))
 }
 
 async function statLocalObjectFile(

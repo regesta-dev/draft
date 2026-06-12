@@ -142,8 +142,37 @@ describe('adapters package architecture', () => {
 
     expect(memorySource).toContain('eventReleases')
     expect(memorySource).toContain('eventChannels')
+    expect(memorySource).toContain('eventHeads')
+    expect(memorySource).not.toContain('eventLast')
     expect(sqliteSource).toContain('registry_event_releases')
     expect(sqliteSource).toContain('registry_event_channels')
+    expect(sqliteSource).toContain('registry_package_heads')
+    expect(sqliteSource).not.toContain('registry_events')
+    expect(sqliteSource).not.toContain('ORDER BY sequence')
+    expect(sqliteSource).not.toContain('LIMIT 1')
+  })
+
+  it('keeps single package channel reads on indexed channel state', async () => {
+    const sources = {
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
+    const memorySource = methodSource(
+      sources.memory,
+      'getPackageChannelVersion',
+      'getPackageChannels',
+    )
+    const sqliteSource = methodSource(
+      sources.sqlite,
+      'getPackageChannelVersion',
+      'getPackageChannels',
+    )
+
+    expect(memorySource).toContain('this.channels.get(packageId)?.get(channel)')
+    expect(memorySource).not.toContain('Object.fromEntries')
+    expect(sqliteSource).toContain('this.channelVersion(packageId, channel)')
+    expect(sqliteSource).not.toContain('ORDER BY channel')
+    expect(sqliteSource).not.toContain('Object.fromEntries')
   })
 
   it('keeps package event heads on indexed event state', async () => {
@@ -217,13 +246,65 @@ describe('adapters package architecture', () => {
       'appendEvent',
     )
 
-    expect(memorySource).toContain('this.releases.size')
+    expect(memorySource).toContain('this.releaseHeads.size')
     expect(memorySource).not.toContain('new Set')
     expect(memorySource).not.toContain('for (')
     expect(sqliteSource).toContain("registryStat('package_count')")
     expect(sqliteSource).not.toContain('COUNT(')
     expect(sqliteSource).not.toContain('DISTINCT')
     expect(sqliteSource).not.toContain('releases')
+  })
+
+  it('keeps package existence reads on indexed release heads', async () => {
+    const sources = {
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
+    const memorySource = methodSource(
+      sources.memory,
+      'hasPackage',
+      'hasAuthorizationPayloadDigest',
+    )
+    const sqliteSource = methodSource(
+      sources.sqlite,
+      'hasPackage',
+      'hasAuthorizationPayloadDigest',
+    )
+    const sqliteHelperSource = methodSource(
+      sources.sqlite,
+      'private packageHasReleases',
+      'private ensureRegistryEventColumns',
+    )
+
+    expect(memorySource).toContain('releaseHeads.has')
+    expect(memorySource).not.toContain('releases.has')
+    expect(sqliteSource).toContain('packageHasReleases')
+    expect(sqliteHelperSource).toContain('registry_package_release_heads')
+    expect(sqliteHelperSource).not.toContain('FROM releases')
+    expect(sqliteHelperSource).not.toContain('COUNT(')
+  })
+
+  it('keeps local object inventory pagination bounded by cursor and limit', async () => {
+    const source = await readFile(join(adaptersSourceRoot, 'local.ts'), 'utf8')
+    const listSource = methodSource(
+      source,
+      'async listDescriptors',
+      'async put',
+    )
+    const pageSource = sourceBetween(
+      source,
+      'async function listLocalObjectPageDigests',
+      'async function statLocalObjectFile',
+    )
+
+    expect(listSource).toContain(
+      'listLocalObjectPageDigests(this.root, options)',
+    )
+    expect(listSource).not.toContain('.slice(')
+    expect(pageSource).toContain('page.length >= limit')
+    expect(pageSource).toContain('ObjectCursorNotFoundError')
+    expect(pageSource).toContain('sortDirectoryEntries')
+    expect(pageSource).not.toContain('toSorted()')
   })
 
   it('keeps checkpoint storage as an opaque adapter boundary', async () => {
@@ -296,6 +377,21 @@ function methodSource(source: string, name: string, nextName: string): string {
 
   if (start === -1 || end === -1) {
     throw new Error(`Could not find method range: ${name}`)
+  }
+
+  return source.slice(start, end)
+}
+
+function sourceBetween(
+  source: string,
+  startText: string,
+  endText: string,
+): string {
+  const start = source.indexOf(startText)
+  const end = source.indexOf(endText, start + startText.length)
+
+  if (start === -1 || end === -1) {
+    throw new Error(`Could not find source range: ${startText}`)
   }
 
   return source.slice(start, end)

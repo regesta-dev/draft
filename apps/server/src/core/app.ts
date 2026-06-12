@@ -7,6 +7,7 @@ import {
   updatePackageChannel,
   verifyRelease,
   type ObjectDescriptorListOptions,
+  type PackageEventHead,
   type PublishInput,
   type RegistryAdapters,
   type StoredRelease,
@@ -46,9 +47,11 @@ import {
 } from '../request.ts'
 import {
   errorResponse,
+  httpDate,
   immutableBytesResponse,
   immutableDescriptorHeaders,
   immutableDescriptorResponse,
+  matchesIfModifiedSince,
   matchesIfNoneMatch,
   parseSingleByteRange,
 } from '../responses.ts'
@@ -678,7 +681,17 @@ async function servePackageStateRequest(
   const packageId = parseRequestPackageId(
     requiredParam(context.req.param('packageId'), 'packageId'),
   )
-  const { lastEventId, state } =
+  const conditionalResponse = await serveConditionalPackageState(
+    context,
+    adapters,
+    packageId,
+  )
+
+  if (conditionalResponse) {
+    return conditionalResponse
+  }
+
+  const { lastEventId, lastEventTimestamp, state } =
     await adapters.database.getPackageEventState(packageId)
   if (state.releases.length === 0) {
     return context.json(
@@ -687,7 +700,43 @@ async function servePackageStateRequest(
     )
   }
 
-  return servePackageState(context, state, lastEventId)
+  return servePackageState(context, state, {
+    lastEventId,
+    lastModified: lastEventTimestamp,
+  })
+}
+
+async function serveConditionalPackageState(
+  context: Context,
+  adapters: RegistryAdapters,
+  packageId: PackageId,
+): Promise<Response | undefined> {
+  const ifNoneMatch = context.req.header('if-none-match')
+  const ifModifiedSince = context.req.header('if-modified-since')
+
+  if (!ifNoneMatch && !ifModifiedSince) {
+    return undefined
+  }
+
+  const head = await adapters.database.getPackageEventHead(packageId)
+
+  if (!head.lastEventId || head.releaseCount === 0) {
+    return undefined
+  }
+
+  const etag = packageStateEtag(head.lastEventId)
+
+  if (ifNoneMatch) {
+    return matchesIfNoneMatch(ifNoneMatch, etag)
+      ? packageStateNotModified(head)
+      : undefined
+  }
+
+  const lastModified = head.modifiedAt ? httpDate(head.modifiedAt) : undefined
+
+  return matchesIfModifiedSince(ifModifiedSince, lastModified)
+    ? packageStateNotModified(head)
+    : undefined
 }
 
 async function serveReleaseEnvelopeRequest(
@@ -718,8 +767,10 @@ async function servePackageChannelRequest(
     requiredParam(context.req.param('packageId'), 'packageId'),
   )
   const channel = parseRequestChannel(context.req.param('channel'))
-  const channels = await adapters.database.getPackageChannels(packageId)
-  const version = channels[channel]
+  const version = await adapters.database.getPackageChannelVersion(
+    packageId,
+    channel,
+  )
 
   if (!version) {
     return context.json(
@@ -861,16 +912,12 @@ function serveImmutableCanonicalJson(
 function servePackageState(
   context: Context,
   state: PackageState,
-  lastEventId: Sha256Digest | undefined,
+  options: {
+    lastEventId?: Sha256Digest
+    lastModified?: string
+  },
 ): Response {
-  const headers: Record<string, string> = {
-    'cache-control': 'no-cache',
-    'content-type': 'application/json; charset=UTF-8',
-  }
-
-  if (lastEventId) {
-    headers.etag = `W/"${lastEventId}"`
-  }
+  const headers = packageStateHeaders(options)
 
   if (
     headers.etag &&
@@ -883,6 +930,36 @@ function servePackageState(
   }
 
   return serveJson(context, state, headers)
+}
+
+function packageStateNotModified(head: PackageEventHead): Response {
+  return new Response(null, {
+    headers: packageStateHeaders({
+      lastEventId: head.lastEventId,
+      lastModified: head.modifiedAt,
+    }),
+    status: 304,
+  })
+}
+
+function packageStateHeaders(options: {
+  lastEventId?: Sha256Digest
+  lastModified?: string
+}): Record<string, string> {
+  return {
+    'cache-control': 'no-cache',
+    'content-type': 'application/json; charset=UTF-8',
+    ...(options.lastEventId
+      ? { etag: packageStateEtag(options.lastEventId) }
+      : {}),
+    ...(options.lastModified
+      ? { 'last-modified': httpDate(options.lastModified) }
+      : {}),
+  }
+}
+
+function packageStateEtag(lastEventId: Sha256Digest): string {
+  return `W/"${lastEventId}"`
 }
 
 function serveMutableReleaseEnvelope(

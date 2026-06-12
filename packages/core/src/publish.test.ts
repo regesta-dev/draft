@@ -2294,6 +2294,9 @@ function createTestRegistryAdapters(): RegistryAdapters {
           }),
         ),
       getEventLog: () => Promise.resolve([...events]),
+      getPackageChannelVersion: (packageId, channel) => {
+        return Promise.resolve(channels.get(packageId)?.[channel])
+      },
       getPackageChannels: (packageId) => {
         const packageChannels = channels.get(packageId)
 

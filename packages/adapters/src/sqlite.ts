@@ -294,7 +294,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       if (this.releaseExists(packageId, release.manifest.version)) {
         throw new ReleaseAlreadyExistsError(packageId, release.manifest.version)
       }
-      const newPackage = !this.packageExists(packageId)
+      const newPackage = !this.packageHasReleases(packageId)
       this.assertRegistryEventCanBeApplied(release.event)
       this.insertRegistryEvent(release.event, authorizationPayloadDigest)
       this.applyRegistryEventState(release.event)
@@ -434,6 +434,13 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
   }
 
+  getPackageChannelVersion(
+    packageId: PackageId,
+    channel: string,
+  ): Promise<string | undefined> {
+    return Promise.resolve(this.channelVersion(packageId, channel))
+  }
+
   getPackageChannels(packageId: PackageId): Promise<Record<string, string>> {
     const rows = this.db
       .prepare(
@@ -493,13 +500,11 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           ORDER BY channel ASC`,
       )
       .all(packageId)
-    const lastEventRow = this.db
+    const headRow = this.db
       .prepare(
-        `SELECT id, timestamp
-          FROM registry_events
-          WHERE package_id = ?
-          ORDER BY sequence DESC
-          LIMIT 1`,
+        `SELECT last_event_id, last_event_timestamp
+          FROM registry_package_heads
+          WHERE package_id = ?`,
       )
       .get(packageId)
     const channels = Object.fromEntries(
@@ -510,10 +515,10 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
 
     return Promise.resolve({
-      ...(lastEventRow
+      ...(headRow
         ? {
-            lastEventId: requiredSha256Digest(lastEventRow, 'id'),
-            lastEventTimestamp: requiredText(lastEventRow, 'timestamp'),
+            lastEventId: requiredSha256Digest(headRow, 'last_event_id'),
+            lastEventTimestamp: requiredText(headRow, 'last_event_timestamp'),
           }
         : {}),
       state: {
@@ -568,7 +573,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
   }
 
   hasPackage(packageId: PackageId): Promise<boolean> {
-    return Promise.resolve(this.packageExists(packageId))
+    return Promise.resolve(this.packageHasReleases(packageId))
   }
 
   hasAuthorizationPayloadDigest(payloadDigest: Sha256Digest): Promise<boolean> {
@@ -623,7 +628,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
 
     try {
       this.db.exec('BEGIN IMMEDIATE')
-      const newPackage = !this.packageExists(packageId)
+      const newPackage = !this.packageHasReleases(packageId)
       this.db
         .prepare(
           `INSERT INTO releases (
@@ -737,17 +742,16 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
   }
 
-  private packageExists(packageId: PackageId): boolean {
-    return Boolean(
-      this.db
-        .prepare(
-          `SELECT 1
-          FROM releases
-          WHERE package_id = ?
-          LIMIT 1`,
-        )
-        .get(packageId),
-    )
+  private packageHasReleases(packageId: PackageId): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT release_count
+          FROM registry_package_release_heads
+          WHERE package_id = ?`,
+      )
+      .get(packageId)
+
+    return row ? requiredNonNegativeInteger(row, 'release_count') > 0 : false
   }
 
   private ensureRegistryEventColumns(): void {

@@ -188,6 +188,7 @@ describe('server layer boundaries', () => {
 
     expect(routeSource).toContain('readLocalNpmPackageProjection')
     expect(routeSource).not.toContain('replayPackageState')
+    expect(routeSource).toContain('getPackageChannelVersion')
     expect(routeSource).toContain('getPackageChannels')
     expect(projectionSource).not.toContain('replayPackageState')
     expect(projectionSource).toContain('getPackageEventHead')
@@ -214,6 +215,7 @@ describe('server layer boundaries', () => {
     expect(tarballSource).toContain('status: 302')
     for (const text of [
       'getPackageChannels',
+      'getPackageChannelVersion',
       'getPackageEventState',
       'hasPackage',
       'listPackageReleases',
@@ -230,9 +232,31 @@ describe('server layer boundaries', () => {
       join(serverSourceRoot, 'core/app.ts'),
       'utf8',
     )
+    const packageStateSource = sourceBetween(
+      coreSource,
+      'async function servePackageStateRequest',
+      'async function serveReleaseEnvelopeRequest',
+    )
 
-    expect(coreSource).toContain('getPackageEventState')
-    expect(coreSource).not.toContain('replayPackageState')
+    expect(packageStateSource).toContain('getPackageEventHead')
+    expect(packageStateSource).toContain('getPackageEventState')
+    expect(packageStateSource).not.toContain('listPackageEvents')
+    expect(packageStateSource).not.toContain('replayPackageState')
+  })
+
+  it('keeps core package channel reads on single-channel indexes', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+    const packageChannelSource = sourceBetween(
+      coreSource,
+      'async function servePackageChannelRequest',
+      'function eventLogResponse',
+    )
+
+    expect(packageChannelSource).toContain('getPackageChannelVersion')
+    expect(packageChannelSource).not.toContain('getPackageChannels')
   })
 
   it('keeps core collection reads on adapter-owned cursor validation', async () => {
@@ -608,6 +632,7 @@ describe('server layer boundaries', () => {
     expect(projectionAppSource).toContain('createNpmRegistryRoutes')
     expect(projectionAppSource).toContain('createNpmRegistryReader')
     expect(readerSource).toContain('getPackageChannels')
+    expect(readerSource).toContain('getPackageChannelVersion')
     expect(readerSource).toContain('getPackageEventHead')
     expect(readerSource).toContain('getPackageEventState')
     expect(readerSource).toContain('getPackageReleaseHead')

@@ -7,6 +7,10 @@ describe('createNpmRegistryReader', () => {
   it('exposes only the package reads needed by npm projection routes', async () => {
     const packageId = parsePackageId('npm:example.com/hello-regesta').id
     const database = new MemoryRegistryDatabase()
+    const getPackageChannelVersion = vi.spyOn(
+      database,
+      'getPackageChannelVersion',
+    )
     const getPackageChannels = vi.spyOn(database, 'getPackageChannels')
     const getPackageEventHead = vi.spyOn(database, 'getPackageEventHead')
     const getPackageEventState = vi.spyOn(database, 'getPackageEventState')
@@ -16,6 +20,9 @@ describe('createNpmRegistryReader', () => {
     const listPackageReleases = vi.spyOn(database, 'listPackageReleases')
     const reader = createNpmRegistryReader({ database })
 
+    await expect(
+      reader.database.getPackageChannelVersion(packageId, 'latest'),
+    ).resolves.toBeUndefined()
     await expect(
       reader.database.getPackageChannels(packageId),
     ).resolves.toEqual({})
@@ -47,6 +54,7 @@ describe('createNpmRegistryReader', () => {
 
     expect(Object.keys(reader)).toEqual(['database'])
     expect(Object.keys(reader.database).toSorted()).toEqual([
+      'getPackageChannelVersion',
       'getPackageChannels',
       'getPackageEventHead',
       'getPackageEventState',
@@ -55,6 +63,7 @@ describe('createNpmRegistryReader', () => {
       'hasPackage',
       'listPackageReleases',
     ])
+    expect(getPackageChannelVersion).toHaveBeenCalledWith(packageId, 'latest')
     expect(getPackageChannels).toHaveBeenCalledWith(packageId)
     expect(getPackageEventHead).toHaveBeenCalledWith(packageId)
     expect(getPackageEventState).toHaveBeenCalledWith(packageId)

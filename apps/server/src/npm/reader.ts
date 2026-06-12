@@ -26,6 +26,10 @@ export interface NpmPackageReleaseHead {
 
 export interface NpmRegistryReader {
   database: {
+    getPackageChannelVersion: (
+      packageId: PackageId,
+      channel: string,
+    ) => Promise<string | undefined>
     getPackageChannels: (
       packageId: PackageId,
     ) => Promise<Record<string, string>>
@@ -58,6 +62,9 @@ export function createNpmRegistryReader(
 ): NpmRegistryReader {
   return {
     database: {
+      getPackageChannelVersion: (packageId, channel) => {
+        return adapters.database.getPackageChannelVersion(packageId, channel)
+      },
       getPackageChannels: (packageId) => {
         return adapters.database.getPackageChannels(packageId)
       },

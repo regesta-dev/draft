@@ -4,7 +4,12 @@ import {
   publicRequestUrl,
   requiredParam,
 } from '../request.ts'
-import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
+import {
+  errorResponse,
+  httpDate,
+  matchesIfModifiedSince,
+  matchesIfNoneMatch,
+} from '../responses.ts'
 import {
   createLocalNpmPackageProjectionCache,
   createLocalNpmVersionManifest,
@@ -266,8 +271,10 @@ async function serveNpmPackageManifest(
   const packageId = localNpmPackageId(packageName)
 
   if (packageId) {
-    const channels = await adapters.database.getPackageChannels(packageId)
-    const taggedVersion = channels[tagOrVersion]
+    const taggedVersion = await adapters.database.getPackageChannelVersion(
+      packageId,
+      tagOrVersion,
+    )
     const version = taggedVersion ?? tagOrVersion
     const release = await adapters.database.getRelease(packageId, version)
 
@@ -295,10 +302,7 @@ async function serveNpmPackageManifest(
       )
     }
 
-    if (
-      Object.keys(channels).length > 0 ||
-      (await adapters.database.hasPackage(packageId))
-    ) {
+    if (await adapters.database.hasPackage(packageId)) {
       return context.json(
         errorResponse('package_version_not_found', 'Package version not found'),
         404,
@@ -465,34 +469,6 @@ function npmProjectionNotModifiedHeaders(
 interface NpmProjectionJsonOptions {
   cacheControl?: string
   lastModified?: string
-}
-
-function httpDate(timestamp: string): string {
-  const time = Date.parse(timestamp)
-
-  if (!Number.isFinite(time)) {
-    throw new TypeError('npm projection timestamp must be valid')
-  }
-
-  return new Date(time).toUTCString()
-}
-
-function matchesIfModifiedSince(
-  header: string | undefined,
-  lastModified: string | undefined,
-): boolean {
-  if (!header || !lastModified) {
-    return false
-  }
-
-  const since = Date.parse(header)
-  const modified = Date.parse(lastModified)
-
-  if (!Number.isFinite(since) || !Number.isFinite(modified)) {
-    return false
-  }
-
-  return modified <= since
 }
 
 function serveNpmUtilityJson(context: Context, body: unknown): Response {

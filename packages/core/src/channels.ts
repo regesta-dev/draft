@@ -90,13 +90,13 @@ export async function getPackageState(
   return (await adapters.database.getPackageEventState(packageId)).state
 }
 
-export async function getPackageChannelVersion(
+export function getPackageChannelVersion(
   adapters: RegistryAdapters,
   packageId: PackageId,
   channel: string,
 ): Promise<string | undefined> {
   assertPackageChannel(channel)
-  return (await adapters.database.getPackageChannels(packageId))[channel]
+  return adapters.database.getPackageChannelVersion(packageId, channel)
 }
 
 function eventPackageId(event: RegistryEvent): PackageId {

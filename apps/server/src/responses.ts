@@ -51,6 +51,34 @@ export function matchesIfNoneMatch(
   )
 }
 
+export function httpDate(timestamp: string): string {
+  const time = Date.parse(timestamp)
+
+  if (!Number.isFinite(time)) {
+    throw new TypeError('HTTP timestamp must be valid')
+  }
+
+  return new Date(time).toUTCString()
+}
+
+export function matchesIfModifiedSince(
+  header: string | undefined,
+  lastModified: string | undefined,
+): boolean {
+  if (!header || !lastModified) {
+    return false
+  }
+
+  const since = Date.parse(header)
+  const modified = Date.parse(lastModified)
+
+  if (!Number.isFinite(since) || !Number.isFinite(modified)) {
+    return false
+  }
+
+  return modified <= since
+}
+
 export function immutableBytesResponse(
   input: ImmutableBytesResponseInput,
 ): Response {

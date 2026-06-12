@@ -3789,7 +3789,10 @@ describe('createRegestaApp', () => {
 
   it('rejects channel update authorization domains that do not match package owners before domain binding fetch', async () => {
     const adapters = createMemoryRegistryAdapters()
-    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const getPackageChannelVersion = vi.spyOn(
+      adapters.database,
+      'getPackageChannelVersion',
+    )
     const app = createRegestaApp(adapters)
     const auth = createTestDomainAuth()
     const packageId = 'npm:example.com/channel-update-domain-mismatch'
@@ -3834,7 +3837,7 @@ describe('createRegestaApp', () => {
         message: 'Write intent domain must match package owner',
       })
       expect(fetchBinding).not.toHaveBeenCalled()
-      expect(getPackageChannels).not.toHaveBeenCalled()
+      expect(getPackageChannelVersion).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllGlobals()
     }
@@ -3842,7 +3845,10 @@ describe('createRegestaApp', () => {
 
   it('rejects channel delete authorization domains that do not match package owners before domain binding fetch', async () => {
     const adapters = createMemoryRegistryAdapters()
-    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const getPackageChannelVersion = vi.spyOn(
+      adapters.database,
+      'getPackageChannelVersion',
+    )
     const app = createRegestaApp(adapters)
     const auth = createTestDomainAuth()
     const packageId = 'npm:example.com/channel-delete-domain-mismatch'
@@ -3885,7 +3891,7 @@ describe('createRegestaApp', () => {
         message: 'Write intent domain must match package owner',
       })
       expect(fetchBinding).not.toHaveBeenCalled()
-      expect(getPackageChannels).not.toHaveBeenCalled()
+      expect(getPackageChannelVersion).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllGlobals()
     }
@@ -3918,7 +3924,10 @@ describe('createRegestaApp', () => {
       },
       adapters,
     )
-    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const getPackageChannelVersion = vi.spyOn(
+      adapters.database,
+      'getPackageChannelVersion',
+    )
     const authorization = auth.sign(
       createChannelUpdateIntent({
         channel: 'latest',
@@ -3954,8 +3963,8 @@ describe('createRegestaApp', () => {
         },
         previousVersion: '0.0.1',
       })
-      expect(getPackageChannels).toHaveBeenCalledOnce()
-      expect(getPackageChannels).toHaveBeenCalledWith(packageId)
+      expect(getPackageChannelVersion).toHaveBeenCalledOnce()
+      expect(getPackageChannelVersion).toHaveBeenCalledWith(packageId, 'latest')
     } finally {
       vi.unstubAllGlobals()
     }

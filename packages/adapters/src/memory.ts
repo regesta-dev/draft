@@ -218,8 +218,6 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   readonly channels: Map<PackageId, Map<string, string>> = new Map()
   readonly eventChannels: Map<PackageId, Map<string, string>> = new Map()
   readonly eventIds: Set<Sha256Digest> = new Set()
-  readonly eventLast: Map<PackageId, { id: Sha256Digest; timestamp: string }> =
-    new Map()
   readonly eventHeads: Map<PackageId, PackageEventHead> = new Map()
   readonly eventReleases: Map<PackageId, Map<string, PackageStateRelease>> =
     new Map()
@@ -307,7 +305,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   }
 
   countPackages(): Promise<number> {
-    return Promise.resolve(this.releases.size)
+    return Promise.resolve(this.releaseHeads.size)
   }
 
   getEventLog(): Promise<RegistryEvent[]> {
@@ -356,6 +354,13 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     return Promise.resolve(previousVersion)
   }
 
+  getPackageChannelVersion(
+    packageId: PackageId,
+    channel: string,
+  ): Promise<string | undefined> {
+    return Promise.resolve(this.channels.get(packageId)?.get(channel))
+  }
+
   getPackageChannels(packageId: PackageId): Promise<Record<string, string>> {
     return Promise.resolve(
       Object.fromEntries(this.channels.get(packageId)?.entries() ?? []),
@@ -378,13 +383,13 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     const channels = Object.fromEntries(
       this.eventChannels.get(packageId)?.entries() ?? [],
     )
-    const lastEvent = this.eventLast.get(packageId)
+    const head = this.eventHeads.get(packageId)
 
     return Promise.resolve({
-      ...(lastEvent
+      ...(head?.lastEventId && head.lastEventTimestamp
         ? {
-            lastEventId: lastEvent.id,
-            lastEventTimestamp: lastEvent.timestamp,
+            lastEventId: head.lastEventId,
+            lastEventTimestamp: head.lastEventTimestamp,
           }
         : {}),
       state: {
@@ -414,7 +419,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
   }
 
   hasPackage(packageId: PackageId): Promise<boolean> {
-    return Promise.resolve(this.releases.has(packageId))
+    return Promise.resolve(this.releaseHeads.has(packageId))
   }
 
   hasAuthorizationPayloadDigest(payloadDigest: Sha256Digest): Promise<boolean> {
@@ -537,7 +542,6 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
       timestamp: event.timestamp,
     }
 
-    this.eventLast.set(packageId, lastEvent)
     this.applyPackageEventHead(
       packageId,
       lastEvent,

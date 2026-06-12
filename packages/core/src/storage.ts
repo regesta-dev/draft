@@ -141,6 +141,10 @@ export interface RegistryDatabase {
   countPackages: () => Promise<number>
   getEvent: (id: Sha256Digest) => Promise<RegistryEvent | undefined>
   getEventLog: () => Promise<RegistryEvent[]>
+  getPackageChannelVersion: (
+    packageId: PackageId,
+    channel: string,
+  ) => Promise<string | undefined>
   getPackageChannels: (packageId: PackageId) => Promise<Record<string, string>>
   getPackageEventHead: (packageId: PackageId) => Promise<PackageEventHead>
   getPackageEventState: (packageId: PackageId) => Promise<PackageStateSnapshot>

@@ -226,7 +226,12 @@ describe('createNpmRegistryRoutes', () => {
     expect(distTagsHead.status).toBe(200)
     await expect(distTagsHead.text()).resolves.toBe('')
 
-    expect(reader.database.getPackageChannels).toHaveBeenCalledTimes(4)
+    expect(reader.database.getPackageChannelVersion).toHaveBeenCalledTimes(2)
+    expect(reader.database.getPackageChannelVersion).toHaveBeenCalledWith(
+      fallbackPackageId,
+      'latest',
+    )
+    expect(reader.database.getPackageChannels).toHaveBeenCalledTimes(2)
     expect(reader.database.getPackageChannels).toHaveBeenCalledWith(
       fallbackPackageId,
     )
@@ -283,6 +288,9 @@ describe('createNpmRegistryRoutes', () => {
     })
     const reader = {
       database: {
+        getPackageChannelVersion: vi.fn(() => {
+          throw new Error('packuments should not read package channel versions')
+        }),
         getPackageChannels: vi.fn(() =>
           Promise.resolve({
             latest: '1.0.0',
@@ -392,6 +400,11 @@ describe('createNpmRegistryRoutes', () => {
     })
     const reader = {
       database: {
+        getPackageChannelVersion: vi.fn(() => {
+          throw new Error(
+            'conditional packuments should not read channel versions',
+          )
+        }),
         getPackageChannels: vi.fn(() => {
           throw new Error('conditional packuments should not read channels')
         }),
@@ -476,6 +489,9 @@ describe('createNpmRegistryRoutes', () => {
     })
     const reader = {
       database: {
+        getPackageChannelVersion: vi.fn(() => {
+          throw new Error('dist-tags should not read channel versions')
+        }),
         getPackageChannels: vi.fn(() =>
           Promise.resolve({
             latest: '1.0.0',
@@ -527,6 +543,7 @@ describe('createNpmRegistryRoutes', () => {
     })
     const reader = {
       database: {
+        getPackageChannelVersion: vi.fn(() => Promise.resolve('1.0.0')),
         getPackageChannels: vi.fn(() =>
           Promise.resolve({
             latest: '1.0.0',
@@ -575,7 +592,11 @@ describe('createNpmRegistryRoutes', () => {
       name: '@example.com/hello-regesta',
       version: '1.0.0',
     })
-    expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(reader.database.getPackageChannelVersion).toHaveBeenCalledWith(
+      packageId,
+      'latest',
+    )
+    expect(reader.database.getPackageChannels).not.toHaveBeenCalled()
     expect(reader.database.getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(reader.database.hasPackage).not.toHaveBeenCalled()
     expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
@@ -591,6 +612,7 @@ describe('createNpmRegistryRoutes', () => {
     })
     const reader = {
       database: {
+        getPackageChannelVersion: vi.fn(() => Promise.resolve(undefined)),
         getPackageChannels: vi.fn(() =>
           Promise.resolve({
             latest: '1.0.0',
@@ -671,7 +693,11 @@ describe('createNpmRegistryRoutes', () => {
       'Wed, 01 Jan 2025 00:00:00 GMT',
     )
     expect(await conditionalSince.text()).toBe('')
-    expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(reader.database.getPackageChannelVersion).toHaveBeenCalledWith(
+      packageId,
+      '1.0.0',
+    )
+    expect(reader.database.getPackageChannels).not.toHaveBeenCalled()
     expect(reader.database.getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(reader.database.hasPackage).not.toHaveBeenCalled()
     expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
@@ -685,6 +711,7 @@ describe('createNpmRegistryRoutes', () => {
     })
     const reader = {
       database: {
+        getPackageChannelVersion: vi.fn(() => Promise.resolve(undefined)),
         getPackageChannels: vi.fn(() => Promise.resolve({})),
         getPackageEventState: vi.fn(() =>
           Promise.reject(
@@ -714,7 +741,11 @@ describe('createNpmRegistryRoutes', () => {
     )
 
     expect(response.status).toBe(404)
-    expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(reader.database.getPackageChannelVersion).toHaveBeenCalledWith(
+      packageId,
+      'missing',
+    )
+    expect(reader.database.getPackageChannels).not.toHaveBeenCalled()
     expect(reader.database.getRelease).toHaveBeenCalledWith(
       packageId,
       'missing',
@@ -858,6 +889,7 @@ function packageStateSnapshot(event: RegistryEvent): PackageStateSnapshot {
 function missingNpmPackageReader() {
   return {
     database: {
+      getPackageChannelVersion: vi.fn(() => Promise.resolve(undefined)),
       getPackageChannels: vi.fn(() => Promise.resolve({})),
       getPackageEventHead: vi.fn(() =>
         Promise.reject(
@@ -887,6 +919,9 @@ function storageFreeNpmTarballReader() {
 
   return {
     database: {
+      getPackageChannelVersion: vi.fn(() => {
+        throw new Error('tarball routes must not read channel versions')
+      }),
       getPackageChannels: vi.fn(() => {
         throw new Error('tarball routes must not read channels')
       }),

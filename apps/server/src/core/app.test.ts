@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { createMemoryRegistryAdapters } from '@regesta/adapters'
 import { sha256, type WriteAuthorizationProof } from '@regesta/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createCoreRegistryApp, type CoreRegistryServices } from './app.ts'
 
 describe('createCoreRegistryApp', () => {
@@ -82,7 +82,140 @@ describe('createCoreRegistryApp', () => {
       `http://registry.example:8443/packages/${packagePath}/channels/latest`,
     ])
   })
+
+  it('uses package event heads for conditional package state reads', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const signedAt = '2026-06-01T00:00:00.000Z'
+    const services = coreRegistryServices(signedAt)
+    const app = createCoreRegistryApp(adapters, services)
+    const packageId = 'npm:example.com/conditional-state'
+    const packagePath = encodeURIComponent(packageId)
+    const publish = await app.request('http://127.0.0.1:4321/releases', {
+      body: publishForm({
+        id: packageId,
+        signedAt,
+        version: '0.0.1',
+      }),
+      method: 'POST',
+    })
+    const published = (await publish.json()) as {
+      event: {
+        id: string
+      }
+    }
+    const getPackageEventHead = vi.spyOn(
+      adapters.database,
+      'getPackageEventHead',
+    )
+    const getPackageEventState = vi.spyOn(
+      adapters.database,
+      'getPackageEventState',
+    )
+    const etag = `W/"${published.event.id}"`
+    const lastModified = new Date(Date.parse(signedAt)).toUTCString()
+
+    const conditionalEtag = await app.request(`/packages/${packagePath}`, {
+      headers: {
+        'if-none-match': etag,
+      },
+    })
+
+    expect(conditionalEtag.status).toBe(304)
+    expect(conditionalEtag.headers.get('cache-control')).toBe('no-cache')
+    expect(conditionalEtag.headers.get('etag')).toBe(etag)
+    expect(conditionalEtag.headers.get('last-modified')).toBe(lastModified)
+    expect(await conditionalEtag.text()).toBe('')
+    expect(getPackageEventHead).toHaveBeenCalledOnce()
+    expect(getPackageEventHead).toHaveBeenCalledWith(packageId)
+    expect(getPackageEventState).not.toHaveBeenCalled()
+
+    getPackageEventHead.mockClear()
+    getPackageEventState.mockClear()
+
+    const conditionalModified = await app.request(`/packages/${packagePath}`, {
+      headers: {
+        'if-modified-since': lastModified,
+      },
+    })
+
+    expect(conditionalModified.status).toBe(304)
+    expect(conditionalModified.headers.get('etag')).toBe(etag)
+    expect(conditionalModified.headers.get('last-modified')).toBe(lastModified)
+    expect(await conditionalModified.text()).toBe('')
+    expect(getPackageEventHead).toHaveBeenCalledOnce()
+    expect(getPackageEventHead).toHaveBeenCalledWith(packageId)
+    expect(getPackageEventState).not.toHaveBeenCalled()
+
+    getPackageEventHead.mockClear()
+    getPackageEventState.mockClear()
+
+    const staleEtag = await app.request(`/packages/${packagePath}`, {
+      headers: {
+        'if-modified-since': lastModified,
+        'if-none-match': 'W/"stale"',
+      },
+    })
+
+    expect(staleEtag.status).toBe(200)
+    expect(staleEtag.headers.get('etag')).toBe(etag)
+    expect(staleEtag.headers.get('last-modified')).toBe(lastModified)
+    expect(getPackageEventHead).toHaveBeenCalledOnce()
+    expect(getPackageEventState).toHaveBeenCalledOnce()
+  })
+
+  it('uses single-channel adapter reads for package channel routes', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const signedAt = '2026-06-01T00:00:00.000Z'
+    const app = createCoreRegistryApp(adapters, coreRegistryServices(signedAt))
+    const packageId = 'npm:example.com/channel-route'
+    const packagePath = encodeURIComponent(packageId)
+    const publish = await app.request('http://127.0.0.1:4321/releases', {
+      body: publishForm({
+        id: packageId,
+        signedAt,
+        version: '0.0.1',
+      }),
+      method: 'POST',
+    })
+
+    expect(publish.status).toBe(201)
+
+    const getPackageChannelVersion = vi.spyOn(
+      adapters.database,
+      'getPackageChannelVersion',
+    )
+    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const channel = await app.request(
+      `/packages/${packagePath}/channels/latest`,
+    )
+
+    expect(channel.status).toBe(200)
+    await expect(channel.json()).resolves.toMatchObject({
+      manifest: {
+        id: packageId,
+        version: '0.0.1',
+      },
+    })
+    expect(getPackageChannelVersion).toHaveBeenCalledOnce()
+    expect(getPackageChannelVersion).toHaveBeenCalledWith(packageId, 'latest')
+    expect(getPackageChannels).not.toHaveBeenCalled()
+  })
 })
+
+function coreRegistryServices(signedAt: string): CoreRegistryServices {
+  return {
+    readWriteAuthorization: (authorization) => authorization,
+    verifyChannelDeleteAuthorization: () => {
+      return Promise.resolve(authorizationProof('channel-delete', signedAt))
+    },
+    verifyChannelUpdateAuthorization: () => {
+      return Promise.resolve(authorizationProof('channel-update', signedAt))
+    },
+    verifyPublishAuthorization: () => {
+      return Promise.resolve(authorizationProof('publish', signedAt))
+    },
+  }
+}
 
 function publishForm(input: {
   id: string
