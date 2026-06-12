@@ -233,7 +233,7 @@ HEAD /packages/{packageId}/channels/{channel}
 ```
 
 Resolves a mutable channel to the current release and returns the same release
-envelope shape as the versioned release endpoint.
+envelope shape as the specific release read endpoint.
 
 Channel reads are mutable projections. They include `Cache-Control: no-cache`
 and a weak `ETag` for the package event id that produced the current channel

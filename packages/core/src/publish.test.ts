@@ -1126,10 +1126,15 @@ describe('publishRelease', () => {
     }
 
     await publishRelease(input, adapters)
+    const put = vi.fn(() =>
+      Promise.reject(new Error('duplicate releases must not store objects')),
+    )
+    adapters.objects.put = put
 
     await expect(publishRelease(input, adapters)).rejects.toThrow(
       ReleaseAlreadyExistsError,
     )
+    expect(put).not.toHaveBeenCalled()
   })
 
   it('rejects channel updates that target missing releases with a typed error', async () => {
@@ -1351,6 +1356,14 @@ describe('publishRelease', () => {
       packageId: 'npm:example.com/hello-regesta',
       version: '0.0.1',
     })
+    const commitUpdate = vi.fn(() =>
+      Promise.reject(new Error('replayed update must not commit events')),
+    )
+    const commitDelete = vi.fn(() =>
+      Promise.reject(new Error('replayed delete must not commit events')),
+    )
+    adapters.database.commitPackageChannelUpdate = commitUpdate
+    adapters.database.commitPackageChannelDelete = commitDelete
     adapters.database.getEventLog = () => {
       throw new Error('replay guard should not scan the event log')
     }
@@ -1363,6 +1376,65 @@ describe('publishRelease', () => {
         version: '0.0.1',
       }),
     ).rejects.toThrow(WriteAuthorizationReplayError)
+    await expect(
+      deletePackageChannel(adapters, {
+        authorization,
+        channel: 'latest',
+        packageId: 'npm:example.com/hello-regesta',
+      }),
+    ).rejects.toThrow(WriteAuthorizationReplayError)
+    expect(commitUpdate).not.toHaveBeenCalled()
+    expect(commitDelete).not.toHaveBeenCalled()
+  })
+
+  it('rejects replayed publish authorizations before storing objects', async () => {
+    const adapters = createTestRegistryAdapters()
+    await publishRelease(
+      {
+        ...createPublishInput(),
+        createdAt: '2026-06-01T00:00:00.000Z',
+      },
+      adapters,
+    )
+    const authorization = createAuthorizationProof('channel-update')
+
+    await updatePackageChannel(adapters, {
+      authorization,
+      channel: 'latest',
+      packageId: 'npm:example.com/hello-regesta',
+      version: '0.0.1',
+    })
+
+    const put = vi.fn(() =>
+      Promise.reject(new Error('replayed publish must not store objects')),
+    )
+    adapters.objects.put = put
+
+    await expect(
+      publishRelease(
+        {
+          ...createPublishInput(),
+          authorization,
+          config: {
+            description: 'Test package',
+            exports: {
+              '.': './src/index.ts',
+            },
+            id: 'npm:example.com/hello-regesta',
+            languages: ['typescript'],
+            provenance: {
+              level: 'source-attached',
+            },
+            source: {
+              include: ['regesta.json'],
+            },
+            version: '0.0.2',
+          },
+        },
+        adapters,
+      ),
+    ).rejects.toThrow(WriteAuthorizationReplayError)
+    expect(put).not.toHaveBeenCalled()
   })
 
   it('rejects release manifests that claim trusted build verification in v0', async () => {

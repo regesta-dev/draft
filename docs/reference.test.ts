@@ -52,6 +52,10 @@ describe('documentation references', () => {
     expect(index).toContain('https://registry.regesta.dev/')
     expect(index).toContain('https://npm.regesta.dev/')
     expect(index).toContain('The demo is not a production registry')
+    expect(index).toContain('Ecosystem-neutral core')
+    expect(index).toContain(
+      'npm, PyPI, Cargo, Go, OCI, and future protocols are projections over Regesta-native data',
+    )
 
     for (const principle of [
       'Transparent',
@@ -64,13 +68,44 @@ describe('documentation references', () => {
     }
   })
 
+  it('documents ecosystem-neutral core data as the source for projections', async () => {
+    const readme = await readWorkspaceText('README.md')
+    const architecture = await readText('architecture.md')
+    const projections = await readText('projections.md')
+    const why = await readText('why-regesta.md')
+    const normalizedArchitecture = architecture.replaceAll(/\s+/gu, ' ')
+    const normalizedProjections = projections.replaceAll(/\s+/gu, ' ')
+    const normalizedWhy = why.replaceAll(/\s+/gu, ' ')
+
+    expect(readme).toContain(
+      'npm, PyPI, Cargo, Go, OCI, and future ecosystems should be projections over a shared registry model',
+    )
+    expect(normalizedArchitecture).toContain(
+      'The core model stores ecosystem-neutral facts',
+    )
+    expect(normalizedArchitecture).toContain(
+      'core must not depend on projections',
+    )
+    expect(normalizedProjections).toContain(
+      'Regesta core stores neutral registry facts. Ecosystem projections render those facts into package-manager-native protocols.',
+    )
+    expect(normalizedWhy).toContain(
+      'Ecosystem APIs are projections over those facts.',
+    )
+  })
+
   it('documents community-driven governance without single-operator capture', async () => {
+    const index = await readText('index.md')
     const readme = await readWorkspaceText('README.md')
     const why = await readText('why-regesta.md')
     const governance = await readText('governance.md')
+    const normalizedIndex = index.replaceAll(/\s+/gu, ' ')
     const normalizedWhy = why.replaceAll(/\s+/gu, ' ')
     const normalizedGovernance = governance.replaceAll(/\s+/gu, ' ')
 
+    expect(normalizedIndex).toContain(
+      'the registry should not be controlled by one company, operator, or package ecosystem',
+    )
     expect(readme).toContain(
       'community-driven and not controlled by any single company or operator',
     )
@@ -299,6 +334,31 @@ describe('documentation references', () => {
     expect(channelDeleteProperties.operation).toEqual({
       const: 'channel.delete',
     })
+  })
+
+  it('documents signed write authorization trust boundaries', async () => {
+    const protocol = await readText('protocol.md')
+    const normalizedProtocol = protocol.replaceAll(/\s+/gu, ' ')
+
+    expect(normalizedProtocol).toContain(
+      'The signature is over the canonical JSON form of `payload`.',
+    )
+    expect(normalizedProtocol).toContain(
+      'the server verifies the signature against the current domain binding at write time',
+    )
+    expect(normalizedProtocol).toContain(
+      'SSH signatures use the `regesta` namespace',
+    )
+    expect(normalizedProtocol).toContain(
+      "cannot be replayed as Git signatures or another protocol's authorization",
+    )
+    expect(normalizedProtocol).toContain(
+      'Accepted events snapshot `regesta.authorization-proof` material',
+    )
+    expect(normalizedProtocol).toContain('well-known binding digest')
+    expect(normalizedProtocol).toContain(
+      'V0 events do not publish the full signed intent payload.',
+    )
   })
 
   it('keeps V0 provenance honest about source attachment', async () => {
@@ -866,6 +926,18 @@ describe('documentation references', () => {
         `${operation.method.toUpperCase()} ${operation.sourcePath} must not use a path version prefix`,
       ).not.toMatch(/^\/v\d+(?:\/|$)/u)
     }
+
+    for (const path of [
+      'api.md',
+      'protocol.md',
+      'schema.md',
+      schemaPath,
+      openapiPath,
+    ]) {
+      await expect(readText(path), path).resolves.not.toMatch(
+        /\bversioned(?:\s+[^\s.]+)*\s+endpoint\b/iu,
+      )
+    }
   })
 
   it('keeps current public references free of per-object version fields', async () => {
@@ -940,7 +1012,15 @@ describe('documentation references', () => {
       }
     }
 
-    await expect(readText('api.md')).resolves.not.toContain('API version')
+    for (const path of [
+      'api.md',
+      'protocol.md',
+      'schema.md',
+      schemaPath,
+      openapiPath,
+    ]) {
+      await expect(readText(path), path).resolves.not.toContain('API version')
+    }
   })
 
   it('documents no-store caching for transport status routes', async () => {
