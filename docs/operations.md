@@ -44,6 +44,13 @@ Numeric runtime values must be decimal safe integers without whitespace,
 fractional notation, exponent notation, or leading zeroes. Timeout and cache
 values are milliseconds. Request and publish limits are byte counts.
 
+`REGESTA_MAX_REQUEST_BYTES` is a transport guard over declared
+`Content-Length`, not a protocol object-size rule. Malformed `Content-Length`
+returns `400`, and a declared body larger than the configured limit returns
+`413` before mounted registry routes run. CORS preflight requests are answered
+before this guard so browser clients can discover allowed methods and headers
+without sending a body.
+
 ## Backup Boundary
 
 A backup must preserve a consistent view of:

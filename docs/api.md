@@ -78,7 +78,13 @@ The transport layer applies permissive CORS before mounted registry layers.
 Requests from any origin receive `Access-Control-Allow-Origin: *`, and
 `OPTIONS` preflight requests can target any host-routed layer. Preflight
 responses return `204`, allow the configured HTTP methods, and echo requested
-headers through `Access-Control-Allow-Headers`.
+headers through `Access-Control-Allow-Headers`. Preflight requests are answered
+before request-size limit enforcement and before mounted route handlers.
+
+Deployments may configure a maximum declared request size. When `Content-Length`
+is malformed, the transport layer rejects the request with `400` before mounted
+route handlers. When the declared size exceeds the configured limit, it rejects
+the request with `413` and the `request_too_large` error code.
 
 ## Publish Release
 

@@ -1062,6 +1062,37 @@ describe('SQLiteRegistryDatabase', () => {
     }
   })
 
+  it('reads package counts from registry_stats without scanning releases on normal reads', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-stats-'))
+    const databasePath = join(root, 'registry.sqlite')
+    const database = new SQLiteRegistryDatabase(databasePath)
+
+    try {
+      await database.putRelease(
+        storedRelease('npm:example.com/stats-hot-path', '0.0.1'),
+      )
+
+      const rawDatabase = new DatabaseSync(databasePath)
+      try {
+        rawDatabase
+          .prepare(
+            `UPDATE registry_stats
+              SET value = 7
+              WHERE key = 'package_count'`,
+          )
+          .run()
+        rawDatabase.exec('DROP TABLE releases')
+      } finally {
+        rawDatabase.close()
+      }
+
+      await expect(database.countPackages()).resolves.toBe(7)
+    } finally {
+      database.close()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it('rejects invalid package count statistics', async () => {
     const root = await mkdtemp(join(tmpdir(), 'regesta-sqlite-stats-'))
     const databasePath = join(root, 'registry.sqlite')

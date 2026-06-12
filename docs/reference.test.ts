@@ -458,6 +458,10 @@ describe('documentation references', () => {
       'REGESTA_STATISTICS_CACHE_TTL_MS',
       'disable cross-request statistics caching',
       'In-flight statistics reads are still coalesced',
+      'transport guard over declared',
+      'Malformed `Content-Length` returns `400`',
+      'declared body larger than the configured limit returns `413`',
+      'CORS preflight requests are answered before this guard',
       'Numeric runtime values must be decimal safe integers',
       'without whitespace',
     ]) {
@@ -837,6 +841,7 @@ describe('documentation references', () => {
     ).resolves.toContain('CORS')
 
     const api = await readText('api.md')
+    const normalizedApi = api.replaceAll(/\s+/gu, ' ')
 
     expect(api).toContain(
       'The transport layer applies permissive CORS before mounted registry layers.',
@@ -844,6 +849,31 @@ describe('documentation references', () => {
     expect(api).toContain('Access-Control-Allow-Origin: *')
     expect(api).toContain('`OPTIONS` preflight requests can target any')
     expect(api).toContain('Access-Control-Allow-Headers')
+    expect(normalizedApi).toContain(
+      'Preflight requests are answered before request-size limit enforcement',
+    )
+  })
+
+  it('documents transport request-size errors for write bodies', async () => {
+    for (const pointer of [
+      '#/paths/~1releases/post/responses/413',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/put/responses/413',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/delete/responses/413',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toEqual({
+        $ref: '#/components/responses/Error',
+      })
+    }
+
+    const api = await readText('api.md')
+    const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+
+    expect(normalizedApi).toContain(
+      'When `Content-Length` is malformed, the transport layer rejects the request with `400` before mounted route handlers',
+    )
+    expect(normalizedApi).toContain(
+      'rejects the request with `413` and the `request_too_large` error code',
+    )
   })
 
   it('documents host-specific root responses', async () => {

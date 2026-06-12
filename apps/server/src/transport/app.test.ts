@@ -71,28 +71,135 @@ describe('createTransportApp', () => {
   })
 
   it('applies configured request size limits at the transport shell', async () => {
+    const entries: RequestLogEntry[] = []
     const app = createTransportApp({
+      requestLog: (entry) => {
+        entries.push(entry)
+      },
       requestSizeLimit: {
         maxBytes: 3,
       },
     })
-    app.post('/root/upload', (context) => context.text('ok'))
+    const route = vi.fn((context) => context.text('ok'))
+    app.post('/root/upload', route)
 
     const response = await app.request('http://registry.test/upload', {
       body: '1234',
       headers: {
         'content-length': '4',
+        'x-request-id': 'request-too-large-001',
       },
       method: 'POST',
     })
 
     expect(response.status).toBe(413)
+    expect(response.headers.get('x-request-id')).toBe('request-too-large-001')
     await expect(response.json()).resolves.toEqual({
       code: 'request_too_large',
       error: 'Request body too large',
       issues: ['content-length: Must be at most 3 bytes'],
       message: 'Request body too large',
     })
+    expect(route).not.toHaveBeenCalled()
+    expect(entries).toMatchObject([
+      {
+        host: 'registry.test',
+        kind: 'regesta.request',
+        method: 'POST',
+        path: '/upload',
+        requestId: 'request-too-large-001',
+        status: 413,
+      },
+    ])
+  })
+
+  it('rejects malformed content length at the transport shell', async () => {
+    const entries: RequestLogEntry[] = []
+    const app = createTransportApp({
+      requestLog: (entry) => {
+        entries.push(entry)
+      },
+      requestSizeLimit: {
+        maxBytes: 3,
+      },
+    })
+    const route = vi.fn((context) => context.text('ok'))
+    app.post('/root/upload', route)
+
+    const response = await app.request('http://registry.test/upload', {
+      body: '1234',
+      headers: {
+        'content-length': 'unknown',
+        'x-request-id': 'content-length-invalid-001',
+      },
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('x-request-id')).toBe(
+      'content-length-invalid-001',
+    )
+    await expect(response.json()).resolves.toEqual({
+      code: 'request_content_length_invalid',
+      error: 'Invalid Content-Length header',
+      message: 'Invalid Content-Length header',
+    })
+    expect(route).not.toHaveBeenCalled()
+    expect(entries).toMatchObject([
+      {
+        host: 'registry.test',
+        kind: 'regesta.request',
+        method: 'POST',
+        path: '/upload',
+        requestId: 'content-length-invalid-001',
+        status: 400,
+      },
+    ])
+  })
+
+  it('handles CORS preflights before request size limits and mounted routes', async () => {
+    const entries: RequestLogEntry[] = []
+    const app = createTransportApp({
+      requestLog: (entry) => {
+        entries.push(entry)
+      },
+      requestSizeLimit: {
+        maxBytes: 3,
+      },
+    })
+    const route = vi.fn(() => {
+      throw new Error('preflight must not reach mounted routes')
+    })
+    app.post('/root/releases', route)
+
+    const response = await app.request('http://registry.test/releases', {
+      headers: {
+        'access-control-request-headers': 'content-type',
+        'access-control-request-method': 'POST',
+        'content-length': '4',
+        origin: 'https://client.example',
+        'x-request-id': 'cors-preflight-001',
+      },
+      method: 'OPTIONS',
+    })
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get('x-request-id')).toBe('cors-preflight-001')
+    expect(response.headers.get('access-control-allow-origin')).toBe('*')
+    expect(response.headers.get('access-control-allow-methods')).toContain(
+      'POST',
+    )
+    expect(route).not.toHaveBeenCalled()
+    expect(entries).toMatchObject([
+      {
+        host: 'registry.test',
+        kind: 'regesta.request',
+        method: 'OPTIONS',
+        path: '/releases',
+        requestId: 'cors-preflight-001',
+        status: 204,
+      },
+    ])
   })
 })
 

@@ -252,6 +252,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
         }
@@ -488,6 +489,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" }
         }
@@ -528,6 +530,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" }
         }
