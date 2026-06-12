@@ -22,7 +22,8 @@ export function createTransportErrorBoundary(
     if (knownError) {
       const message = knownError.message ?? error.message
 
-      return context.json(
+      return transportErrorJson(
+        context,
         errorResponse(knownError.code, message, errorIssues(error)),
         knownError.status,
       )
@@ -36,11 +37,39 @@ export function createTransportErrorBoundary(
       ...(id ? { requestId: id } : {}),
     })
 
-    return context.json(
+    return transportErrorJson(
+      context,
       errorResponse('internal_server_error', 'Internal Server Error'),
       500,
     )
   }
+}
+
+function transportErrorJson(
+  context: Context,
+  body: unknown,
+  status: number,
+): Response {
+  const headers = {
+    'content-type': 'application/json; charset=UTF-8',
+  }
+
+  if (context.req.method === 'HEAD') {
+    return new Response(null, {
+      headers,
+      status,
+    })
+  }
+
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+
+  return new Response(bytes, {
+    headers: {
+      ...headers,
+      'content-length': String(bytes.byteLength),
+    },
+    status,
+  })
 }
 
 function errorIssues(error: Error): string[] {

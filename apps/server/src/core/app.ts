@@ -616,6 +616,10 @@ async function serveEventLogRequest(
   const limit = query.limit ? Number(query.limit) : defaultEventLogPageLimit
   const after = query.after ? assertSha256Digest(query.after) : undefined
 
+  if (context.req.method === 'HEAD') {
+    return serveCollectionHead()
+  }
+
   const events = await adapters.database.listEvents({
     after,
     limit,
@@ -685,6 +689,10 @@ async function serveObjectInventoryRequest(
         : Number(query.limit),
   }
 
+  if (context.req.method === 'HEAD') {
+    return serveCollectionHead()
+  }
+
   const descriptors = (await adapters.objects.listDescriptors(options)).map(
     (descriptor, index) => {
       return parseAdapterObjectDescriptor(
@@ -695,6 +703,15 @@ async function serveObjectInventoryRequest(
   )
 
   return serveObjectInventoryPage(context, descriptors, options.after)
+}
+
+function serveCollectionHead(): Response {
+  return new Response(null, {
+    headers: {
+      'cache-control': 'no-cache',
+      'content-type': 'application/json; charset=UTF-8',
+    },
+  })
 }
 
 async function servePackageStateRequest(
@@ -981,27 +998,38 @@ function serveImmutableCanonicalJson(
     value: unknown
   },
 ): Response {
-  const bytes = new TextEncoder().encode(`${canonicalJson(input.value)}\n`)
-  const headers = {
-    'cache-control': 'public, max-age=31536000, immutable',
-    'content-length': String(bytes.byteLength),
-    'content-type': 'application/json; charset=utf-8',
-    etag: input.etag,
-  }
+  const headers = immutableCanonicalJsonHeaders(input.etag)
 
   if (matchesIfNoneMatch(context.req.header('if-none-match'), input.etag)) {
-    const conditionalHeaders = new Headers(headers)
-    conditionalHeaders.delete('content-length')
-
     return new Response(null, {
-      headers: conditionalHeaders,
+      headers,
       status: 304,
     })
   }
 
-  return new Response(context.req.method === 'HEAD' ? null : bytes, {
-    headers,
+  if (context.req.method === 'HEAD') {
+    return new Response(null, { headers })
+  }
+
+  const bytes = new TextEncoder().encode(`${canonicalJson(input.value)}\n`)
+
+  return new Response(bytes, {
+    headers: immutableCanonicalJsonHeaders(input.etag, bytes.byteLength),
   })
+}
+
+function immutableCanonicalJsonHeaders(
+  etag: string,
+  contentLength?: number,
+): Record<string, string> {
+  return {
+    'cache-control': 'public, max-age=31536000, immutable',
+    'content-type': 'application/json; charset=utf-8',
+    etag,
+    ...(contentLength === undefined
+      ? {}
+      : { 'content-length': String(contentLength) }),
+  }
 }
 
 function servePackageState(
@@ -1140,6 +1168,10 @@ function serveMutableReleaseEnvelope(
     })
   }
 
+  if (context.req.method === 'HEAD') {
+    return new Response(null, { headers })
+  }
+
   return serveJson(context, release, headers)
 }
 
@@ -1165,15 +1197,17 @@ function serveJson(
   headers: Record<string, string>,
   init: { status?: number; statusText?: string } = {},
 ): Response {
+  if (context.req.method === 'HEAD') {
+    return new Response(null, { ...init, headers })
+  }
+
   const bytes = new TextEncoder().encode(JSON.stringify(body))
   const responseHeaders = {
     ...headers,
     'content-length': String(bytes.byteLength),
   }
 
-  return context.req.method === 'HEAD'
-    ? new Response(null, { ...init, headers: responseHeaders })
-    : new Response(bytes, { ...init, headers: responseHeaders })
+  return new Response(bytes, { ...init, headers: responseHeaders })
 }
 
 async function serveObject(

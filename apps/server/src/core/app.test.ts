@@ -163,6 +163,42 @@ describe('createCoreRegistryApp', () => {
     expect(getPackageEventState).toHaveBeenCalledOnce()
   })
 
+  it('serves collection HEAD requests without listing collection contents', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    adapters.database.listEvents = () => {
+      throw new Error('event collection HEAD must not list events')
+    }
+    adapters.objects.listDescriptors = () => {
+      throw new Error('object collection HEAD must not list descriptors')
+    }
+    const app = createCoreRegistryApp(
+      adapters,
+      coreRegistryServices('2026-06-01T00:00:00.000Z'),
+    )
+
+    const events = await app.request('/events', {
+      method: 'HEAD',
+    })
+    const objects = await app.request('/objects', {
+      method: 'HEAD',
+    })
+
+    expect(events.status).toBe(200)
+    expect(events.headers.get('cache-control')).toBe('no-cache')
+    expect(events.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(events.headers.get('content-length')).toBeNull()
+    expect(await events.text()).toBe('')
+    expect(objects.status).toBe(200)
+    expect(objects.headers.get('cache-control')).toBe('no-cache')
+    expect(objects.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(objects.headers.get('content-length')).toBeNull()
+    expect(await objects.text()).toBe('')
+  })
+
   it('uses single-channel adapter reads for package channel routes', async () => {
     const adapters = createMemoryRegistryAdapters()
     const signedAt = '2026-06-01T00:00:00.000Z'

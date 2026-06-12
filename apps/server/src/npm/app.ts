@@ -250,12 +250,13 @@ async function serveNpmDistTags(
         await adapters.database.getPackageChannels(packageId),
         'Adapter package channels',
       )
+      const etag = npmDistTagsEtag(channels)
 
-      return serveNpmProjectionJson(
-        context,
-        channels,
-        npmDistTagsEtag(channels),
-      )
+      if (context.req.method === 'HEAD') {
+        return serveNpmProjectionHead(context, etag)
+      }
+
+      return serveNpmProjectionJson(context, channels, etag)
     }
   }
 
@@ -308,6 +309,10 @@ async function serveNpmPackageManifest(
         return conditionalResponse
       }
 
+      if (context.req.method === 'HEAD') {
+        return serveNpmProjectionHead(context, etag, responseOptions)
+      }
+
       return serveNpmProjectionJson(
         context,
         createLocalNpmVersionManifest(
@@ -343,6 +348,20 @@ async function serveNpmPackument(
   const packageId = localNpmPackageId(packageName)
 
   if (packageId) {
+    if (context.req.method === 'HEAD') {
+      const headResponse = await serveNpmPackumentHead(
+        context,
+        adapters,
+        upstream,
+        packageName,
+        packageId,
+      )
+
+      if (headResponse) {
+        return headResponse
+      }
+    }
+
     const conditionalResponse = await serveConditionalNpmPackument(
       context,
       adapters,
@@ -373,6 +392,36 @@ async function serveNpmPackument(
   }
 
   return upstream.packument(context, packageName)
+}
+
+async function serveNpmPackumentHead(
+  context: Context,
+  adapters: NpmRegistryReader,
+  upstream: NpmUpstreamFallback,
+  packageName: string,
+  packageId: PackageId,
+): Promise<Response | undefined> {
+  const releaseHead = await adapters.database.getPackageReleaseHead(packageId)
+
+  if (releaseHead.releaseCount === 0) {
+    return upstream.packument(context, packageName)
+  }
+
+  const eventHead = await adapters.database.getPackageEventHead(packageId)
+
+  if (
+    !eventHead.lastEventId ||
+    eventHead.releaseCount === 0 ||
+    releaseHead.releaseCount !== eventHead.releaseCount
+  ) {
+    return undefined
+  }
+
+  const etag = npmPackumentEtag(eventHead.lastEventId)
+
+  return serveNpmProjectionHead(context, etag, {
+    lastModified: eventHead.modifiedAt,
+  })
 }
 
 async function serveConditionalNpmPackument(
@@ -415,6 +464,26 @@ async function serveConditionalNpmPackument(
 
   return npmProjectionNotModified(etag, {
     lastModified: head.modifiedAt,
+  })
+}
+
+function serveNpmProjectionHead(
+  context: Context,
+  etag: string,
+  options: NpmProjectionJsonOptions = {},
+): Response {
+  const conditionalResponse = serveConditionalNpmProjectionJson(
+    context,
+    etag,
+    options,
+  )
+
+  if (conditionalResponse) {
+    return conditionalResponse
+  }
+
+  return new Response(null, {
+    headers: npmProjectionJsonHeaders(etag, options),
   })
 }
 
@@ -510,16 +579,19 @@ interface NpmProjectionJsonOptions {
 }
 
 function serveNpmUtilityJson(context: Context, body: unknown): Response {
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
-  const headers = {
+  const headers: Record<string, string> = {
     'cache-control': 'no-cache',
-    'content-length': String(bytes.byteLength),
     'content-type': 'application/json; charset=UTF-8',
   }
 
-  return context.req.method === 'HEAD'
-    ? new Response(null, { headers })
-    : new Response(bytes, { headers })
+  if (context.req.method === 'HEAD') {
+    return new Response(null, { headers })
+  }
+
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  headers['content-length'] = String(bytes.byteLength)
+
+  return new Response(bytes, { headers })
 }
 
 async function serveNpmTarball(

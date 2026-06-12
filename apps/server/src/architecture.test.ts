@@ -87,6 +87,40 @@ describe('server layer boundaries', () => {
     }
   })
 
+  it('keeps transport utility HEAD responses off JSON body serialization', async () => {
+    const source = await readFile(
+      join(serverSourceRoot, 'transport/app.ts'),
+      'utf8',
+    )
+    const transportJsonStart = source.indexOf('function transportJson')
+
+    expect(transportJsonStart).toBeGreaterThanOrEqual(0)
+
+    const transportJsonSource = source.slice(transportJsonStart)
+    const headIndex = transportJsonSource.indexOf("method === 'HEAD'")
+    const serializeIndex = transportJsonSource.indexOf('JSON.stringify')
+
+    expect(headIndex).toBeGreaterThanOrEqual(0)
+    expect(serializeIndex).toBeGreaterThan(headIndex)
+  })
+
+  it('keeps transport error HEAD responses off JSON body serialization', async () => {
+    const source = await readFile(
+      join(serverSourceRoot, 'transport/errors.ts'),
+      'utf8',
+    )
+    const errorJsonStart = source.indexOf('function transportErrorJson')
+
+    expect(errorJsonStart).toBeGreaterThanOrEqual(0)
+
+    const errorJsonSource = source.slice(errorJsonStart)
+    const headIndex = errorJsonSource.indexOf("context.req.method === 'HEAD'")
+    const serializeIndex = errorJsonSource.indexOf('JSON.stringify')
+
+    expect(headIndex).toBeGreaterThanOrEqual(0)
+    expect(serializeIndex).toBeGreaterThan(headIndex)
+  })
+
   it('keeps shared HTTP response helpers independent from business layers', async () => {
     await expectNoForbiddenImports('responses.ts', [
       '@regesta/adapters',
@@ -210,6 +244,11 @@ describe('server layer boundaries', () => {
       'async function serveNpmPackageManifest',
       'async function serveNpmPackument',
     )
+    const packumentHeadSource = sourceBetween(
+      routeSource,
+      'async function serveNpmPackumentHead',
+      'async function serveConditionalNpmPackument',
+    )
     const releaseHeadIndex = freshProjectionSource.indexOf(
       'getPackageReleaseHead',
     )
@@ -220,6 +259,12 @@ describe('server layer boundaries', () => {
       'getPackageReleaseHead',
     )
     const distTagsChannelsIndex = distTagsSource.indexOf('getPackageChannels')
+    const distTagsHeadIndex = distTagsSource.indexOf(
+      "context.req.method === 'HEAD'",
+    )
+    const distTagsProjectionIndex = distTagsSource.indexOf(
+      'serveNpmProjectionJson',
+    )
     const packageManifestReleaseHeadIndex = packageManifestSource.indexOf(
       'getPackageReleaseHead',
     )
@@ -230,6 +275,9 @@ describe('server layer boundaries', () => {
       packageManifestSource.indexOf('getRelease')
     const packageManifestConditionalIndex = packageManifestSource.indexOf(
       'serveConditionalNpmProjectionJson',
+    )
+    const packageManifestHeadIndex = packageManifestSource.indexOf(
+      "context.req.method === 'HEAD'",
     )
     const packageManifestProjectionIndex = packageManifestSource.indexOf(
       'createLocalNpmVersionManifest',
@@ -278,6 +326,8 @@ describe('server layer boundaries', () => {
     expect(distTagsSource).not.toContain('hasPackage')
     expect(distTagsReleaseHeadIndex).toBeGreaterThanOrEqual(0)
     expect(distTagsChannelsIndex).toBeGreaterThan(distTagsReleaseHeadIndex)
+    expect(distTagsHeadIndex).toBeGreaterThan(distTagsChannelsIndex)
+    expect(distTagsProjectionIndex).toBeGreaterThan(distTagsHeadIndex)
     expect(packageManifestSource).toContain('getPackageReleaseHead')
     expect(packageManifestSource).toContain('releaseHead.releaseCount === 0')
     expect(packageManifestSource).toContain('releaseHead.releaseCount > 0')
@@ -292,13 +342,40 @@ describe('server layer boundaries', () => {
     expect(packageManifestConditionalIndex).toBeGreaterThan(
       packageManifestReleaseIndex,
     )
-    expect(packageManifestProjectionIndex).toBeGreaterThan(
+    expect(packageManifestHeadIndex).toBeGreaterThan(
       packageManifestConditionalIndex,
     )
+    expect(packageManifestProjectionIndex).toBeGreaterThan(
+      packageManifestHeadIndex,
+    )
+    expect(packumentHeadSource).toContain('getPackageReleaseHead')
+    expect(packumentHeadSource).toContain('getPackageEventHead')
+    expect(packumentHeadSource).toContain('releaseHead.releaseCount === 0')
+    expect(packumentHeadSource).toContain('serveNpmProjectionHead')
+    expect(packumentHeadSource).not.toContain('readLocalNpmPackageProjection')
+    expect(packumentHeadSource).not.toContain('listPackageReleases')
+    expect(packumentHeadSource).not.toContain('getPackageEventState')
     expect(projectionJsonConditionalIndex).toBeGreaterThanOrEqual(0)
     expect(projectionJsonSerializeIndex).toBeGreaterThan(
       projectionJsonConditionalIndex,
     )
+  })
+
+  it('keeps npm utility HEAD responses off JSON body serialization', async () => {
+    const routeSource = await readFile(
+      join(serverSourceRoot, 'npm/app.ts'),
+      'utf8',
+    )
+    const utilityJsonSource = sourceBetween(
+      routeSource,
+      'function serveNpmUtilityJson',
+      'async function serveNpmTarball',
+    )
+    const headIndex = utilityJsonSource.indexOf("context.req.method === 'HEAD'")
+    const serializeIndex = utilityJsonSource.indexOf('JSON.stringify')
+
+    expect(headIndex).toBeGreaterThanOrEqual(0)
+    expect(serializeIndex).toBeGreaterThan(headIndex)
   })
 
   it('keeps npm tarball routes redirect-only and byte-storage-free', async () => {
@@ -371,6 +448,42 @@ describe('server layer boundaries', () => {
     expect(packageChannelSource).not.toContain('getPackageChannels')
   })
 
+  it('keeps mutable core HEAD responses off JSON body serialization', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+    const mutableEnvelopeSource = sourceBetween(
+      coreSource,
+      'function serveMutableReleaseEnvelope',
+      'function channelReleaseEnvelopeEtag',
+    )
+    const headIndex = mutableEnvelopeSource.indexOf(
+      "context.req.method === 'HEAD'",
+    )
+    const serveJsonIndex = mutableEnvelopeSource.indexOf('serveJson(')
+
+    expect(headIndex).toBeGreaterThanOrEqual(0)
+    expect(serveJsonIndex).toBeGreaterThan(headIndex)
+  })
+
+  it('keeps generic core HEAD JSON responses off body serialization', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+    const serveJsonStart = coreSource.indexOf('function serveJson')
+
+    expect(serveJsonStart).toBeGreaterThanOrEqual(0)
+
+    const serveJsonSource = coreSource.slice(serveJsonStart)
+    const headIndex = serveJsonSource.indexOf("context.req.method === 'HEAD'")
+    const serializeIndex = serveJsonSource.indexOf('JSON.stringify')
+
+    expect(headIndex).toBeGreaterThanOrEqual(0)
+    expect(serializeIndex).toBeGreaterThan(headIndex)
+  })
+
   it('keeps core release envelope responses on core-owned release integrity parsing', async () => {
     const coreSource = await readFile(
       join(serverSourceRoot, 'core/app.ts'),
@@ -411,12 +524,35 @@ describe('server layer boundaries', () => {
       'async function servePackageStateRequest',
     )
 
+    expect(eventLogSource).toContain("context.req.method === 'HEAD'")
+    expect(eventLogSource).toContain('serveCollectionHead')
     expect(eventLogSource).toContain('listEvents')
     expect(eventLogSource).not.toContain('getEvent')
     expect(eventLogSource).not.toContain('event_cursor_not_found')
+    expect(objectInventorySource).toContain("context.req.method === 'HEAD'")
+    expect(objectInventorySource).toContain('serveCollectionHead')
     expect(objectInventorySource).toContain('listDescriptors')
     expect(objectInventorySource).not.toContain('getDescriptor')
     expect(objectInventorySource).not.toContain('object_cursor_not_found')
+  })
+
+  it('keeps immutable core HEAD responses off canonical body serialization', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+    const immutableJsonSource = sourceBetween(
+      coreSource,
+      'function serveImmutableCanonicalJson',
+      'function immutableCanonicalJsonHeaders',
+    )
+    const headIndex = immutableJsonSource.indexOf(
+      "context.req.method === 'HEAD'",
+    )
+    const canonicalJsonIndex = immutableJsonSource.indexOf('canonicalJson(')
+
+    expect(headIndex).toBeGreaterThanOrEqual(0)
+    expect(canonicalJsonIndex).toBeGreaterThan(headIndex)
   })
 
   it('keeps local npm projection mechanics outside route handlers', async () => {

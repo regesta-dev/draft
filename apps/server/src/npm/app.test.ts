@@ -10,7 +10,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import { createNpmRegistryRoutes } from './app.ts'
 import { createNpmProjectionApp } from './projection-app.ts'
-import { npmVersionManifestEtag } from './projection.ts'
+import { npmDistTagsEtag, npmVersionManifestEtag } from './projection.ts'
 import type { NpmRegistryReader } from './reader.ts'
 import type { PackageStateSnapshot } from '@regesta/core'
 
@@ -97,7 +97,7 @@ describe('createNpmRegistryRoutes', () => {
     await expect(ping.json()).resolves.toEqual({ ping: 'pong' })
     expect(pingHead.status).toBe(200)
     expect(pingHead.headers.get('cache-control')).toBe('no-cache')
-    expect(pingHead.headers.get('content-length')).toBe('15')
+    expect(pingHead.headers.get('content-length')).toBeNull()
     await expect(pingHead.text()).resolves.toBe('')
     expect(root.status).toBe(200)
     expect(root.headers.get('cache-control')).toBe('no-cache')
@@ -105,7 +105,7 @@ describe('createNpmRegistryRoutes', () => {
     await expect(root.json()).resolves.toEqual({})
     expect(rootHead.status).toBe(200)
     expect(rootHead.headers.get('cache-control')).toBe('no-cache')
-    expect(rootHead.headers.get('content-length')).toBe('2')
+    expect(rootHead.headers.get('content-length')).toBeNull()
     await expect(rootHead.text()).resolves.toBe('')
   })
 
@@ -475,6 +475,79 @@ describe('createNpmRegistryRoutes', () => {
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
+  it('serves local npm packument HEAD requests from package heads', async () => {
+    const manifest = releaseManifest()
+    const event = publishEvent(manifest)
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('upstream fallback should not be used for local packages')
+    })
+    const reader = {
+      database: {
+        getPackageChannelVersion: vi.fn(() => {
+          throw new Error('packument HEAD should not read channel versions')
+        }),
+        getPackageChannels: vi.fn(() => {
+          throw new Error('packument HEAD should not read channels')
+        }),
+        getPackageEventHead: vi.fn(() =>
+          Promise.resolve({
+            lastEventId: event.id,
+            lastEventTimestamp: event.timestamp,
+            modifiedAt: event.timestamp,
+            releaseCount: 1,
+          }),
+        ),
+        getPackageReleaseHead: vi.fn(() =>
+          Promise.resolve({
+            modifiedAt: manifest.createdAt,
+            releaseCount: 1,
+          }),
+        ),
+        getPackageEventState: vi.fn(() => {
+          throw new Error('packument HEAD should not read package event state')
+        }),
+        getRelease: vi.fn(() => {
+          throw new Error('packument HEAD should not read releases')
+        }),
+        listPackageReleases: vi.fn(() => {
+          throw new Error('packument HEAD should not list releases')
+        }),
+      },
+    } satisfies NpmRegistryReader
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const response = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta',
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('etag')).toBe(
+      `W/"regesta.npm-projection:${event.id}"`,
+    )
+    expect(response.headers.get('last-modified')).toBe(
+      'Wed, 01 Jan 2025 00:00:00 GMT',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(await response.text()).toBe('')
+    expect(reader.database.getPackageReleaseHead).toHaveBeenCalledOnce()
+    expect(reader.database.getPackageReleaseHead).toHaveBeenCalledWith(
+      packageId,
+    )
+    expect(reader.database.getPackageEventHead).toHaveBeenCalledOnce()
+    expect(reader.database.getPackageEventHead).toHaveBeenCalledWith(packageId)
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
   it('serves local npm dist-tags from indexed channel state', async () => {
     const upstreamFetch = vi.fn<typeof fetch>(() => {
       throw new Error('upstream fallback should not be used for local packages')
@@ -515,12 +588,32 @@ describe('createNpmRegistryRoutes', () => {
     const response = await app.request(
       'https://npm.registry.test/-/package/@example.com/hello-regesta/dist-tags',
     )
+    const head = await app.request(
+      'https://npm.registry.test/-/package/@example.com/hello-regesta/dist-tags',
+      {
+        method: 'HEAD',
+      },
+    )
+    const etag = npmDistTagsEtag({
+      latest: '1.0.0',
+      next: '2.0.0',
+    })
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('etag')).toBe(etag)
     await expect(response.json()).resolves.toEqual({
       latest: '1.0.0',
       next: '2.0.0',
     })
+    expect(head.status).toBe(200)
+    expect(head.headers.get('cache-control')).toBe('no-cache')
+    expect(head.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(head.headers.get('content-length')).toBeNull()
+    expect(head.headers.get('etag')).toBe(etag)
+    expect(await head.text()).toBe('')
+    expect(reader.database.getPackageChannels).toHaveBeenCalledTimes(2)
     expect(reader.database.getPackageChannels).toHaveBeenCalledWith(packageId)
     expect(reader.database.getPackageReleaseHead).toHaveBeenCalledWith(
       packageId,
@@ -706,6 +799,83 @@ describe('createNpmRegistryRoutes', () => {
     )
     expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
     expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
+  it('serves local npm version manifest HEAD without materializing body projection', async () => {
+    const manifest = {
+      ...releaseManifest(),
+      artifacts: [],
+    }
+    const event = publishEvent(manifest)
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('upstream fallback should not be used for local packages')
+    })
+    const reader = {
+      database: {
+        getPackageChannelVersion: vi.fn(() => Promise.resolve(undefined)),
+        getPackageChannels: vi.fn(() => {
+          throw new Error('version manifest HEAD should not read channels')
+        }),
+        getPackageEventState: vi.fn(() => {
+          throw new Error(
+            'version manifest HEAD should not read package event state',
+          )
+        }),
+        getPackageEventHead: vi.fn(() => {
+          throw new Error(
+            'version manifest HEAD should not read package event head',
+          )
+        }),
+        getPackageReleaseHead: vi.fn(() =>
+          Promise.resolve({
+            releaseCount: 1,
+          }),
+        ),
+        getRelease: vi.fn(() =>
+          Promise.resolve({
+            event,
+            manifest,
+          }),
+        ),
+        listPackageReleases: vi.fn(() => {
+          throw new Error('version manifest HEAD should not list releases')
+        }),
+      },
+    } satisfies NpmRegistryReader
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const response = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta/1.0.0',
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe(
+      'public, max-age=31536000, immutable',
+    )
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(response.headers.get('etag')).toBe(npmVersionManifestEtag(event.id))
+    expect(response.headers.get('last-modified')).toBe(
+      'Wed, 01 Jan 2025 00:00:00 GMT',
+    )
+    expect(await response.text()).toBe('')
+    expect(reader.database.getPackageChannelVersion).toHaveBeenCalledWith(
+      packageId,
+      '1.0.0',
+    )
+    expect(reader.database.getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
+    expect(reader.database.getPackageReleaseHead).toHaveBeenCalledWith(
+      packageId,
+    )
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 

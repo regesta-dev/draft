@@ -41,6 +41,35 @@ describe('createTransportErrorBoundary', () => {
     expect(consoleError).not.toHaveBeenCalled()
   })
 
+  it('maps known HEAD errors without serializing response bodies', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const app = new Hono()
+    app.onError(
+      createTransportErrorBoundary([
+        {
+          code: 'expected_error',
+          match: (error) => error instanceof ExpectedError,
+          status: 400,
+        },
+      ]),
+    )
+    app.get('/known-head', () => {
+      throw new ExpectedError('Known request error')
+    })
+
+    const response = await app.request('/known-head', {
+      method: 'HEAD',
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(await response.text()).toBe('')
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
   it('uses public messages for known errors when configured', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const app = new Hono()
@@ -98,6 +127,39 @@ describe('createTransportErrorBoundary', () => {
         error: expect.any(Error),
         kind: 'regesta.unexpected-error',
         requestId: 'error-001',
+      }),
+    )
+  })
+
+  it('logs unknown HEAD errors without serializing response bodies', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const app = new Hono()
+    app.use(createRequestIdMiddleware())
+    app.onError(createTransportErrorBoundary())
+    app.get('/unknown-head', () => {
+      throw new Error('database password leaked in exception')
+    })
+
+    const response = await app.request('/unknown-head', {
+      headers: {
+        'x-request-id': 'head-error-001',
+      },
+      method: 'HEAD',
+    })
+
+    expect(response.status).toBe(500)
+    expect(response.headers.get('x-request-id')).toBe('head-error-001')
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    expect(await response.text()).toBe('')
+    expect(consoleError).toHaveBeenCalledWith(
+      'Unexpected transport error',
+      expect.objectContaining({
+        error: expect.any(Error),
+        kind: 'regesta.unexpected-error',
+        requestId: 'head-error-001',
       }),
     )
   })

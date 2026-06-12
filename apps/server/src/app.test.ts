@@ -119,9 +119,7 @@ describe('createRegestaApp', () => {
     expect(healthHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(healthHead.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(healthText)),
-    )
+    expect(healthHead.headers.get('content-length')).toBeNull()
     expect(healthHead.headers.get('cache-control')).toBe('no-store')
     expect(await healthHead.text()).toBe('')
     expect(ready.status).toBe(200)
@@ -146,9 +144,7 @@ describe('createRegestaApp', () => {
     expect(readyHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(readyHead.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(readyText)),
-    )
+    expect(readyHead.headers.get('content-length')).toBeNull()
     expect(await readyHead.text()).toBe('')
   })
 
@@ -175,7 +171,7 @@ describe('createRegestaApp', () => {
 
     expect(npmHead.status).toBe(200)
     expect(npmHead.headers.get('cache-control')).toBe('no-cache')
-    expect(npmHead.headers.get('content-length')).toBe('2')
+    expect(npmHead.headers.get('content-length')).toBeNull()
     expect(npmHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
@@ -1903,10 +1899,8 @@ describe('createRegestaApp', () => {
     expect(firstHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(firstHead.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(firstPageText)),
-    )
-    expect(firstHead.headers.get('etag')).toBe(firstEtag)
+    expect(firstHead.headers.get('content-length')).toBeNull()
+    expect(firstHead.headers.get('etag')).toBeNull()
     expect(await firstHead.text()).toBe('')
     expect(conditional.status).toBe(304)
     expect(conditional.headers.get('cache-control')).toBe('no-cache')
@@ -1940,12 +1934,8 @@ describe('createRegestaApp', () => {
     expect(emptyPageHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(emptyPageHead.headers.get('etag')).toBe(
-      `W/"regesta.object-inventory:${sorted[2]!.digest}:0"`,
-    )
-    expect(emptyPageHead.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(emptyPageText)),
-    )
+    expect(emptyPageHead.headers.get('etag')).toBeNull()
+    expect(emptyPageHead.headers.get('content-length')).toBeNull()
     expect(await emptyPageHead.text()).toBe('')
     expect(conditionalEmptyPage.status).toBe(304)
     expect(conditionalEmptyPage.headers.get('cache-control')).toBe('no-cache')
@@ -2402,6 +2392,7 @@ describe('createRegestaApp', () => {
       'application/json; charset=utf-8',
     )
     expect(head.headers.get('etag')).toBe(`W/"${publish.event.id}"`)
+    expect(head.headers.get('content-length')).toBeNull()
     expect(await head.text()).toBe('')
     expect(conditional.status).toBe(304)
     expect(conditional.headers.get('cache-control')).toBe(
@@ -2636,12 +2627,8 @@ describe('createRegestaApp', () => {
     })
     expect(firstPageHead.status).toBe(200)
     expect(firstPageHead.headers.get('cache-control')).toBe('no-cache')
-    expect(firstPageHead.headers.get('etag')).toBe(
-      `W/"regesta.event-log:${first.event.id}:1"`,
-    )
-    expect(firstPageHead.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(firstPageText)),
-    )
+    expect(firstPageHead.headers.get('etag')).toBeNull()
+    expect(firstPageHead.headers.get('content-length')).toBeNull()
     expect(await firstPageHead.text()).toBe('')
     expect(conditionalFirstPage.status).toBe(304)
     expect(conditionalFirstPage.headers.get('cache-control')).toBe('no-cache')
@@ -2650,13 +2637,11 @@ describe('createRegestaApp', () => {
     )
     expect(conditionalFirstPage.headers.get('content-length')).toBeNull()
     expect(await conditionalFirstPage.text()).toBe('')
-    expect(conditionalFirstPageHead.status).toBe(304)
+    expect(conditionalFirstPageHead.status).toBe(200)
     expect(conditionalFirstPageHead.headers.get('cache-control')).toBe(
       'no-cache',
     )
-    expect(conditionalFirstPageHead.headers.get('etag')).toBe(
-      `W/"regesta.event-log:${first.event.id}:1"`,
-    )
+    expect(conditionalFirstPageHead.headers.get('etag')).toBeNull()
     expect(conditionalFirstPageHead.headers.get('content-length')).toBeNull()
     expect(await conditionalFirstPageHead.text()).toBe('')
     expect(secondPage.status).toBe(200)
@@ -2687,13 +2672,11 @@ describe('createRegestaApp', () => {
     )
     expect(conditionalEmptyPage.headers.get('content-length')).toBeNull()
     expect(await conditionalEmptyPage.text()).toBe('')
-    expect(conditionalEmptyPageHead.status).toBe(304)
+    expect(conditionalEmptyPageHead.status).toBe(200)
     expect(conditionalEmptyPageHead.headers.get('cache-control')).toBe(
       'no-cache',
     )
-    expect(conditionalEmptyPageHead.headers.get('etag')).toBe(
-      `W/"regesta.event-log:${second.event.id}:0"`,
-    )
+    expect(conditionalEmptyPageHead.headers.get('etag')).toBeNull()
     expect(conditionalEmptyPageHead.headers.get('content-length')).toBeNull()
     expect(await conditionalEmptyPageHead.text()).toBe('')
     expect(missingCursor.status).toBe(404)
@@ -3681,9 +3664,7 @@ describe('createRegestaApp', () => {
     expect(releaseHead.headers.get('cache-control')).toBe(
       'public, max-age=31536000, immutable',
     )
-    expect(releaseHead.headers.get('content-length')).toBe(
-      String(bytes(`${canonicalJson(expectedReleaseEnvelope)}\n`).byteLength),
-    )
+    expect(releaseHead.headers.get('content-length')).toBeNull()
     expect(releaseHead.headers.get('content-type')).toBe(
       'application/json; charset=utf-8',
     )
@@ -3719,9 +3700,7 @@ describe('createRegestaApp', () => {
     expect(channelHead.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(channelHead.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(channelText)),
-    )
+    expect(channelHead.headers.get('content-length')).toBeNull()
     expect(channelHead.headers.get('etag')).toBe(channelEtag)
     expect(await channelHead.text()).toBe('')
     expect(conditionalChannel.status).toBe(304)
@@ -3999,6 +3978,7 @@ describe('createRegestaApp', () => {
 
     expect(response.status).toBe(404)
     expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get('content-length')).toBeNull()
     expect(await response.text()).toBe('')
   })
 
@@ -6080,9 +6060,7 @@ describe('createRegestaApp', () => {
     expect(headPackument.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
-    expect(headPackument.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(subdomainPackumentText)),
-    )
+    expect(headPackument.headers.get('content-length')).toBeNull()
     expect(headPackument.headers.get('etag')).toBe(npmProjectionEtag)
     expect(headPackument.headers.get('last-modified')).toBe(
       new Date(publishTimestamp).toUTCString(),
@@ -6202,9 +6180,7 @@ describe('createRegestaApp', () => {
     expect(headVersionManifest.headers.get('last-modified')).toBe(
       new Date(publishTimestamp).toUTCString(),
     )
-    expect(headVersionManifest.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(subdomainVersionManifestText)),
-    )
+    expect(headVersionManifest.headers.get('content-length')).toBeNull()
     expect(await headVersionManifest.text()).toBe('')
 
     const conditionalHeadVersionManifest = await app.request(
@@ -6272,9 +6248,7 @@ describe('createRegestaApp', () => {
     expect(headDistTags.status).toBe(200)
     expect(headDistTags.headers.get('cache-control')).toBe('no-cache')
     expect(headDistTags.headers.get('etag')).toBe(npmDistTagsEtag)
-    expect(headDistTags.headers.get('content-length')).toBe(
-      String(Buffer.byteLength(subdomainDistTagsText)),
-    )
+    expect(headDistTags.headers.get('content-length')).toBeNull()
     expect(await headDistTags.text()).toBe('')
 
     const conditionalHeadDistTags = await app.request(
@@ -6308,7 +6282,7 @@ describe('createRegestaApp', () => {
 
     expect(headRoot.status).toBe(200)
     expect(headRoot.headers.get('cache-control')).toBe('no-cache')
-    expect(headRoot.headers.get('content-length')).toBe('2')
+    expect(headRoot.headers.get('content-length')).toBeNull()
     expect(headRoot.headers.get('content-type')).toBe(
       'application/json; charset=UTF-8',
     )
@@ -6327,7 +6301,7 @@ describe('createRegestaApp', () => {
 
     expect(headPing.status).toBe(200)
     expect(headPing.headers.get('cache-control')).toBe('no-cache')
-    expect(headPing.headers.get('content-length')).toBe('15')
+    expect(headPing.headers.get('content-length')).toBeNull()
     expect(await headPing.text()).toBe('')
 
     const subdomainTarball = await app.request(

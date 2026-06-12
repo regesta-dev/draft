@@ -237,6 +237,7 @@ describe('createTransportRoutes', () => {
 
       expect(response.status).toBe(200)
       expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(response.headers.get('content-length')).toBeNull()
       await expect(response.text()).resolves.toBe('')
     }
   })

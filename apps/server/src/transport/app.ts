@@ -269,10 +269,15 @@ function transportJson(
   body: unknown,
   init: ResponseInit = {},
 ): Response {
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
   const headers = new Headers(init.headers)
-  headers.set('content-length', String(bytes.byteLength))
   headers.set('content-type', 'application/json; charset=UTF-8')
 
-  return new Response(method === 'HEAD' ? null : bytes, { ...init, headers })
+  if (method === 'HEAD') {
+    return new Response(null, { ...init, headers })
+  }
+
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  headers.set('content-length', String(bytes.byteLength))
+
+  return new Response(bytes, { ...init, headers })
 }

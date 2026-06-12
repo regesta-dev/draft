@@ -309,12 +309,28 @@ these statistics from cheap counters or indexes. In the local SQLite adapter,
 package count is maintained in `registry_stats`; startup migration or repair
 may scan releases to backfill the counter, but normal root requests should not.
 `HEAD /` is a lightweight metadata probe and does not refresh or read package
-statistics.
+statistics. Status probes such as `HEAD /health` and `HEAD /ready` return
+headers without JSON body serialization. Collection probes such as
+`HEAD /events` and `HEAD /objects` also avoid paginating event or object
+inventories. Immutable object probes such as `HEAD /events/:digest` and
+`HEAD /packages/:id/releases/:version` skip canonical JSON body serialization
+after the addressed object is found. Mutable channel release probes such as
+`HEAD /packages/:id/channels/:channel` also skip JSON body serialization after
+resolving the target release. Core JSON `HEAD` responses, including not-found
+probes, return headers without serializing their JSON body. Transport error
+boundary `HEAD` responses keep status codes and unexpected-error logging, but
+also skip JSON body serialization.
 
 The npm projection bounds upstream npm metadata fallback requests with
 `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`, falling back to a 10s timeout when the
 variable is not set. Set it to `0` to disable the timeout. This does not affect
-tarball routes, which remain redirect-only.
+tarball routes, which remain redirect-only. Local npm packument `HEAD` requests
+use indexed package heads when package state is stable, so metadata probes do
+not need to build full packuments. Local npm version manifest `HEAD` requests
+also skip npm body projection after the addressed release is found. Local npm
+dist-tags `HEAD` requests skip JSON body serialization after reading indexed
+channel state. npm utility `HEAD` requests such as `/` and `/-/ping` also avoid
+serializing their small JSON bodies.
 
 The backend can be Postgres, DynamoDB, S3, R2, GCS, a platform queue, KMS, or
 another service. The registry core should continue to see only adapters.
