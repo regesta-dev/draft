@@ -189,6 +189,46 @@ describe('parseReleaseManifest', () => {
     ).toEqual(metadata)
   })
 
+  it('rejects generic dependencies in neutral release metadata', () => {
+    const manifest = releaseManifest()
+
+    expect(() =>
+      parseReleaseManifest({
+        ...manifest,
+        metadata: {
+          dependencies: {
+            'example.com/base': '^1.0.0',
+          },
+        },
+      }),
+    ).toThrow(
+      'Release manifest metadata must not include unknown field: dependencies',
+    )
+  })
+
+  it('accepts dependency metadata inside artifact ecosystem metadata', () => {
+    const manifest = releaseManifest()
+    const ecosystemMetadata = {
+      npm: {
+        dependencies: {
+          tinyexec: '^1.0.0',
+        },
+      },
+    }
+
+    expect(
+      parseReleaseManifest({
+        ...manifest,
+        artifacts: [
+          {
+            ...manifest.artifacts[0],
+            ecosystemMetadata,
+          },
+        ],
+      }).artifacts[0]?.ecosystemMetadata,
+    ).toEqual(ecosystemMetadata)
+  })
+
   it('rejects artifact ecosystem metadata outside canonical JSON', () => {
     const manifest = releaseManifest()
 

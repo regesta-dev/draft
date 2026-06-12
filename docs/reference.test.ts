@@ -2138,6 +2138,32 @@ describe('documentation references', () => {
     }
   })
 
+  it('keeps generic dependencies out of core config and release metadata schemas', async () => {
+    for (const pointer of [
+      '#/$defs/regestaConfig/properties',
+      '#/$defs/releaseManifest/properties',
+      '#/$defs/releaseManifest/properties/metadata/properties',
+    ]) {
+      await expect(
+        schemaPropertiesAtPointer(pointer),
+        pointer,
+      ).resolves.not.toHaveProperty('dependencies')
+    }
+  })
+
+  it('keeps artifact ecosystem metadata open for ecosystem resolver data', async () => {
+    await expect(
+      schemaValueAtPointer(
+        '#/$defs/artifactDescriptor/properties/ecosystemMetadata',
+      ),
+    ).resolves.toEqual({
+      additionalProperties: {
+        $ref: '#/$defs/jsonValue',
+      },
+      type: 'object',
+    })
+  })
+
   it('keeps API prose route examples backed by the OpenAPI reference', async () => {
     const routeMethods = await openapiRouteMethods()
 

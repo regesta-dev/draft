@@ -3,12 +3,24 @@ import { createDeploymentInfo } from './build-info.ts'
 
 describe('createDeploymentInfo', () => {
   it('always returns schema-complete deployment statistics', () => {
-    expect(createDeploymentInfo()).toMatchObject({
+    const deploymentInfo = createDeploymentInfo()
+
+    expect(deploymentInfo).toMatchObject({
       object: 'regesta.deployment-info',
       statistics: {
         packages: 0,
       },
     })
+    expect(Object.keys(deploymentInfo).toSorted()).toEqual([
+      'build',
+      'git',
+      'object',
+      'runtime',
+      'service',
+      'statistics',
+      'version',
+    ])
+    expect(deploymentInfo).not.toHaveProperty('api')
   })
 
   it('preserves valid deployment statistics', () => {

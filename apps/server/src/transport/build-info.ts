@@ -9,11 +9,31 @@ export interface DeploymentStatistics {
   packages: number
 }
 
+export interface DeploymentInfo {
+  build: {
+    time: string
+  }
+  git: {
+    dirty: boolean | null
+    sha: string
+  }
+  object: 'regesta.deployment-info'
+  runtime: {
+    name: 'node'
+    version: string
+  }
+  service: string
+  statistics: DeploymentStatistics
+  version: string
+}
+
 export interface DeploymentInfoOptions {
   statistics?: DeploymentStatistics
 }
 
-export function createDeploymentInfo(options: DeploymentInfoOptions = {}) {
+export function createDeploymentInfo(
+  options: DeploymentInfoOptions = {},
+): DeploymentInfo {
   const statistics = normalizeDeploymentStatistics(
     options.statistics ?? { packages: 0 },
   )
