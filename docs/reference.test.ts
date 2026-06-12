@@ -2154,6 +2154,13 @@ describe('documentation references', () => {
     await expect(readText('operations.md')).resolves.toContain(
       'package count is maintained in',
     )
+    await expect(readText('operations.md')).resolves.toSatisfy((value) => {
+      return value
+        .replaceAll(/\s+/gu, ' ')
+        .includes(
+          'Normal root requests must not compute full-table release counts on the request path.',
+        )
+    })
   })
 
   it('documents V0 package-state verification as full-log based', async () => {

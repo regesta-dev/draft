@@ -400,6 +400,8 @@ schema-invalid statistics still fail closed. Storage adapters should serve
 these statistics from cheap counters or indexes. In the local SQLite adapter,
 package count is maintained in `registry_stats`; startup migration or repair
 may scan releases to backfill the counter, but normal root requests should not.
+Normal root requests must not compute full-table release counts on the request
+path.
 `HEAD /` is a lightweight metadata probe and does not refresh or read package
 statistics. Status probes such as `HEAD /health` and `HEAD /ready` return
 headers without JSON body serialization. Collection probes such as

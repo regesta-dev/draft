@@ -136,6 +136,46 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('uses isolated request options while mirroring public registry data', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+    const baseFetch = mirrorFetch(fixture)
+    const requestInits: Array<RequestInit | undefined> = []
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      requestInits.push(init)
+
+      return baseFetch(input, init)
+    }
+
+    try {
+      const result = await mirrorRegistry({
+        fetch,
+        limit: 1,
+        outputDir,
+        registry: 'https://registry.example/',
+      })
+
+      expect(result.ok).toBe(true)
+      expect(requestInits.length).toBeGreaterThan(0)
+      expect(requestInits.every((init) => init?.cache === 'no-store')).toBe(
+        true,
+      )
+      expect(requestInits.every((init) => init?.credentials === 'omit')).toBe(
+        true,
+      )
+      expect(requestInits.every((init) => init?.redirect === 'error')).toBe(
+        true,
+      )
+      expect(
+        requestInits.every((init) => {
+          return Boolean(new Headers(init?.headers).get('accept'))
+        }),
+      ).toBe(true)
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('reports object digest mismatches', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
