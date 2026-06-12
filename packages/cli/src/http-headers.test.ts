@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { cacheControlHasDirective } from './http-headers.ts'
+import {
+  cacheControlHasDirective,
+  isolatedRequestInit,
+} from './http-headers.ts'
 
 describe('cacheControlHasDirective', () => {
   it('matches cache-control directives as case-insensitive tokens', () => {
@@ -55,5 +58,29 @@ describe('cacheControlHasDirective', () => {
       ),
     ).toBe(false)
     expect(cacheControlHasDirective('public, max-age=0', '')).toBe(false)
+  })
+})
+
+describe('isolatedRequestInit', () => {
+  it('builds registry requests without ambient cache, credentials, or redirects', () => {
+    expect(isolatedRequestInit()).toEqual({
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'error',
+    })
+    expect(
+      isolatedRequestInit({
+        accept: 'application/json',
+        method: 'POST',
+      }),
+    ).toEqual({
+      cache: 'no-store',
+      credentials: 'omit',
+      headers: {
+        accept: 'application/json',
+      },
+      method: 'POST',
+      redirect: 'error',
+    })
   })
 })

@@ -71,7 +71,8 @@ resolve through the npm projection when it is mounted.
 
 The default server's external network egress is intentionally narrow:
 
-- domain well-known binding discovery for signed write authorization;
+- domain well-known binding discovery for signed `release.publish`,
+  `channel.update`, and `channel.delete` write authorization;
 - optional npm upstream metadata fallback when server-side fallback is enabled.
 
 Both egress paths use no-store request cache policy, omit client credentials,

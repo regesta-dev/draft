@@ -4858,6 +4858,140 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('fetches channel update domain bindings without request cache, credentials, or redirects', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/channel-fetch-options'
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    const authorization = auth.sign(
+      createChannelUpdateIntent({
+        channel: 'latest',
+        nonce: 'channel-fetch-options',
+        packageId,
+        previousVersion: '0.0.1',
+        timestamp: new Date().toISOString(),
+        version: '0.0.1',
+      }),
+    )
+    const fetchBinding = createJsonFetchRecorder(auth.binding)
+
+    vi.stubGlobal('fetch', fetchBinding.fetch)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        {
+          body: JSON.stringify({
+            authorization,
+            version: '0.0.1',
+          }),
+          headers: {
+            authorization: 'Bearer client-token',
+            'content-type': 'application/json',
+            cookie: 'session=client-secret',
+            'npm-auth-token': 'client-npm-token',
+            'x-custom-secret': 'client-secret',
+          },
+          method: 'PUT',
+        },
+      )
+
+      expect(response.status).toBe(200)
+      expect(fetchBinding.calls).toHaveLength(1)
+      expectIsolatedDomainBindingFetchCall(fetchBinding.calls[0]!)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('fetches channel delete domain bindings without request cache, credentials, or redirects', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const app = createRegestaApp(adapters)
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/channel-delete-fetch-options'
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    const authorization = auth.sign(
+      createChannelDeleteIntent({
+        channel: 'latest',
+        nonce: 'channel-delete-fetch-options',
+        packageId,
+        previousVersion: '0.0.1',
+        timestamp: new Date().toISOString(),
+      }),
+    )
+    const fetchBinding = createJsonFetchRecorder(auth.binding)
+
+    vi.stubGlobal('fetch', fetchBinding.fetch)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        {
+          body: JSON.stringify({
+            authorization,
+          }),
+          headers: {
+            authorization: 'Bearer client-token',
+            'content-type': 'application/json',
+            cookie: 'session=client-secret',
+            'npm-auth-token': 'client-npm-token',
+            'x-custom-secret': 'client-secret',
+          },
+          method: 'DELETE',
+        },
+      )
+
+      expect(response.status).toBe(200)
+      expect(fetchBinding.calls).toHaveLength(1)
+      expectIsolatedDomainBindingFetchCall(fetchBinding.calls[0]!)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('rejects replayed write authorizations for channel updates', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
@@ -5923,6 +6057,41 @@ describe('createRegestaApp', () => {
         message: 'Write intent domain must match package owner',
       })
       expect(fetchBinding).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('fetches publish domain bindings without request cache, credentials, or redirects', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const prepared = await prepareFixtureNpmPublish(
+      await createFixtureProject(),
+    )
+    const auth = createTestDomainAuth()
+    const form = createSignedPublishForm({
+      auth,
+      nonce: 'publish-domain-binding-request-options',
+      prepared,
+      timestamp: new Date().toISOString(),
+    })
+    const fetchBinding = createJsonFetchRecorder(auth.binding)
+    vi.stubGlobal('fetch', fetchBinding.fetch)
+
+    try {
+      const response = await app.request('/releases', {
+        body: form,
+        headers: {
+          authorization: 'Bearer client-token',
+          cookie: 'session=client-secret',
+          'npm-auth-token': 'client-npm-token',
+          'x-custom-secret': 'client-secret',
+        },
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(201)
+      expect(fetchBinding.calls).toHaveLength(1)
+      expectIsolatedDomainBindingFetchCall(fetchBinding.calls[0]!)
     } finally {
       vi.unstubAllGlobals()
     }
@@ -7285,6 +7454,7 @@ describe('createRegestaApp', () => {
 
   it('falls back to npmjs packuments without rewriting metadata or proxying tarballs', async () => {
     const fetchCalls: Array<{
+      cache?: string
       credentials?: string
       headers: Headers
       method: string
@@ -7305,6 +7475,7 @@ describe('createRegestaApp', () => {
     }
     const fetchMock: typeof fetch = (input, init) => {
       const request = {
+        cache: init?.cache,
         credentials: init?.credentials,
         headers: new Headers(init?.headers),
         method: init?.method ?? 'GET',
@@ -7451,6 +7622,7 @@ describe('createRegestaApp', () => {
     ])
     expect(fetchCalls[0]!.headers.get('accept')).toBe('application/json')
     expectNoSensitiveUpstreamRequestHeaders(fetchCalls[0]!.headers)
+    expect(fetchCalls[0]!.cache).toBe('no-store')
     expect(fetchCalls[0]!.credentials).toBe('omit')
     expect(fetchCalls[0]!.method).toBe('GET')
     expect(fetchCalls[0]!.redirect).toBe('error')
@@ -7656,7 +7828,11 @@ describe('createRegestaApp', () => {
     )
     expect(
       fetchCalls.every((request) => {
-        return request.credentials === 'omit' && request.redirect === 'error'
+        return (
+          request.cache === 'no-store' &&
+          request.credentials === 'omit' &&
+          request.redirect === 'error'
+        )
       }),
     ).toBe(true)
     expect(
@@ -8729,6 +8905,51 @@ function requiredHeader(response: Response, name: string): string {
   }
 
   return value
+}
+
+interface CapturedFetchCall {
+  cache?: string
+  credentials?: string
+  headers: Headers
+  method: string
+  redirect?: string
+  signal?: AbortSignal | null
+  url: string
+}
+
+function createJsonFetchRecorder(value: unknown): {
+  calls: CapturedFetchCall[]
+  fetch: typeof fetch
+} {
+  const calls: CapturedFetchCall[] = []
+
+  return {
+    calls,
+    fetch: (input, init) => {
+      calls.push({
+        cache: init?.cache,
+        credentials: init?.credentials,
+        headers: new Headers(init?.headers),
+        method: init?.method ?? 'GET',
+        redirect: init?.redirect,
+        signal: init?.signal,
+        url: String(input),
+      })
+
+      return Promise.resolve(Response.json(value))
+    },
+  }
+}
+
+function expectIsolatedDomainBindingFetchCall(call: CapturedFetchCall): void {
+  expect(call.url).toBe('https://example.com/.well-known/regesta.json')
+  expect(call.cache).toBe('no-store')
+  expect(call.credentials).toBe('omit')
+  expect(call.headers.get('accept')).toBe('application/json')
+  expectNoSensitiveUpstreamRequestHeaders(call.headers)
+  expect(call.method).toBe('GET')
+  expect(call.redirect).toBe('error')
+  expect(call.signal).toBeInstanceOf(AbortSignal)
 }
 
 function expectNoSensitiveUpstreamRequestHeaders(headers: Headers): void {

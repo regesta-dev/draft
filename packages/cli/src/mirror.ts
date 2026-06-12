@@ -15,7 +15,10 @@ import {
   type RegistryEvent,
   type Sha256Digest,
 } from '@regesta/protocol'
-import { cacheControlHasDirective } from './http-headers.ts'
+import {
+  cacheControlHasDirective,
+  isolatedRequestInit,
+} from './http-headers.ts'
 import { normalizeRegistryUrl } from './registry-url.ts'
 
 export interface MirrorRegistryInput {
@@ -993,7 +996,7 @@ async function fetchJson<T>(
   try {
     const response = await fetchImpl(
       url,
-      isolatedRequestInit('application/json'),
+      isolatedRequestInit({ accept: 'application/json' }),
     )
     if (!response.ok) {
       throw new Error(`Registry request failed: ${response.status} ${url}`)
@@ -1027,7 +1030,7 @@ async function fetchCanonicalJson<T>(
   try {
     const response = await fetchImpl(
       url,
-      isolatedRequestInit('application/json'),
+      isolatedRequestInit({ accept: 'application/json' }),
     )
     if (!response.ok) {
       throw new Error(`Registry request failed: ${response.status} ${url}`)
@@ -1134,7 +1137,7 @@ async function fetchObject(
   try {
     const response = await fetchImpl(
       url,
-      isolatedRequestInit(descriptor.mediaType),
+      isolatedRequestInit({ accept: descriptor.mediaType }),
     )
     if (!response.ok) {
       throw new Error(`Registry request failed: ${response.status} ${url}`)
@@ -1208,15 +1211,6 @@ function validateObjectResponseMetadata(
   }
   if (acceptRanges.trim().toLowerCase() !== 'bytes') {
     throw new Error(`Object Accept-Ranges must be bytes: ${descriptor.digest}`)
-  }
-}
-
-function isolatedRequestInit(accept: string): RequestInit {
-  return {
-    cache: 'no-store',
-    credentials: 'omit',
-    headers: { accept },
-    redirect: 'error',
   }
 }
 

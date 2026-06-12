@@ -132,7 +132,10 @@ describe('documentation references', () => {
       'Publisher clients are ecosystem adapters on the write path.',
     )
     expect(normalizedArchitecture).toContain(
-      'publish requests should not carry browser or platform credentials',
+      'Publisher and verification clients should isolate registry requests from ambient runtime state',
+    )
+    expect(normalizedArchitecture).toContain(
+      'publish, mirror, and verification requests should not carry browser or platform credentials',
     )
     expect(normalizedArchitecture).toContain(
       'should not use implicit request caches',
@@ -2313,7 +2316,10 @@ describe('documentation references', () => {
       "The default server's external network egress is intentionally narrow",
     )
     expect(operations).toContain(
-      'domain well-known binding discovery for signed write authorization',
+      'domain well-known binding discovery for signed `release.publish`,',
+    )
+    expect(operations).toContain(
+      '`channel.update`, and `channel.delete` write authorization',
     )
     expect(operations).toContain(
       'optional npm upstream metadata fallback when server-side fallback is enabled',

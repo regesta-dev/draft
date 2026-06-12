@@ -50,3 +50,26 @@ function cacheControlParts(value: string): string[] {
   parts.push(part)
   return parts
 }
+
+export interface IsolatedRequestInitOptions {
+  accept?: string
+  method?: string
+}
+
+export function isolatedRequestInit(
+  options: IsolatedRequestInitOptions = {},
+): RequestInit {
+  return {
+    cache: 'no-store',
+    credentials: 'omit',
+    ...(options.accept === undefined
+      ? {}
+      : {
+          headers: {
+            accept: options.accept,
+          },
+        }),
+    ...(options.method === undefined ? {} : { method: options.method }),
+    redirect: 'error',
+  }
+}

@@ -1095,6 +1095,9 @@ describe('server layer boundaries', () => {
     expect(upstreamSource).toContain('upstreamNpmResponseMetadataHeaders')
     expect(fetchSource).toContain('upstreamNpmRequestHeaders')
     expect(fetchSource).toContain('upstreamNpmRequestMetadataHeaders')
+    expect(fetchSource).toContain("cache: 'no-store'")
+    expect(fetchSource).toContain("credentials: 'omit'")
+    expect(fetchSource).toContain("redirect: 'error'")
     expect(fetchSource).not.toContain('copyHeader(context.req.raw.headers')
     expect(responseHeaderSource).toContain('upstreamNpmResponseMetadataHeaders')
     expect(responseHeaderSource).not.toContain(

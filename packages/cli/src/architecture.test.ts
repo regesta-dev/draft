@@ -63,12 +63,12 @@ describe('cli package architecture', () => {
     expect(helperSource).toContain('function cacheControlParts')
     expect(helperSource).toContain("character === ','")
     expect(helperSource).toContain('quoted')
-    expect(mirrorSource).toContain(
-      "import { cacheControlHasDirective } from './http-headers.ts'",
-    )
-    expect(verifySource).toContain(
-      "import { cacheControlHasDirective } from './http-headers.ts'",
-    )
+    expect(mirrorSource).toContain('cacheControlHasDirective')
+    expect(mirrorSource).toContain('isolatedRequestInit')
+    expect(mirrorSource).toContain("} from './http-headers.ts'")
+    expect(verifySource).toContain('cacheControlHasDirective')
+    expect(verifySource).toContain('isolatedRequestInit')
+    expect(verifySource).toContain("} from './http-headers.ts'")
 
     for (const file of await productionSourceFiles(cliSourceRoot)) {
       const relativePath = relative(cliSourceRoot, file)
@@ -93,17 +93,58 @@ describe('cli package architecture', () => {
 
   it('keeps publish write requests isolated from ambient client state', async () => {
     const cliSource = await readFile(join(cliSourceRoot, 'index.ts'), 'utf8')
+    const helperSource = await readFile(
+      join(cliSourceRoot, 'http-headers.ts'),
+      'utf8',
+    )
     const publishFetchBlock = sourceBetween(
       cliSource,
       'await fetch(`${registry}/releases`, {',
       '})',
     )
 
-    expect(publishFetchBlock).toContain("cache: 'no-store'")
-    expect(publishFetchBlock).toContain("credentials: 'omit'")
+    expect(cliSource).toContain(
+      "import { isolatedRequestInit } from './http-headers.ts'",
+    )
+    expect(publishFetchBlock).toContain('isolatedRequestInit')
     expect(publishFetchBlock).toContain("accept: 'application/json'")
     expect(publishFetchBlock).toContain("method: 'POST'")
-    expect(publishFetchBlock).toContain("redirect: 'error'")
+    expect(helperSource).toContain("cache: 'no-store'")
+    expect(helperSource).toContain("credentials: 'omit'")
+    expect(helperSource).toContain("redirect: 'error'")
+  })
+
+  it('keeps isolated registry request options centralized', async () => {
+    const helperSource = await readFile(
+      join(cliSourceRoot, 'http-headers.ts'),
+      'utf8',
+    )
+    const violations: string[] = []
+
+    expect(helperSource).toContain('export function isolatedRequestInit')
+    expect(helperSource).toContain("cache: 'no-store'")
+    expect(helperSource).toContain("credentials: 'omit'")
+    expect(helperSource).toContain("redirect: 'error'")
+
+    for (const file of await productionSourceFiles(cliSourceRoot)) {
+      const relativePath = relative(cliSourceRoot, file)
+      if (relativePath === 'http-headers.ts') {
+        continue
+      }
+
+      const source = await readFile(file, 'utf8')
+      for (const text of [
+        "cache: 'no-store'",
+        "credentials: 'omit'",
+        "redirect: 'error'",
+      ]) {
+        if (source.includes(text)) {
+          violations.push(`${relativePath} contains ${text}`)
+        }
+      }
+    }
+
+    expect(violations).toEqual([])
   })
 
   it('keeps CLI network access owned by publisher, verifier, and mirror paths', async () => {

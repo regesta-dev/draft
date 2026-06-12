@@ -25,7 +25,10 @@ import {
   type ReleaseManifest,
   type Sha256Digest,
 } from '@regesta/protocol'
-import { cacheControlHasDirective } from './http-headers.ts'
+import {
+  cacheControlHasDirective,
+  isolatedRequestInit,
+} from './http-headers.ts'
 import { normalizeRegistryUrl } from './registry-url.ts'
 
 export interface VerifyReleaseFromRegistryInput {
@@ -1218,14 +1221,10 @@ async function fetchJson(
   fetchImpl: typeof fetch,
   url: string,
 ): Promise<{ headers: Headers; value: unknown }> {
-  const response = await fetchImpl(url, {
-    cache: 'no-store',
-    credentials: 'omit',
-    headers: {
-      accept: 'application/json',
-    },
-    redirect: 'error',
-  })
+  const response = await fetchImpl(
+    url,
+    isolatedRequestInit({ accept: 'application/json' }),
+  )
 
   if (!response.ok) {
     throw new Error(`Registry request failed: ${response.status} ${url}`)
@@ -1253,14 +1252,10 @@ async function fetchCanonicalJson(
   fetchImpl: typeof fetch,
   url: string,
 ): Promise<{ headers: Headers; value: unknown }> {
-  const response = await fetchImpl(url, {
-    cache: 'no-store',
-    credentials: 'omit',
-    headers: {
-      accept: 'application/json',
-    },
-    redirect: 'error',
-  })
+  const response = await fetchImpl(
+    url,
+    isolatedRequestInit({ accept: 'application/json' }),
+  )
 
   if (!response.ok) {
     throw new Error(`Registry request failed: ${response.status} ${url}`)
@@ -1363,11 +1358,7 @@ async function fetchObject(
 ): Promise<StoredObject> {
   const expectedDescriptor =
     descriptor ?? (await fetchObjectDescriptor(fetchImpl, url))
-  const response = await fetchImpl(url, {
-    cache: 'no-store',
-    credentials: 'omit',
-    redirect: 'error',
-  })
+  const response = await fetchImpl(url, isolatedRequestInit())
 
   if (!response.ok) {
     throw new Error(`Registry object request failed: ${response.status} ${url}`)
@@ -1386,12 +1377,10 @@ async function fetchObjectDescriptor(
   fetchImpl: typeof fetch,
   url: string,
 ): Promise<ObjectDescriptor> {
-  const headResponse = await fetchImpl(url, {
-    cache: 'no-store',
-    credentials: 'omit',
-    method: 'HEAD',
-    redirect: 'error',
-  })
+  const headResponse = await fetchImpl(
+    url,
+    isolatedRequestInit({ method: 'HEAD' }),
+  )
 
   if (!headResponse.ok) {
     throw new Error(

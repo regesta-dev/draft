@@ -9,6 +9,7 @@ import { configDigest } from '@regesta/core'
 import { parsePackageId, parsePackageVersion, sha256 } from '@regesta/protocol'
 import { cac } from 'cac'
 import pkg from '../package.json' with { type: 'json' }
+import { isolatedRequestInit } from './http-headers.ts'
 import { writeGeneratedKeyFiles } from './keygen.ts'
 import { compareMirrorDirectories, mirrorRegistry } from './mirror.ts'
 import { prepareNpmPublish } from './npm-publish.ts'
@@ -144,14 +145,11 @@ cli
       }
 
       const response = await fetch(`${registry}/releases`, {
-        body: form,
-        cache: 'no-store',
-        credentials: 'omit',
-        headers: {
+        ...isolatedRequestInit({
           accept: 'application/json',
-        },
-        method: 'POST',
-        redirect: 'error',
+          method: 'POST',
+        }),
+        body: form,
       })
       const body = await response.json()
 

@@ -292,9 +292,10 @@ can infer `npm:<domain>/<name>` from `package.json`, ask the package manager to
 produce an install tarball, create a source archive, and submit a signed
 publish request.
 
-Publisher clients should isolate publish writes from ambient runtime state:
-publish requests should not carry browser or platform credentials, should not
-use implicit request caches, and should not follow redirects automatically.
+Publisher and verification clients should isolate registry requests from
+ambient runtime state: publish, mirror, and verification requests should not
+carry browser or platform credentials, should not use implicit request caches,
+and should not follow redirects automatically.
 
 Future PyPI, Cargo, Go, OCI, or other publisher clients should follow the same
 shape:
