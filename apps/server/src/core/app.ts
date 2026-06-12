@@ -3,6 +3,7 @@ import {
   deletePackageChannel,
   getPackageChannelVersion,
   normalizeRegestaConfig,
+  parseStoredRelease,
   publishRelease,
   updatePackageChannel,
   verifyRelease,
@@ -20,8 +21,10 @@ import {
   assertSha256Digest,
   canonicalJson,
   defaultPackageChannel,
+  parseObjectDescriptor,
   parsePackageId,
   parsePackageState,
+  parseRegistryEvent,
   sha256,
   type ObjectDescriptor,
   type PackageId,
@@ -618,7 +621,16 @@ async function serveEventLogRequest(
     limit,
   })
 
-  return serveEventLogPage(context, events, after)
+  return serveEventLogPage(
+    context,
+    events.map((event, index) => {
+      return parseAdapterRegistryEvent(
+        event,
+        `Adapter event log events[${index}]`,
+      )
+    }),
+    after,
+  )
 }
 
 async function serveEventRequest(
@@ -645,7 +657,10 @@ async function serveEventRequest(
     )
   }
 
-  return serveEvent(context, event)
+  return serveEvent(
+    context,
+    parseAdapterRegistryEvent(event, 'Adapter registry event', digest),
+  )
 }
 
 async function serveObjectInventoryRequest(
@@ -670,7 +685,14 @@ async function serveObjectInventoryRequest(
         : Number(query.limit),
   }
 
-  const descriptors = await adapters.objects.listDescriptors(options)
+  const descriptors = (await adapters.objects.listDescriptors(options)).map(
+    (descriptor, index) => {
+      return parseAdapterObjectDescriptor(
+        descriptor,
+        `Adapter object inventory objects[${index}]`,
+      )
+    },
+  )
 
   return serveObjectInventoryPage(context, descriptors, options.after)
 }
@@ -758,7 +780,10 @@ async function serveReleaseEnvelopeRequest(
     )
   }
 
-  return serveReleaseEnvelope(context, release)
+  return serveReleaseEnvelope(
+    context,
+    parseAdapterStoredRelease(release, packageId, version),
+  )
 }
 
 async function servePackageChannelRequest(
@@ -790,10 +815,17 @@ async function servePackageChannelRequest(
     )
   }
 
+  const parsedRelease = parseAdapterStoredRelease(release, packageId, version)
+
   return serveMutableReleaseEnvelope(
     context,
-    release,
-    channelReleaseEnvelopeEtag(packageId, channel, version, release.event.id),
+    parsedRelease,
+    channelReleaseEnvelopeEtag(
+      packageId,
+      channel,
+      version,
+      parsedRelease.event.id,
+    ),
   )
 }
 
@@ -949,6 +981,50 @@ function parseAdapterPackageState(
   return state
 }
 
+function parseAdapterRegistryEvent(
+  value: RegistryEvent,
+  label: string,
+  expectedId?: Sha256Digest,
+): RegistryEvent {
+  const event = parseRegistryEvent(value, label)
+
+  if (expectedId && event.id !== expectedId) {
+    throw new TypeError(
+      `${label} id must match requested event id: ${expectedId}`,
+    )
+  }
+
+  return event
+}
+
+function parseAdapterObjectDescriptor(
+  value: ObjectDescriptor,
+  label: string,
+  expectedDigest?: Sha256Digest,
+): ObjectDescriptor {
+  const descriptor = parseObjectDescriptor(value, label)
+
+  if (expectedDigest && descriptor.digest !== expectedDigest) {
+    throw new TypeError(
+      `${label} digest must match requested object digest: ${expectedDigest}`,
+    )
+  }
+
+  return descriptor
+}
+
+function parseAdapterStoredRelease(
+  value: StoredRelease,
+  packageId: PackageId,
+  version: string,
+): StoredRelease {
+  return parseStoredRelease(value, {
+    label: 'Adapter release',
+    packageId,
+    version,
+  })
+}
+
 function packageStateNotModified(head: PackageEventHead): Response {
   return new Response(null, {
     headers: packageStateHeaders({
@@ -1045,15 +1121,20 @@ async function serveObject(
   digest: Sha256Digest,
   includeBody: boolean,
 ): Promise<Response> {
-  const descriptor = await adapters.objects.getDescriptor(digest)
+  const storedDescriptor = await adapters.objects.getDescriptor(digest)
 
-  if (!descriptor) {
+  if (!storedDescriptor) {
     return context.json(
       errorResponse('object_not_found', 'Object not found'),
       404,
     )
   }
 
+  const descriptor = parseAdapterObjectDescriptor(
+    storedDescriptor,
+    'Adapter object descriptor',
+    digest,
+  )
   const etag = `"${descriptor.digest}"`
   const headers = objectDescriptorHeaders(descriptor, etag)
 

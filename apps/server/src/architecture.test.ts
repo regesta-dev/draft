@@ -363,6 +363,30 @@ describe('server layer boundaries', () => {
     expect(packageChannelSource).not.toContain('getPackageChannels')
   })
 
+  it('keeps core release envelope responses on core-owned release integrity parsing', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+    const releaseSource = sourceBetween(
+      coreSource,
+      'async function serveReleaseEnvelopeRequest',
+      'async function servePackageChannelRequest',
+    )
+    const releaseParserSource = sourceBetween(
+      coreSource,
+      'function parseAdapterStoredRelease',
+      'function packageStateNotModified',
+    )
+
+    expect(coreSource).toContain('parseStoredRelease')
+    expect(releaseSource).toContain('parseAdapterStoredRelease')
+    expect(releaseParserSource).toContain('parseStoredRelease')
+    expect(releaseParserSource).not.toContain('parseReleaseManifest')
+    expect(releaseParserSource).not.toContain('artifactDigests')
+    expect(releaseParserSource).not.toContain('manifestDescriptor.digest')
+  })
+
   it('keeps core collection reads on adapter-owned cursor validation', async () => {
     const coreSource = await readFile(
       join(serverSourceRoot, 'core/app.ts'),

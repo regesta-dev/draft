@@ -1946,6 +1946,50 @@ describe('createRegestaApp', () => {
     })
   })
 
+  it('validates adapter object inventory descriptors before serving pages', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const descriptor = await adapters.objects.put(
+      bytes('object inventory boundary'),
+      'text/plain',
+    )
+    const invalidDescriptor = {
+      ...descriptor,
+      size: -1,
+    }
+    adapters.objects.listDescriptors = () =>
+      Promise.resolve([invalidDescriptor])
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request('/objects', {
+        headers: {
+          'x-request-id': 'invalid-adapter-object-inventory-001',
+        },
+      })
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              'Adapter object inventory objects[0] size must be a non-negative safe integer',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-adapter-object-inventory-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('supports object HEAD requests without downloading bytes', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
@@ -2124,6 +2168,45 @@ describe('createRegestaApp', () => {
     expect(get.status).toBe(200)
     expect(await get.text()).toBe('large object bytes')
     expect(objectGetCalls).toBe(1)
+  })
+
+  it('validates adapter object descriptors before serving object headers', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const descriptor = await adapters.objects.put(
+      bytes('object descriptor boundary'),
+      'text/plain',
+    )
+    adapters.objects.getDescriptor = () =>
+      Promise.resolve({
+        ...descriptor,
+        digest: sha256(bytes('different object descriptor')),
+      })
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(`/objects/${descriptor.digest}`, {
+        headers: {
+          'x-request-id': 'invalid-adapter-object-descriptor-001',
+        },
+        method: 'HEAD',
+      })
+
+      expect(response.status).toBe(500)
+      expect(await response.text()).toBe('')
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: `Adapter object descriptor digest must match requested object digest: ${descriptor.digest}`,
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-adapter-object-descriptor-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('rejects object reads when descriptor and bytes disagree', async () => {
@@ -2327,6 +2410,84 @@ describe('createRegestaApp', () => {
     })
   })
 
+  it('validates adapter event ids before serving events by digest', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const packageId = 'npm:example.com/event-id-boundary'
+    const first = await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('first install artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('first source archive'),
+      },
+      adapters,
+    )
+    const second = await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('second install artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.2',
+        },
+        createdAt: '2026-06-01T00:01:00.000Z',
+        source: bytes('second source archive'),
+      },
+      adapters,
+    )
+    adapters.database.getEvent = () => Promise.resolve(second.event)
+    const [algorithm, hex] = first.event.id.split(':')
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(`/events/${algorithm}/${hex}`, {
+        headers: {
+          'x-request-id': 'mismatched-adapter-event-001',
+        },
+      })
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: `Adapter registry event id must match requested event id: ${first.event.id}`,
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'mismatched-adapter-event-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('reads event log pages by event cursor', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
@@ -2527,6 +2688,66 @@ describe('createRegestaApp', () => {
     await expect(invalid.json()).resolves.toMatchObject({
       error: 'Invalid event log query',
     })
+  })
+
+  it('validates adapter event log entries before serving event log pages', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const publish = await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: 'npm:example.com/event-log-boundary',
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    const invalidEvent = structuredClone(publish.event)
+    Object.defineProperty(invalidEvent, 'object', {
+      configurable: true,
+      value: 'regesta.broken-event',
+    })
+    adapters.database.listEvents = () => Promise.resolve([invalidEvent])
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request('/events', {
+        headers: {
+          'x-request-id': 'invalid-adapter-event-log-001',
+        },
+      })
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: 'Adapter event log events[0] object must be regesta.event',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-adapter-event-log-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('bounds event log reads when clients omit page limits', async () => {
@@ -3866,6 +4087,74 @@ describe('createRegestaApp', () => {
         version: '0.0.1',
       },
     })
+  })
+
+  it('validates adapter release envelopes before serving package releases', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const packageId = 'npm:example.com/release-envelope-boundary'
+    const publish = await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact'),
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: packageId,
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+    adapters.database.getRelease = () =>
+      Promise.resolve({
+        event: publish.event,
+        manifest: {
+          ...publish.manifest,
+          version: '9.9.9',
+        },
+        manifestDescriptor: publish.manifestDescriptor,
+      })
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/releases/0.0.1`,
+        {
+          headers: {
+            'x-request-id': 'invalid-adapter-release-envelope-001',
+          },
+        },
+      )
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              'Adapter release manifest version must match requested version: 0.0.1',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-adapter-release-envelope-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('returns 404 for missing package channels', async () => {

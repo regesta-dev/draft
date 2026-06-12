@@ -927,9 +927,6 @@ function parsePublicStoredReleaseEnvelope(value: unknown):
         event: parseRegistryEvent(
           record.event,
           'Public release response event',
-          {
-            verifyId: false,
-          },
         ),
         manifest: parseReleaseManifest(
           record.manifest,

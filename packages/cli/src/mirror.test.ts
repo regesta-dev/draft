@@ -588,7 +588,7 @@ describe('mirrorRegistry', () => {
 
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
-        'Mirror release manifest digest does not match manifestDescriptor',
+        'Mirror JSON request failed: Mirror release manifestDescriptor digest must match canonical manifest',
       ])
       await expect(
         readFile(
@@ -1456,7 +1456,7 @@ describe('compareMirrorDirectories', () => {
       const { id: _id, ...payload } = fixture.event
       const tamperedPayload = {
         ...payload,
-        timestamp: '2026-06-10T00:01:00.000Z',
+        channel: 'beta',
       }
       const tamperedEvent = {
         ...tamperedPayload,
@@ -1488,7 +1488,7 @@ describe('compareMirrorDirectories', () => {
       const { id: _id, ...payload } = fixture.event
       const tamperedPayload = {
         ...payload,
-        timestamp: '2026-06-10T00:01:00.000Z',
+        channel: 'beta',
       }
       const tamperedEvent = {
         ...tamperedPayload,
@@ -1537,7 +1537,7 @@ describe('compareMirrorDirectories', () => {
 
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
-        `Right mirror release file is inconsistent with event: ${fixture.manifest.id}@${fixture.manifest.version}: Mirror release manifest digest does not match manifestDescriptor`,
+        `Right mirror release file read failed: ${fixture.manifest.id}@${fixture.manifest.version}: Mirror release manifestDescriptor digest must match canonical manifest`,
       ])
     } finally {
       await rm(leftDir, { force: true, recursive: true })

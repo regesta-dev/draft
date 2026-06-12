@@ -86,6 +86,17 @@ describe('adapters package architecture', () => {
     expect(violations).toEqual([])
   })
 
+  it('delegates stored release integrity checks to the core registry layer', async () => {
+    const source = await readFile(join(adaptersSourceRoot, 'events.ts'), 'utf8')
+
+    expect(source).toContain('assertStoredReleaseIntegrity')
+    expect(source).not.toContain('parseReleaseManifest')
+    expect(source).not.toContain('parseObjectDescriptor')
+    expect(source).not.toContain('canonicalJson')
+    expect(source).not.toContain('sha256')
+    expect(source).not.toContain('assertReleaseManifestDescriptor')
+  })
+
   it('keeps typed channel commits on indexed channel state', async () => {
     for (const file of ['memory.ts', 'sqlite.ts']) {
       const source = await readFile(join(adaptersSourceRoot, file), 'utf8')

@@ -1,20 +1,18 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { parseStoredRelease, type StoredRelease } from '@regesta/core'
 import {
   assertCanonicalTimestamp,
   assertSha256Digest,
   canonicalJson,
-  parseObjectDescriptor,
   parseObjectInventoryPage,
   parsePackageId,
   parseRegistryEvent,
-  parseReleaseManifest,
   sha256,
   type ObjectDescriptor,
   type ObjectInventoryPage,
   type PackageId,
   type RegistryEvent,
-  type ReleaseManifest,
   type Sha256Digest,
 } from '@regesta/protocol'
 import { cacheControlHasDirective } from './http-headers.ts'
@@ -73,11 +71,7 @@ interface EventLogPage {
   nextAfter?: Sha256Digest
 }
 
-interface PublicReleaseEnvelope {
-  event: RegistryEvent
-  manifest: ReleaseManifest
-  manifestDescriptor: ObjectDescriptor
-}
+type PublicReleaseEnvelope = StoredRelease
 
 interface LocalMirrorInventory {
   events: Sha256Digest[]
@@ -778,39 +772,6 @@ function releaseEnvelopeConsistencyProblems(
     problems.push('Mirror release event does not match publish event')
   }
 
-  if (release.manifest.id !== event.release.id) {
-    problems.push('Mirror release manifest id does not match publish event')
-  }
-  if (release.manifest.version !== event.release.version) {
-    problems.push(
-      'Mirror release manifest version does not match publish event',
-    )
-  }
-  if (release.manifestDescriptor.digest !== event.release.manifestDigest) {
-    problems.push(
-      'Mirror release manifestDescriptor digest does not match publish event',
-    )
-  }
-  if (
-    sha256(canonicalJsonBytes(release.manifest)) !==
-    release.manifestDescriptor.digest
-  ) {
-    problems.push(
-      'Mirror release manifest digest does not match manifestDescriptor',
-    )
-  }
-  if (release.manifest.source.digest !== event.sourceDigest) {
-    problems.push('Mirror release source digest does not match publish event')
-  }
-  if (
-    !sameStringArray(
-      release.manifest.artifacts.map((artifact) => artifact.digest),
-      event.artifactDigests,
-    )
-  ) {
-    problems.push('Mirror release artifact digests do not match publish event')
-  }
-
   return problems
 }
 
@@ -1305,14 +1266,9 @@ function parsePublicReleaseEnvelope(value: unknown): PublicReleaseEnvelope {
     )
   }
 
-  return {
-    event: parseRegistryEvent(value.event),
-    manifest: parseReleaseManifest(value.manifest),
-    manifestDescriptor: parseObjectDescriptor(
-      value.manifestDescriptor,
-      'Mirror release manifestDescriptor',
-    ),
-  }
+  return parseStoredRelease(value, {
+    label: 'Mirror release',
+  })
 }
 
 function readString(value: unknown, label: string): string {
@@ -1443,10 +1399,6 @@ async function writeCanonicalJsonFile(
 async function writeBinaryFile(path: string, bytes: Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, bytes)
-}
-
-function canonicalJsonBytes(value: unknown): Uint8Array {
-  return new TextEncoder().encode(`${canonicalJson(value)}\n`)
 }
 
 function eventFilePath(outputDir: string, digest: Sha256Digest): string {
@@ -1703,13 +1655,6 @@ function parseContentLength(value: string, url: string, label: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function sameStringArray(left: string[], right: string[]): boolean {
-  return (
-    left.length === right.length &&
-    left.every((value, index) => value === right[index])
-  )
 }
 
 function errorMessage(error: unknown): string {

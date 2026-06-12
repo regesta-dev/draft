@@ -1366,6 +1366,28 @@ describe('verifyReleaseFromRegistry', () => {
     ])
   })
 
+  it('reports public release event ids that do not match canonical payloads', async () => {
+    const fixture = releaseFixture()
+    fixture.release.event = {
+      ...fixture.release.event,
+      channel: 'beta',
+    }
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: publicRegistryFetch(fixture),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      problems: [
+        `Registry event id does not match canonical event payload: ${fixture.release.event.id}`,
+      ],
+    })
+  })
+
   it('reports missing public release ETag headers as verification problems', async () => {
     const fixture = releaseFixture()
     const result = await verifyReleaseFromRegistry({
@@ -1461,13 +1483,19 @@ describe('verifyReleaseFromRegistry', () => {
 
   it('rejects public release events that differ from immutable event responses', async () => {
     const fixture = releaseFixture()
+    const { id: _id, ...eventPayload } = fixture.release.event
+    const tamperedEventPayload = {
+      ...eventPayload,
+      channel: 'beta',
+    } satisfies Omit<PublishReleaseEvent, 'id'>
+    const tamperedEvent = {
+      ...tamperedEventPayload,
+      id: registryEventDigest(tamperedEventPayload),
+    }
     const fetch = publicRegistryFetch(fixture)
     const tamperedRelease: StoredRelease = {
       ...fixture.release,
-      event: {
-        ...fixture.release.event,
-        channel: 'beta',
-      },
+      event: tamperedEvent,
     }
     const mismatchedReleaseEventFetch = Object.assign(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -1478,7 +1506,18 @@ describe('verifyReleaseFromRegistry', () => {
           return Promise.resolve(
             canonicalJsonResponse(tamperedRelease, {
               headers: {
-                etag: `"${fixture.release.event.id}"`,
+                etag: `"${tamperedEvent.id}"`,
+              },
+            }),
+          )
+        }
+
+        if (url.includes('/events/')) {
+          fetch.requests.push(url)
+          return Promise.resolve(
+            canonicalJsonResponse(fixture.release.event, {
+              headers: {
+                etag: `"${tamperedEvent.id}"`,
               },
             }),
           )
@@ -1499,7 +1538,7 @@ describe('verifyReleaseFromRegistry', () => {
     expect(result).toEqual({
       manifest: fixture.release.manifest,
       ok: false,
-      problems: ['Public release event does not match public event response'],
+      problems: ['Public event response id does not match release event id'],
     })
     expect(fetch.requests.every((url) => !url.includes('/objects/'))).toBe(true)
   })

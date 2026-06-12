@@ -23,6 +23,11 @@ export {
 } from './events.ts'
 export { publishRelease } from './publish.ts'
 export {
+  assertStoredReleaseIntegrity,
+  parseStoredRelease,
+  type StoredReleaseIntegrityOptions,
+} from './release-integrity.ts'
+export {
   ObjectCursorNotFoundError,
   PackageChannelConflictError,
   PackageReleaseCursorNotFoundError,
