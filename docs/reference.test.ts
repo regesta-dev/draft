@@ -509,6 +509,68 @@ describe('documentation references', () => {
     )
   })
 
+  it('keeps unresolved transparency and governance objects out of the current V0 protocol surface', async () => {
+    const schema = await readText(schemaPath)
+    const openapi = await readText(openapiPath)
+    const protocolEvents = await readWorkspaceText(
+      'packages/protocol/src/event.ts',
+    )
+    const roadmap = await readText('roadmap.md')
+    const mirroring = await readText('mirroring.md')
+    const governance = await readText('governance.md')
+    const normalizedRoadmap = roadmap.replaceAll(/\s+/gu, ' ')
+    const normalizedMirroring = mirroring.replaceAll(/\s+/gu, ' ')
+    const normalizedGovernance = governance.replaceAll(/\s+/gu, ' ')
+
+    await expect(
+      schemaValueAtPointer('#/$defs/registryEvent/oneOf'),
+    ).resolves.toEqual([
+      { $ref: '#/$defs/publishReleaseEvent' },
+      { $ref: '#/$defs/channelUpdatedEvent' },
+      { $ref: '#/$defs/channelDeletedEvent' },
+    ])
+    expect(protocolEvents).toContain(
+      'export type RegistryEvent =\n  | ChannelDeletedEvent\n  | ChannelUpdatedEvent\n  | PublishReleaseEvent',
+    )
+    for (const eventType of [
+      'checkpoint.published',
+      'freeze.created',
+      'freeze.removed',
+      'governance.action',
+      'package.yanked',
+      'takedown.created',
+      'witness.signed',
+    ]) {
+      expect(schema, `${eventType} must not be in V0 schema`).not.toContain(
+        eventType,
+      )
+      expect(openapi, `${eventType} must not be in V0 OpenAPI`).not.toContain(
+        eventType,
+      )
+      expect(
+        protocolEvents,
+        `${eventType} must not be in current protocol event types`,
+      ).not.toContain(eventType)
+    }
+    expect(await openapiPaths()).not.toEqual(
+      expect.arrayContaining([
+        '/checkpoints',
+        '/governance/events',
+        '/proofs/{eventId}',
+        '/witnesses',
+      ]),
+    )
+    expect(normalizedRoadmap).toContain(
+      'The unchecked governance event item is intentionally unresolved protocol work.',
+    )
+    expect(normalizedMirroring).toContain(
+      'Checkpoint, proof, and witness work should not start from implementation convenience.',
+    )
+    expect(normalizedGovernance).toContain(
+      'Future governance events should be append-only public facts.',
+    )
+  })
+
   it('keeps operational smoke checks documented and script-backed', async () => {
     const dockerSmokeScript = await readWorkspaceText(
       'scripts/docker-smoke.mjs',
