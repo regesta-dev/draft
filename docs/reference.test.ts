@@ -12,6 +12,7 @@ const expectedOpenapiRouteMethods = {
   '/-/ping': ['get', 'head'],
   '/events': ['get', 'head'],
   '/events/{algorithm}/{hex}': ['get', 'head'],
+  '/favicon.ico': ['get'],
   '/health': ['get', 'head'],
   '/objects': ['get', 'head'],
   '/objects/{algorithm}/{hex}': ['get', 'head'],
@@ -605,6 +606,13 @@ describe('documentation references', () => {
         })
         await expect(
           openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Content-Length`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/ContentLength',
+        })
+        await expect(
+          openapiValueAtPointer(
             `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/ETag`,
           ),
         ).resolves.toEqual({
@@ -647,6 +655,13 @@ describe('documentation references', () => {
       ).resolves.toEqual({
         $ref: '#/components/headers/NoCacheControl',
       })
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/~1-~1ping/${method}/responses/200/headers/Content-Length`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/ContentLength',
+      })
     }
 
     const api = await readText('api.md')
@@ -654,6 +669,7 @@ describe('documentation references', () => {
     expect(api).toContain('the root path returns an empty JSON object')
     expect(api).toContain('Root and ping utility responses include')
     expect(api).toContain('`Cache-Control: no-cache`')
+    expect(api).toContain('and `Content-Length`')
   })
 
   it('documents npm metadata routes as upstream-fallback error surfaces', async () => {
@@ -802,8 +818,6 @@ describe('documentation references', () => {
     ).resolves.toEqual({ const: 'no-store' })
 
     for (const pointer of [
-      '#/paths/~1/get/responses/200/headers/Cache-Control',
-      '#/paths/~1/head/responses/200/headers/Cache-Control',
       '#/paths/~1health/get/responses/200/headers/Cache-Control',
       '#/paths/~1health/head/responses/200/headers/Cache-Control',
       '#/paths/~1ready/get/responses/200/headers/Cache-Control',
@@ -815,6 +829,117 @@ describe('documentation references', () => {
         $ref: '#/components/headers/NoStoreCacheControl',
       })
     }
+  })
+
+  it('documents permissive CORS at the transport layer', async () => {
+    await expect(
+      openapiValueAtPointer('#/tags/0/description'),
+    ).resolves.toContain('CORS')
+
+    const api = await readText('api.md')
+
+    expect(api).toContain(
+      'The transport layer applies permissive CORS before mounted registry layers.',
+    )
+    expect(api).toContain('Access-Control-Allow-Origin: *')
+    expect(api).toContain('`OPTIONS` preflight requests can target any')
+    expect(api).toContain('Access-Control-Allow-Headers')
+  })
+
+  it('documents host-specific root responses', async () => {
+    await expect(
+      openapiValueAtPointer('#/components/headers/RootCacheControl/schema'),
+    ).resolves.toEqual({ enum: ['no-store', 'no-cache'] })
+    await expect(
+      openapiValueAtPointer(
+        '#/components/headers/RootCacheControl/description',
+      ),
+    ).resolves.toContain('npm projection root responses use no-cache')
+    await expect(
+      openapiValueAtPointer('#/components/schemas/NpmUtilityRoot'),
+    ).resolves.toEqual({
+      additionalProperties: false,
+      description:
+        'Empty JSON object returned by npm projection root routes for npm client compatibility.',
+      properties: {},
+      type: 'object',
+    })
+
+    for (const method of ['get', 'head']) {
+      await expect(
+        openapiValueAtPointer(`#/paths/~1/${method}/tags`),
+      ).resolves.toEqual(['Transport', 'npm Projection'])
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/~1/${method}/responses/200/headers/Cache-Control`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/RootCacheControl',
+      })
+    }
+
+    await expect(
+      openapiValueAtPointer(
+        '#/paths/~1/get/responses/200/content/application~1json/schema/oneOf',
+      ),
+    ).resolves.toEqual([
+      { $ref: '#/components/schemas/DeploymentInfo' },
+      { $ref: '#/components/schemas/NpmUtilityRoot' },
+    ])
+    await expect(
+      openapiValueAtPointer('#/paths/~1/get/responses/200/description'),
+    ).resolves.toContain('npm projection hosts')
+    await expect(readText('api.md')).resolves.toContain(
+      'On core registry hosts, the root route returns deployment information',
+    )
+    await expect(readText('api.md')).resolves.toContain(
+      'selected by host routing',
+    )
+  })
+
+  it('documents browser favicon probes as transport-only empty responses', async () => {
+    await expect(
+      openapiValueAtPointer(
+        '#/paths/~1favicon.ico/get/responses/204/headers/Cache-Control',
+      ),
+    ).resolves.toEqual({
+      $ref: '#/components/headers/FaviconCacheControl',
+    })
+    await expect(
+      openapiValueAtPointer('#/components/headers/FaviconCacheControl/schema'),
+    ).resolves.toEqual({ const: 'public, max-age=86400' })
+    await expect(
+      openapiValueAtPointer(
+        '#/components/headers/FaviconCacheControl/description',
+      ),
+    ).resolves.toContain('favicon probe')
+    await expect(readText('api.md')).resolves.toContain('GET  /favicon.ico')
+    await expect(readText('api.md')).resolves.toContain(
+      'browser favicon probes',
+    )
+  })
+
+  it('documents release verification response cache headers and lengths', async () => {
+    for (const status of ['200', '422']) {
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/~1packages~1{packageId}~1releases~1{version}~1verification/get/responses/${status}/headers/Cache-Control`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/NoCacheControl',
+      })
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/~1packages~1{packageId}~1releases~1{version}~1verification/get/responses/${status}/headers/Content-Length`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/ContentLength',
+      })
+    }
+
+    await expect(readText('api.md')).resolves.toContain(
+      'Returns release verification results',
+    )
   })
 
   it('documents no-cache caching for mutable core reads', async () => {
@@ -1096,6 +1221,36 @@ describe('documentation references', () => {
       '`/ready` aggregates independent adapter readiness checks',
     )
     expect(api).toMatch(/must\s+not depend on probe ordering/u)
+  })
+
+  it('documents transport JSON response lengths', async () => {
+    for (const path of ['/', '/health']) {
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Content-Length`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/ContentLength',
+        })
+      }
+    }
+
+    for (const method of ['get', 'head']) {
+      for (const status of ['200', '503']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/~1ready/${method}/responses/${status}/headers/Content-Length`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/ContentLength',
+        })
+      }
+    }
+
+    await expect(readText('api.md')).resolves.toContain(
+      'include `Content-Length` for the exact JSON response body',
+    )
   })
 
   it('documents deployment statistics as advisory cached status data', async () => {

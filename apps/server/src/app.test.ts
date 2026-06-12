@@ -153,6 +153,49 @@ describe('createRegestaApp', () => {
     expect(await readyHead.text()).toBe('')
   })
 
+  it('serves host-specific root responses without mixing core and npm roots', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const countPackages = vi.fn(() => Promise.resolve(3))
+    adapters.database.countPackages = countPackages
+    const app = createRegestaApp(adapters)
+
+    const npmRoot = await app.request('http://npm.registry.test/')
+    const npmHead = await app.request('http://npm.registry.test/', {
+      method: 'HEAD',
+    })
+    const coreRoot = await app.request('http://registry.test/')
+    const coreRootText = await coreRoot.clone().text()
+
+    expect(npmRoot.status).toBe(200)
+    expect(npmRoot.headers.get('cache-control')).toBe('no-cache')
+    expect(npmRoot.headers.get('content-length')).toBe('2')
+    expect(npmRoot.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    await expect(npmRoot.json()).resolves.toEqual({})
+
+    expect(npmHead.status).toBe(200)
+    expect(npmHead.headers.get('cache-control')).toBe('no-cache')
+    expect(npmHead.headers.get('content-length')).toBe('2')
+    expect(npmHead.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    await expect(npmHead.text()).resolves.toBe('')
+
+    expect(coreRoot.status).toBe(200)
+    expect(coreRoot.headers.get('cache-control')).toBe('no-store')
+    expect(coreRoot.headers.get('content-length')).toBe(
+      String(Buffer.byteLength(coreRootText)),
+    )
+    await expect(coreRoot.json()).resolves.toMatchObject({
+      object: 'regesta.deployment-info',
+      statistics: {
+        packages: 3,
+      },
+    })
+    expect(countPackages).toHaveBeenCalledTimes(1)
+  })
+
   it('caches deployment statistics between root path reads', async () => {
     const adapters = createMemoryRegistryAdapters()
     const countPackages = vi.fn(() => Promise.resolve(7))

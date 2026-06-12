@@ -45,11 +45,13 @@ GET  /health
 HEAD /health
 GET  /ready
 HEAD /ready
+GET  /favicon.ico
 ```
 
-The root route returns deployment information: service name, package version,
-runtime, build time, git sha, dirty state, and registry statistics such as the
-current package count. It is meant for operators and debugging.
+On core registry hosts, the root route returns deployment information: service
+name, package version, runtime, build time, git sha, dirty state, and registry
+statistics such as the current package count. It is meant for operators and
+debugging.
 
 Registry statistics are advisory status data. Implementations may cache them
 briefly to keep status checks cheap under load. Storage adapters should expose
@@ -66,7 +68,17 @@ database, object storage, queue, and signer are ready. It returns `503` when
 any dependency is not ready. Clients should read the `checks` object and must
 not depend on probe ordering.
 
-Transport status responses use `Cache-Control: no-store`.
+Transport status responses use `Cache-Control: no-store` and include
+`Content-Length` for the exact JSON response body.
+
+`/favicon.ico` returns `204` with short public caching so browser favicon probes
+do not fall through to package routes.
+
+The transport layer applies permissive CORS before mounted registry layers.
+Requests from any origin receive `Access-Control-Allow-Origin: *`, and
+`OPTIONS` preflight requests can target any host-routed layer. Preflight
+responses return `204`, allow the configured HTTP methods, and echo requested
+headers through `Access-Control-Allow-Headers`.
 
 ## Publish Release
 
@@ -421,8 +433,9 @@ HEAD /-/ping
 ```
 
 On npm projection hosts, the root path returns an empty JSON object for npm
-client compatibility. Root and ping utility responses include
-`Cache-Control: no-cache`.
+client compatibility. This is the same public path as the core registry root,
+but selected by host routing. Root and ping utility responses include
+`Cache-Control: no-cache` and `Content-Length`.
 
 The `GET /@scope/name` and `HEAD /@scope/name` entries above use the same
 physical path shape as npm-compatible unscoped version or tag reads, such as

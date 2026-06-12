@@ -19,7 +19,7 @@
   "tags": [
     {
       "name": "Transport",
-      "description": "HTTP mechanics such as deployment info, health, and readiness."
+      "description": "HTTP mechanics such as host routing, CORS, deployment info, health, and readiness."
     },
     {
       "name": "Core Registry",
@@ -33,33 +33,44 @@
   "paths": {
     "/": {
       "get": {
-        "tags": ["Transport"],
-        "summary": "Read deployment information",
+        "tags": ["Transport", "npm Projection"],
+        "summary": "Read host-specific root information",
         "responses": {
           "200": {
-            "description": "Deployment information for this registry instance.",
+            "description": "Deployment information on core registry hosts, or an empty npm compatibility object on npm projection hosts.",
             "headers": {
               "Cache-Control": {
-                "$ref": "#/components/headers/NoStoreCacheControl"
+                "$ref": "#/components/headers/RootCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             },
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/DeploymentInfo" }
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/DeploymentInfo" },
+                    { "$ref": "#/components/schemas/NpmUtilityRoot" }
+                  ]
+                }
               }
             }
           }
         }
       },
       "head": {
-        "tags": ["Transport"],
-        "summary": "Read deployment information headers",
+        "tags": ["Transport", "npm Projection"],
+        "summary": "Read host-specific root headers",
         "responses": {
           "200": {
-            "description": "Deployment information is available.",
+            "description": "Core registry deployment information or npm projection root compatibility response is available.",
             "headers": {
               "Cache-Control": {
-                "$ref": "#/components/headers/NoStoreCacheControl"
+                "$ref": "#/components/headers/RootCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             }
           }
@@ -76,6 +87,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             },
             "content": {
@@ -95,6 +109,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             }
           }
@@ -111,6 +128,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             },
             "content": {
@@ -124,6 +144,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             },
             "content": {
@@ -143,6 +166,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             }
           },
@@ -151,6 +177,25 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/favicon.ico": {
+      "get": {
+        "tags": ["Transport"],
+        "summary": "Handle browser favicon probes",
+        "responses": {
+          "204": {
+            "description": "No favicon body is served.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/FaviconCacheControl"
               }
             }
           }
@@ -323,6 +368,14 @@
         "responses": {
           "200": {
             "description": "Release verification passed.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/VerificationResult" }
@@ -331,6 +384,14 @@
           },
           "422": {
             "description": "Release verification found problems.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/VerificationResult" }
@@ -841,6 +902,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             },
             "content": {
@@ -867,6 +931,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               }
             }
           }
@@ -888,6 +955,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
@@ -920,6 +990,9 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -948,6 +1021,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
@@ -981,6 +1057,9 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1008,6 +1087,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
@@ -1040,6 +1122,9 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1069,6 +1154,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
@@ -1103,6 +1191,9 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1132,6 +1223,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
@@ -1165,6 +1259,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
@@ -1250,6 +1347,10 @@
         "description": "Immutable representation can be cached long-term.",
         "schema": { "const": "public, max-age=31536000, immutable" }
       },
+      "FaviconCacheControl": {
+        "description": "Browser favicon probe response can be cached briefly.",
+        "schema": { "const": "public, max-age=86400" }
+      },
       "NoCacheControl": {
         "description": "Mutable representation must be revalidated before reuse.",
         "schema": { "const": "no-cache" }
@@ -1257,6 +1358,10 @@
       "NoStoreCacheControl": {
         "description": "Response must not be stored by caches.",
         "schema": { "const": "no-store" }
+      },
+      "RootCacheControl": {
+        "description": "Core registry root responses use no-store; npm projection root responses use no-cache.",
+        "schema": { "enum": ["no-store", "no-cache"] }
       },
       "NpmMetadataCacheControl": {
         "description": "Cache policy for npm metadata. Local mutable projections use no-cache, local immutable version responses can be cached long-term, and upstream fallback metadata preserves upstream cache policy.",
@@ -1573,6 +1678,12 @@
           "message": { "type": "string" }
         },
         "required": ["code", "error", "message"]
+      },
+      "NpmUtilityRoot": {
+        "description": "Empty JSON object returned by npm projection root routes for npm client compatibility.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
       },
       "EventPage": {
         "type": "object",
