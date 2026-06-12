@@ -2,7 +2,8 @@
 
 Regesta separates protocol facts from operational storage choices. The protocol
 defines releases, objects, channels, events, and verification rules. Operators
-choose the database, object store, queue, signer, and deployment platform.
+choose the database, object store, queue, signer, checkpoint store, and
+deployment platform.
 
 V0 is not a production registry, but the local implementation already has one
 important operational rule: persistent state must live outside the ephemeral
@@ -19,27 +20,28 @@ That directory contains:
 - filesystem object storage for source archives, install artifacts, release
   manifests, and other content-addressed bytes;
 - local queue data for derived or async work;
-- local signer readiness state.
+- local signer readiness state;
+- optional checkpoint store bytes for future transparency outputs.
 
 Container images must treat local container disk as disposable. In the demo
 container, `/data` is the durable mount. In another deployment, the equivalent
 state must live in external services such as a managed database, object store,
-queue, signer, or KMS.
+queue, signer, checkpoint store, or KMS.
 
 ## Runtime Configuration
 
 The default Node server accepts these deployment environment variables:
 
-| Variable                             | Default         | Purpose                                                           |
-| ------------------------------------ | --------------- | ----------------------------------------------------------------- |
-| `REGESTA_DATA_DIR`                   | `.regesta-data` | Local SQLite, filesystem object storage, queue, and signer state. |
-| `REGESTA_DOMAIN_BINDING_TIMEOUT_MS`  | `10000`         | Domain well-known binding fetch timeout. Set `0` to disable it.   |
-| `REGESTA_MAX_REQUEST_BYTES`          | unlimited       | Maximum declared HTTP request body size.                          |
-| `REGESTA_MAX_PUBLISH_ARTIFACT_BYTES` | unlimited       | Maximum uploaded install artifact size per publish request.       |
-| `REGESTA_MAX_PUBLISH_SOURCE_BYTES`   | unlimited       | Maximum uploaded source archive size per publish request.         |
-| `REGESTA_READINESS_TIMEOUT_MS`       | `5000`          | Per-adapter readiness probe timeout.                              |
-| `REGESTA_STATISTICS_CACHE_TTL_MS`    | `10000`         | Root deployment statistics cache TTL. Set `0` to disable caching. |
-| `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`    | `10000`         | npm upstream metadata fallback timeout. Set `0` to disable it.    |
+| Variable                             | Default         | Purpose                                                                       |
+| ------------------------------------ | --------------- | ----------------------------------------------------------------------------- |
+| `REGESTA_DATA_DIR`                   | `.regesta-data` | Local SQLite, filesystem object storage, queue, signer, and checkpoint state. |
+| `REGESTA_DOMAIN_BINDING_TIMEOUT_MS`  | `10000`         | Domain well-known binding fetch timeout. Set `0` to disable it.               |
+| `REGESTA_MAX_REQUEST_BYTES`          | unlimited       | Maximum declared HTTP request body size.                                      |
+| `REGESTA_MAX_PUBLISH_ARTIFACT_BYTES` | unlimited       | Maximum uploaded install artifact size per publish request.                   |
+| `REGESTA_MAX_PUBLISH_SOURCE_BYTES`   | unlimited       | Maximum uploaded source archive size per publish request.                     |
+| `REGESTA_READINESS_TIMEOUT_MS`       | `5000`          | Per-adapter readiness probe timeout.                                          |
+| `REGESTA_STATISTICS_CACHE_TTL_MS`    | `10000`         | Root deployment statistics cache TTL. Set `0` to disable caching.             |
+| `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`    | `10000`         | npm upstream metadata fallback timeout. Set `0` to disable it.                |
 
 Numeric runtime values must be decimal safe integers without whitespace,
 fractional notation, exponent notation, or leading zeroes. Timeout and cache
@@ -60,7 +62,8 @@ A backup must preserve a consistent view of:
 - object bytes;
 - object metadata;
 - queue state when queued work must survive restore;
-- signer or KMS configuration needed by the deployment.
+- signer or KMS configuration needed by the deployment;
+- checkpoint store bytes or metadata when checkpoint storage is configured.
 
 Database-only backups are incomplete because releases reference
 content-addressed objects. Object-only backups are incomplete because package
@@ -119,8 +122,8 @@ The profile defaults can be overridden with:
 
 These thresholds are not production SLOs. They are regression gates for the
 current local adapter implementation. Production deployments should define
-their own profiles against their database, object storage, queue, signer, and
-deployment platform.
+their own profiles against their database, object storage, queue, signer,
+checkpoint store, and deployment platform.
 
 ## Production Load Gates
 
@@ -129,13 +132,13 @@ publish repeatable load gates before calling a deployment production-ready.
 
 Minimum pre-production gates:
 
-| Gate                 | Purpose                         | Required checks                                                                                           |
-| -------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `ci-smoke`           | Fast pull-request signal        | `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm docs:build`, `pnpm smoke:load` with the `smoke` profile |
-| `container-smoke`    | OCI portability and persistence | `pnpm smoke:docker` on a persistent volume                                                                |
-| `adapter-local`      | Local adapter regression        | `REGESTA_LOAD_PROFILE=local pnpm smoke:load`                                                              |
-| `adapter-production` | Production backend validation   | the same load shape against the intended database, object store, queue, signer, and deployment runtime    |
-| `restore-smoke`      | Recovery confidence             | restore from backup, then run readiness, verifier, object, package-state, and projection checks           |
+| Gate                 | Purpose                         | Required checks                                                                                                                   |
+| -------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `ci-smoke`           | Fast pull-request signal        | `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm docs:build`, `pnpm smoke:load` with the `smoke` profile                         |
+| `container-smoke`    | OCI portability and persistence | `pnpm smoke:docker` on a persistent volume                                                                                        |
+| `adapter-local`      | Local adapter regression        | `REGESTA_LOAD_PROFILE=local pnpm smoke:load`                                                                                      |
+| `adapter-production` | Production backend validation   | the same load shape against the intended database, object store, queue, signer, optional checkpoint store, and deployment runtime |
+| `restore-smoke`      | Recovery confidence             | restore from backup, then run readiness, verifier, object, package-state, and projection checks                                   |
 
 The production adapter gate should publish its parameters with the result:
 
@@ -146,7 +149,7 @@ The production adapter gate should publish its parameters with the result:
 - concurrency level;
 - runtime version;
 - deployment target;
-- database, object store, queue, and signer backend;
+- database, object store, queue, signer, and optional checkpoint store backend;
 - data durability settings;
 - whether the run used a cold or warm cache.
 
@@ -201,7 +204,8 @@ introducing distributed storage.
 Current hot-path boundaries:
 
 - health reads do not touch storage;
-- readiness reads call cheap, bounded adapter probes;
+- readiness reads call cheap, bounded adapter probes, including optional
+  checkpoint store probes when configured;
 - root deployment statistics are cached and served from adapter counters or
   indexes;
 - root deployment info does not run readiness probes;
@@ -315,6 +319,10 @@ another service. The registry core should continue to see only adapters.
 
 Checkpoint storage is a future transparency adapter, not part of the V0 core
 database schema.
+
+The current implementation exposes this as an optional opaque checkpoint store
+adapter boundary. It is storage plumbing only: there are no public checkpoint
+routes, checkpoint object fields, proof formats, or witness semantics in V0.
 
 The checkpoint store should persist transparency-layer outputs without
 interpreting the protocol content. Until checkpoint objects, proof formats, and

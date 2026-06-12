@@ -28,6 +28,7 @@ export type { RequestSizeLimitOptions } from './request-size.ts'
 
 export interface ReadinessStatus {
   checks?: {
+    checkpoints?: boolean
     database?: boolean
     objects?: boolean
     queue?: boolean

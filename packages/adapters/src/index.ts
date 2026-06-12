@@ -1,5 +1,6 @@
 export {
   createLocalRegistryAdapters,
+  LocalCheckpointStore,
   LocalObjectStore,
   LocalQueueAdapter,
   LocalRegistryDatabase,
@@ -7,6 +8,7 @@ export {
 } from './local.ts'
 export {
   createMemoryRegistryAdapters,
+  MemoryCheckpointStore,
   MemoryObjectStore,
   MemoryQueueAdapter,
   MemoryRegistryDatabase,
@@ -14,6 +16,7 @@ export {
 } from './memory.ts'
 export { SQLiteRegistryDatabase } from './sqlite.ts'
 export type {
+  CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
   QueueAdapter,

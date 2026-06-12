@@ -26,6 +26,7 @@ import {
 } from './events.ts'
 import { assertEventListOptions } from './pagination.ts'
 import type {
+  CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
   PackageStateSnapshot,
@@ -157,6 +158,10 @@ export class MemoryObjectStore implements ObjectStore {
     return Promise.resolve({ ...descriptor })
   }
 }
+
+export class MemoryCheckpointStore
+  extends MemoryObjectStore
+  implements CheckpointStore {}
 
 function objectPageStartIndex(
   descriptors: StoredObject['descriptor'][],
@@ -627,6 +632,7 @@ export class MemorySignerAdapter implements SignerAdapter {
 
 export function createMemoryRegistryAdapters(): RegistryAdapters {
   return {
+    checkpoints: new MemoryCheckpointStore(),
     database: new MemoryRegistryDatabase(),
     objects: new MemoryObjectStore(),
     queue: new MemoryQueueAdapter(),

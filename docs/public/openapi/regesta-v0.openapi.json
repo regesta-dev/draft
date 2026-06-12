@@ -1814,7 +1814,7 @@
         "$ref": "../schema/regesta-v0.schema.json#/$defs/releaseManifest"
       },
       "ReadinessStatus": {
-        "description": "Aggregate adapter readiness status. Checks are independent and bounded by deployment timeout policy; clients should read named check results and must not depend on probe ordering.",
+        "description": "Aggregate adapter readiness status. Checks are independent and bounded by deployment timeout policy; clients should read named check results and must not depend on probe ordering. Optional checkpoint store readiness appears when configured.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -1822,6 +1822,7 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
+              "checkpoints": { "type": "boolean" },
               "database": { "type": "boolean" },
               "objects": { "type": "boolean" },
               "queue": { "type": "boolean" },

@@ -1563,8 +1563,14 @@ describe('documentation references', () => {
     expect(readinessDescription).toContain(
       'bounded by deployment timeout policy',
     )
+    expect(readinessDescription).toContain(
+      'Optional checkpoint store readiness appears when configured',
+    )
     expect(api).toContain(
       '`/ready` aggregates independent adapter readiness checks',
+    )
+    expect(api).toMatch(
+      /Checkpoint\s+readiness appears only when a checkpoint store adapter is configured/u,
     )
     expect(api).toMatch(/must\s+not depend on probe ordering/u)
   })

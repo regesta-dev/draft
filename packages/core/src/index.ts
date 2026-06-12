@@ -43,6 +43,7 @@ export type {
   PublishResult,
 } from './publish.ts'
 export type {
+  CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
   PackageStateSnapshot,

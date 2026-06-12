@@ -1,4 +1,5 @@
 export type {
+  CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
   PackageStateSnapshot,

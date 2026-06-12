@@ -9,7 +9,14 @@ describe('createStorageReadinessCheck', () => {
     const objects = deferred<void>()
     const queue = deferred<void>()
     const signer = deferred<void>()
+    const checkpoints = deferred<void>()
     const started: string[] = []
+    const checkpointStore = adapters.checkpoints
+    if (!checkpointStore) {
+      throw new Error(
+        'Expected memory registry adapters to include checkpoints',
+      )
+    }
 
     adapters.database.checkReadiness = () => {
       started.push('database')
@@ -27,19 +34,31 @@ describe('createStorageReadinessCheck', () => {
       started.push('signer')
       return signer.promise
     }
+    checkpointStore.checkReadiness = () => {
+      started.push('checkpoints')
+      return checkpoints.promise
+    }
 
     const readiness = createStorageReadinessCheck(adapters)()
 
     await Promise.resolve()
-    expect(started).toEqual(['database', 'objects', 'queue', 'signer'])
+    expect(started).toEqual([
+      'database',
+      'objects',
+      'queue',
+      'signer',
+      'checkpoints',
+    ])
 
     database.resolve()
     objects.resolve()
     queue.resolve()
     signer.resolve()
+    checkpoints.resolve()
 
     await expect(readiness).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: true,
         objects: true,
         queue: true,
@@ -56,7 +75,14 @@ describe('createStorageReadinessCheck', () => {
     const objects = deferred<void>()
     const queue = deferred<void>()
     const signer = deferred<void>()
+    const checkpoints = deferred<void>()
     const started: string[] = []
+    const checkpointStore = adapters.checkpoints
+    if (!checkpointStore) {
+      throw new Error(
+        'Expected memory registry adapters to include checkpoints',
+      )
+    }
 
     adapters.database.checkReadiness = () => {
       started.push('database')
@@ -74,19 +100,31 @@ describe('createStorageReadinessCheck', () => {
       started.push('signer')
       return signer.promise
     }
+    checkpointStore.checkReadiness = () => {
+      started.push('checkpoints')
+      return checkpoints.promise
+    }
 
     const readiness = createStorageReadinessCheck(adapters)()
 
     await Promise.resolve()
-    expect(started).toEqual(['database', 'objects', 'queue', 'signer'])
+    expect(started).toEqual([
+      'database',
+      'objects',
+      'queue',
+      'signer',
+      'checkpoints',
+    ])
 
     database.reject(new Error('database unavailable'))
     objects.resolve()
     queue.resolve()
     signer.resolve()
+    checkpoints.resolve()
 
     await expect(readiness).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: false,
         objects: true,
         queue: true,
@@ -106,6 +144,13 @@ describe('createStorageReadinessCheck', () => {
     adapters.objects.checkReadiness = () => never
     adapters.queue.checkReadiness = () => never
     adapters.signer.checkReadiness = () => never
+    const checkpointStore = adapters.checkpoints
+    if (!checkpointStore) {
+      throw new Error(
+        'Expected memory registry adapters to include checkpoints',
+      )
+    }
+    checkpointStore.checkReadiness = () => never
 
     try {
       const readiness = createStorageReadinessCheck(adapters, {
@@ -116,6 +161,7 @@ describe('createStorageReadinessCheck', () => {
 
       await expect(readiness).resolves.toEqual({
         checks: {
+          checkpoints: false,
           database: false,
           objects: false,
           queue: false,
@@ -135,6 +181,22 @@ describe('createStorageReadinessCheck', () => {
         timeoutMs: 0,
       }),
     ).toThrow('Readiness probe timeout must be a positive safe integer')
+  })
+
+  it('omits checkpoint readiness when no checkpoint adapter is configured', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    delete adapters.checkpoints
+
+    await expect(createStorageReadinessCheck(adapters)()).resolves.toEqual({
+      checks: {
+        database: true,
+        objects: true,
+        queue: true,
+        signer: true,
+      },
+      kind: 'regesta.readiness',
+      ok: true,
+    })
   })
 })
 

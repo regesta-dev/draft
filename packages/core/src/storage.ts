@@ -115,6 +115,8 @@ export interface ObjectStore {
   put: (bytes: Uint8Array, mediaType: string) => Promise<ObjectDescriptor>
 }
 
+export type CheckpointStore = ObjectStore
+
 export interface RegistryDatabase {
   appendEvent: (event: RegistryEvent) => Promise<void>
   checkReadiness?: () => Promise<void>
@@ -153,6 +155,7 @@ export interface SignerAdapter {
 }
 
 export interface RegistryAdapters {
+  checkpoints?: CheckpointStore
   database: RegistryDatabase
   objects: ObjectStore
   queue: QueueAdapter

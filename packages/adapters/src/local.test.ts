@@ -31,6 +31,7 @@ import {
   LocalSignerAdapter,
 } from './local.ts'
 import {
+  MemoryCheckpointStore,
   MemoryObjectStore,
   MemoryRegistryDatabase,
   MemorySignerAdapter,
@@ -53,6 +54,61 @@ describeRegistryDatabaseConformance({
     database.close()
   },
   name: 'SQLiteRegistryDatabase',
+})
+
+describe('CheckpointStore adapters', () => {
+  it('keeps memory checkpoint bytes independent from ordinary object bytes', async () => {
+    const checkpoints = new MemoryCheckpointStore()
+    const objects = new MemoryObjectStore()
+    const checkpointBytes = bytes('checkpoint bytes')
+
+    const checkpoint = await checkpoints.put(
+      checkpointBytes,
+      'application/octet-stream',
+    )
+
+    await expect(objects.get(checkpoint.digest)).resolves.toBeUndefined()
+    await expect(checkpoints.get(checkpoint.digest)).resolves.toMatchObject({
+      descriptor: checkpoint,
+    })
+    await expect(
+      checkpoints.put(checkpointBytes, 'application/octet-stream'),
+    ).resolves.toEqual(checkpoint)
+    expect(() => checkpoints.put(checkpointBytes, 'application/json')).toThrow(
+      `Memory object mediaType conflict: ${checkpoint.digest}`,
+    )
+  })
+
+  it('persists local checkpoint bytes separately from ordinary object bytes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-checkpoints-'))
+
+    try {
+      const firstAdapters = createLocalRegistryAdapters(root)
+      const checkpoints = firstAdapters.checkpoints
+      if (!checkpoints) {
+        throw new Error(
+          'Expected local registry adapters to include checkpoints',
+        )
+      }
+      const checkpointBytes = bytes('local checkpoint bytes')
+      const checkpoint = await checkpoints.put(
+        checkpointBytes,
+        'application/octet-stream',
+      )
+
+      await expect(
+        firstAdapters.objects.get(checkpoint.digest),
+      ).resolves.toBeUndefined()
+
+      const secondAdapters = createLocalRegistryAdapters(root)
+      const stored = await secondAdapters.checkpoints?.get(checkpoint.digest)
+
+      expect([...(stored?.bytes ?? [])]).toEqual([...checkpointBytes])
+      expect(stored?.descriptor).toEqual(checkpoint)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 })
 
 describe('createLocalRegistryAdapters', () => {
@@ -294,6 +350,27 @@ describe('createLocalRegistryAdapters', () => {
 
       await expect(adapters.objects.checkReadiness()).resolves.toBeUndefined()
       await expect(readdirRecursive(join(root, 'objects'))).resolves.toEqual([])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('checks local checkpoint store readiness without committing probe checkpoints', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'regesta-local-checkpoints-'))
+
+    try {
+      const adapters = createLocalRegistryAdapters(root)
+      const checkpoints = adapters.checkpoints
+      if (!checkpoints?.checkReadiness) {
+        throw new Error(
+          'Expected local checkpoint store readiness check to exist',
+        )
+      }
+
+      await expect(checkpoints.checkReadiness()).resolves.toBeUndefined()
+      await expect(
+        readdirRecursive(join(root, 'checkpoints', 'objects')),
+      ).resolves.toEqual([])
     } finally {
       await rm(root, { force: true, recursive: true })
     }

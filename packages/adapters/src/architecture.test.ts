@@ -170,6 +170,38 @@ describe('adapters package architecture', () => {
     expect(sqliteSource).not.toContain('DISTINCT')
     expect(sqliteSource).not.toContain('releases')
   })
+
+  it('keeps checkpoint storage as an opaque adapter boundary', async () => {
+    const coreStorageSource = await readFile(
+      join(adaptersSourceRoot, '../../core/src/storage.ts'),
+      'utf8',
+    )
+    const localSource = await readFile(
+      join(adaptersSourceRoot, 'local.ts'),
+      'utf8',
+    )
+    const memorySource = await readFile(
+      join(adaptersSourceRoot, 'memory.ts'),
+      'utf8',
+    )
+    const sqliteSource = await readFile(
+      join(adaptersSourceRoot, 'sqlite.ts'),
+      'utf8',
+    )
+
+    expect(coreStorageSource).toContain('export type CheckpointStore')
+    expect(coreStorageSource).toContain('checkpoints?: CheckpointStore')
+    expect(localSource).toContain('LocalCheckpointStore')
+    expect(localSource).toContain("join(root, 'checkpoints')")
+    expect(memorySource).toContain('MemoryCheckpointStore')
+    expect(sqliteSource).not.toContain('checkpoint')
+
+    for (const source of [localSource, memorySource]) {
+      expect(source).not.toContain('inclusionProof')
+      expect(source).not.toContain('consistencyProof')
+      expect(source).not.toContain('witnessThreshold')
+    }
+  })
 })
 
 async function productionSourceFiles(directory: string): Promise<string[]> {

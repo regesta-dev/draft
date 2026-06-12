@@ -134,6 +134,7 @@ describe('createRegestaApp', () => {
     )
     await expect(ready.json()).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: true,
         objects: true,
         queue: true,
@@ -708,6 +709,7 @@ describe('createRegestaApp', () => {
     expect(ready.headers.get('cache-control')).toBe('no-store')
     await expect(ready.json()).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: false,
         objects: true,
         queue: true,
@@ -741,6 +743,7 @@ describe('createRegestaApp', () => {
       expect(response.headers.get('cache-control')).toBe('no-store')
       await expect(response.json()).resolves.toMatchObject({
         checks: {
+          checkpoints: true,
           database: false,
           objects: true,
           queue: true,
@@ -766,6 +769,7 @@ describe('createRegestaApp', () => {
     expect(ready.status).toBe(200)
     await expect(ready.json()).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: true,
         objects: true,
         queue: true,
@@ -792,6 +796,7 @@ describe('createRegestaApp', () => {
     expect(ready.headers.get('cache-control')).toBe('no-store')
     await expect(ready.json()).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: true,
         objects: false,
         queue: true,
@@ -803,6 +808,36 @@ describe('createRegestaApp', () => {
     expect(readyHead.status).toBe(503)
     expect(readyHead.headers.get('cache-control')).toBe('no-store')
     expect(await readyHead.text()).toBe('')
+  })
+
+  it('returns 503 when checkpoint storage is not ready', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const checkpoints = adapters.checkpoints
+    if (!checkpoints) {
+      throw new Error(
+        'Expected memory registry adapters to include checkpoints',
+      )
+    }
+    checkpoints.checkReadiness = () => {
+      throw new Error('checkpoint storage unavailable')
+    }
+    const app = createRegestaApp(adapters)
+
+    const ready = await app.request('/ready')
+
+    expect(ready.status).toBe(503)
+    expect(ready.headers.get('cache-control')).toBe('no-store')
+    await expect(ready.json()).resolves.toEqual({
+      checks: {
+        checkpoints: false,
+        database: true,
+        objects: true,
+        queue: true,
+        signer: true,
+      },
+      kind: 'regesta.readiness',
+      ok: false,
+    })
   })
 
   it('returns 503 when queue storage is not ready', async () => {
@@ -821,6 +856,7 @@ describe('createRegestaApp', () => {
     expect(ready.headers.get('cache-control')).toBe('no-store')
     await expect(ready.json()).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: true,
         objects: true,
         queue: false,
@@ -850,6 +886,7 @@ describe('createRegestaApp', () => {
     expect(ready.headers.get('cache-control')).toBe('no-store')
     await expect(ready.json()).resolves.toEqual({
       checks: {
+        checkpoints: true,
         database: true,
         objects: true,
         queue: true,

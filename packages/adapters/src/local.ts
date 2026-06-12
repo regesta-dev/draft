@@ -19,6 +19,7 @@ import {
 } from '@regesta/protocol'
 import { SQLiteRegistryDatabase } from './sqlite.ts'
 import type {
+  CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
   QueueAdapter,
@@ -549,6 +550,41 @@ export class LocalRegistryDatabase
   }
 }
 
+export class LocalCheckpointStore implements CheckpointStore {
+  private readonly store: LocalObjectStore
+
+  constructor(root: string) {
+    this.store = new LocalObjectStore(join(root, 'checkpoints'))
+  }
+
+  checkReadiness(): Promise<void> {
+    return this.store.checkReadiness()
+  }
+
+  get(digest: Sha256Digest): Promise<StoredObject | undefined> {
+    return this.store.get(digest)
+  }
+
+  getDescriptor(
+    digest: Sha256Digest,
+  ): Promise<StoredObject['descriptor'] | undefined> {
+    return this.store.getDescriptor(digest)
+  }
+
+  listDescriptors(
+    options: ObjectDescriptorListOptions = {},
+  ): Promise<StoredObject['descriptor'][]> {
+    return this.store.listDescriptors(options)
+  }
+
+  put(
+    bytes: Uint8Array,
+    mediaType: string,
+  ): Promise<StoredObject['descriptor']> {
+    return this.store.put(bytes, mediaType)
+  }
+}
+
 export class LocalQueueAdapter implements QueueAdapter {
   private readonly root: string
 
@@ -602,6 +638,7 @@ export class LocalSignerAdapter implements SignerAdapter {
 
 export function createLocalRegistryAdapters(root: string): RegistryAdapters {
   return {
+    checkpoints: new LocalCheckpointStore(root),
     database: new LocalRegistryDatabase(root),
     objects: new LocalObjectStore(root),
     queue: new LocalQueueAdapter(root),

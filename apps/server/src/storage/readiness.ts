@@ -13,6 +13,12 @@ export interface StorageReadinessCheckOptions {
 }
 
 export interface StorageReadinessAdapters {
+  checkpoints?: {
+    checkReadiness?: () => Promise<void>
+    getDescriptor: (
+      digest: typeof objectReadinessProbeDigest,
+    ) => Promise<unknown>
+  }
   database: {
     checkReadiness?: () => Promise<void>
     listEvents: (options: { limit: number }) => Promise<unknown>
@@ -37,6 +43,7 @@ export function createStorageReadinessCheck(
   options: StorageReadinessCheckOptions = {},
 ): () => Promise<{
   checks: {
+    checkpoints?: boolean
     database: boolean
     objects: boolean
     queue: boolean
@@ -48,13 +55,17 @@ export function createStorageReadinessCheck(
   const timeoutMs = normalizeReadinessProbeTimeout(options.timeoutMs)
 
   return async () => {
-    const [database, objects, queue, signer] = await Promise.all([
+    const [database, objects, queue, signer, checkpoints] = await Promise.all([
       databaseReady(adapters, timeoutMs),
       objectsReady(adapters, timeoutMs),
       queueReady(adapters, timeoutMs),
       signerReady(adapters, timeoutMs),
+      adapters.checkpoints
+        ? checkpointStoreReady(adapters.checkpoints, timeoutMs)
+        : Promise.resolve(undefined),
     ])
     const checks = {
+      ...(checkpoints === undefined ? {} : { checkpoints }),
       database,
       objects,
       queue,
@@ -64,9 +75,21 @@ export function createStorageReadinessCheck(
     return {
       checks,
       kind: 'regesta.readiness',
-      ok: checks.database && checks.objects && checks.queue && checks.signer,
+      ok:
+        checks.database &&
+        checks.objects &&
+        checks.queue &&
+        checks.signer &&
+        (checks.checkpoints ?? true),
     }
   }
+}
+
+async function checkpointStoreReady(
+  checkpointStore: NonNullable<StorageReadinessAdapters['checkpoints']>,
+  timeoutMs: number,
+): Promise<boolean> {
+  return await objectLikeStoreReady(checkpointStore, timeoutMs)
 }
 
 async function databaseReady(
@@ -138,17 +161,21 @@ async function objectsReady(
   adapters: StorageReadinessAdapters,
   timeoutMs: number,
 ): Promise<boolean> {
+  return await objectLikeStoreReady(adapters.objects, timeoutMs)
+}
+
+async function objectLikeStoreReady(
+  store: StorageReadinessAdapters['objects'],
+  timeoutMs: number,
+): Promise<boolean> {
   try {
-    if (adapters.objects.checkReadiness) {
-      await withReadinessProbeTimeout(
-        adapters.objects.checkReadiness(),
-        timeoutMs,
-      )
+    if (store.checkReadiness) {
+      await withReadinessProbeTimeout(store.checkReadiness(), timeoutMs)
       return true
     }
 
     await withReadinessProbeTimeout(
-      adapters.objects.getDescriptor(objectReadinessProbeDigest),
+      store.getDescriptor(objectReadinessProbeDigest),
       timeoutMs,
     )
     return true

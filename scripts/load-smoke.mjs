@@ -249,6 +249,9 @@ function readLoadRequests(app, published) {
       assert: async (response) => {
         assertStatus(response, 200)
         assertObjectMatch(await response.json(), {
+          checks: {
+            checkpoints: true,
+          },
           kind: 'regesta.readiness',
           ok: true,
         })

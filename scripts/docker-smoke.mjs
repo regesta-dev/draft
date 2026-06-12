@@ -168,6 +168,13 @@ async function waitForReady(baseUrl) {
     try {
       const response = await fetch(`${baseUrl}/ready`)
       if (response.ok) {
+        assertMatch(await response.json(), {
+          checks: {
+            checkpoints: true,
+          },
+          kind: 'regesta.readiness',
+          ok: true,
+        })
         return
       }
 

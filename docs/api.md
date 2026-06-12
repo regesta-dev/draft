@@ -68,9 +68,10 @@ closed.
 the process can answer requests.
 
 `/ready` aggregates independent adapter readiness checks and returns `200` when
-database, object storage, queue, and signer are ready. It returns `503` when
-any dependency is not ready. Clients should read the `checks` object and must
-not depend on probe ordering.
+database, object storage, queue, signer, and any configured checkpoint store
+are ready. It returns `503` when any dependency is not ready. Clients should
+read the `checks` object and must not depend on probe ordering. Checkpoint
+readiness appears only when a checkpoint store adapter is configured.
 
 Transport status responses use `Cache-Control: no-store` and include
 `Content-Length` for the exact JSON response body.

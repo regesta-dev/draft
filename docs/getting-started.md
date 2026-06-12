@@ -45,7 +45,8 @@ curl http://localhost:4321/ready
 
 `/health` only checks that HTTP is responding. `/ready` checks the local
 adapters: SQLite, filesystem object storage, derived queue storage, and local
-signing readiness.
+signing readiness. Deployments that configure checkpoint storage also report
+checkpoint store readiness.
 
 ## Configure A Domain Binding
 
