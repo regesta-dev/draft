@@ -124,6 +124,24 @@ describe('documentation references', () => {
     )
   })
 
+  it('documents publisher clients as isolated write-path adapters', async () => {
+    const architecture = await readText('architecture.md')
+    const normalizedArchitecture = architecture.replaceAll(/\s+/gu, ' ')
+
+    expect(normalizedArchitecture).toContain(
+      'Publisher clients are ecosystem adapters on the write path.',
+    )
+    expect(normalizedArchitecture).toContain(
+      'publish requests should not carry browser or platform credentials',
+    )
+    expect(normalizedArchitecture).toContain(
+      'should not use implicit request caches',
+    )
+    expect(normalizedArchitecture).toContain(
+      'should not follow redirects automatically',
+    )
+  })
+
   it('documents community-driven governance without single-operator capture', async () => {
     const index = await readText('index.md')
     const readme = await readWorkspaceText('README.md')
@@ -386,6 +404,11 @@ describe('documentation references', () => {
     expect(schema).toContain(
       'Algorithm and public-key material are key-level fields.',
     )
+    expect(schema).toContain(
+      'The registry fetches the binding with a no-store request cache policy',
+    )
+    expect(schema).toContain('without client credentials')
+    expect(schema).toContain('without following redirects')
 
     for (const source of [gettingStarted, schema]) {
       const bindings = parseJsonCodeBlocks(source).filter((block) => {
@@ -873,6 +896,13 @@ describe('documentation references', () => {
     )
     expect(dockerSmokeScript).toContain("object: 'regesta.deployment-info'")
     expect(dockerSmokeScript).toContain('packages: 1')
+    expect(dockerSmokeScript).toContain('getRedirectWithHostHeader')
+    expect(dockerSmokeScript).toContain(
+      'Expected npm tarball route to redirect to a core object URL',
+    )
+    expect(dockerSmokeScript).toContain(
+      'const response = await fetch(objectUrl)',
+    )
     expect(loadSmokeScript).toContain("object: 'regesta.deployment-info'")
     expect(loadSmokeScript).toContain('packages: published.length')
     expect(loadSmokeSources).toContain('REGESTA_LOAD_PUBLISH_CONCURRENCY')
@@ -895,6 +925,14 @@ describe('documentation references', () => {
     expect(loadSmokeSources).toContain('summarizeSamplesByCategory')
     expect(loadSmokeSources).toContain("category: 'npm-packument'")
     expect(loadSmokeSources).toContain("category: 'npm-tarball-redirect'")
+    expect(loadSmokeSources).toContain('assertStatus(response, 302)')
+    expect(loadSmokeSources).toContain('location !== installArtifactObjectUrl')
+    expect(loadSmokeSources).toContain(
+      'Expected npm tarball redirect to ${installArtifactObjectUrl}',
+    )
+    expect(loadSmokeSources).toContain(
+      'const objectResponse = await app.request(installArtifactObjectUrl)',
+    )
     expect(loadSmokeSources).toContain('summarizeDurations')
     expect(loadSmokeSources).toContain('startedAt')
     expect(loadSmokeSources).toContain('completedAt')
@@ -1396,6 +1434,9 @@ describe('documentation references', () => {
     )
     expect(normalizedApi).toContain(
       'Client credentials, including `Authorization`, `Cookie`, and npm token headers, are not forwarded',
+    )
+    expect(normalizedApi).toContain(
+      'Server-side fallback metadata fetches use a no-store request cache policy',
     )
     expect(normalizedApi).toContain(
       'Fallback responses preserve only cache and content metadata headers',
@@ -2264,8 +2305,30 @@ describe('documentation references', () => {
 
   it('documents current hot-path scalability boundaries', async () => {
     const operations = await readText('operations.md')
+    const normalizedOperations = operations.replaceAll(/\s+/gu, ' ')
 
     expect(operations).toContain('## Hot Path Cost Boundaries')
+    expect(operations).toContain('## Egress Boundary')
+    expect(operations).toContain(
+      "The default server's external network egress is intentionally narrow",
+    )
+    expect(operations).toContain(
+      'domain well-known binding discovery for signed write authorization',
+    )
+    expect(operations).toContain(
+      'optional npm upstream metadata fallback when server-side fallback is enabled',
+    )
+    expect(operations).toContain(
+      'Both egress paths use no-store request cache policy',
+    )
+    expect(operations).toContain('omit client credentials')
+    expect(operations).toContain('do not follow redirects automatically')
+    expect(operations).toContain(
+      'npm tarball routes do not fetch upstream bytes',
+    )
+    expect(normalizedOperations).toContain(
+      'the default server should not contact `registry.npmjs.org`',
+    )
     expect(operations).toContain('health reads do not touch storage')
     expect(operations).toContain(
       'readiness reads call cheap, bounded adapter probes',

@@ -91,6 +91,37 @@ describe('cli package architecture', () => {
     expect(violations).toEqual([])
   })
 
+  it('keeps publish write requests isolated from ambient client state', async () => {
+    const cliSource = await readFile(join(cliSourceRoot, 'index.ts'), 'utf8')
+    const publishFetchBlock = sourceBetween(
+      cliSource,
+      'await fetch(`${registry}/releases`, {',
+      '})',
+    )
+
+    expect(publishFetchBlock).toContain("cache: 'no-store'")
+    expect(publishFetchBlock).toContain("credentials: 'omit'")
+    expect(publishFetchBlock).toContain("accept: 'application/json'")
+    expect(publishFetchBlock).toContain("method: 'POST'")
+    expect(publishFetchBlock).toContain("redirect: 'error'")
+  })
+
+  it('keeps CLI network access owned by publisher, verifier, and mirror paths', async () => {
+    const allowedFetchSources = new Set(['index.ts', 'mirror.ts', 'verify.ts'])
+    const violations: string[] = []
+
+    for (const file of await productionSourceFiles(cliSourceRoot)) {
+      const relativePath = relative(cliSourceRoot, file)
+      const source = await readFile(file, 'utf8')
+
+      if (/\bfetch\b/u.test(source) && !allowedFetchSources.has(relativePath)) {
+        violations.push(relativePath)
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
   it('keeps the CLI package manifest free from server and storage dependencies', async () => {
     const manifest = JSON.parse(
       await readFile(join(cliPackageRoot, 'package.json'), 'utf8'),
@@ -156,4 +187,20 @@ function isTestSourceFile(path: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function sourceBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start)
+
+  if (startIndex === -1) {
+    throw new Error(`Source start marker not found: ${start}`)
+  }
+
+  const endIndex = source.indexOf(end, startIndex + start.length)
+
+  if (endIndex === -1) {
+    throw new Error(`Source end marker not found: ${end}`)
+  }
+
+  return source.slice(startIndex, endIndex + end.length)
 }

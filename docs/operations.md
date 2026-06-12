@@ -67,6 +67,21 @@ Missing package metadata and tarball routes return `404` instead of contacting
 or redirecting to `registry.npmjs.org`. Local Regesta-hosted npm packages still
 resolve through the npm projection when it is mounted.
 
+## Egress Boundary
+
+The default server's external network egress is intentionally narrow:
+
+- domain well-known binding discovery for signed write authorization;
+- optional npm upstream metadata fallback when server-side fallback is enabled.
+
+Both egress paths use no-store request cache policy, omit client credentials,
+and do not follow redirects automatically.
+
+npm tarball routes do not fetch upstream bytes. They redirect to local core
+object URLs or, when fallback is enabled and no local release exists, to the
+upstream tarball URL. With `REGESTA_NPM_UPSTREAM_FALLBACK=false`, the default
+server should not contact `registry.npmjs.org`.
+
 `REGESTA_MAX_REQUEST_BYTES` is a transport guard over declared
 `Content-Length`, not a protocol object-size rule. Malformed `Content-Length`
 returns `400`, and a declared body larger than the configured limit returns

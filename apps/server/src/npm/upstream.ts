@@ -241,6 +241,7 @@ function fetchUpstreamNpmMetadata(
   url: string,
 ): Promise<Response> {
   return upstreamFetch(url, {
+    cache: 'no-store',
     credentials: 'omit',
     headers: upstreamNpmRequestHeaders(context.req.raw.headers),
     method: context.req.method === 'HEAD' ? 'HEAD' : 'GET',

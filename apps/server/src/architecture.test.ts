@@ -941,6 +941,33 @@ describe('server layer boundaries', () => {
     ])
   })
 
+  it('keeps server external fetch access owned by trust and projection boundaries', async () => {
+    const allowedFetchSources = new Set([
+      'app.ts',
+      'dev/domain-binding.ts',
+      'dev/mount.ts',
+      'npm/upstream.ts',
+      'trust/services.ts',
+    ])
+    const violations: string[] = []
+
+    for (const file of await sourceFiles(serverSourceRoot)) {
+      const relativePath = relative(serverSourceRoot, file)
+      const source = await readFile(file, 'utf8')
+
+      if (/\bfetch\b/u.test(source) && !allowedFetchSources.has(relativePath)) {
+        violations.push(relativePath)
+      }
+
+      if (relativePath === 'app.ts') {
+        expect(source).toContain('npmUpstreamFetch?: typeof fetch')
+        expect(source).not.toContain('fetch(')
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
   it('keeps unexpected 500 responses centralized in the transport error boundary', async () => {
     const violations: string[] = []
 

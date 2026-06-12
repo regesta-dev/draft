@@ -145,7 +145,13 @@ cli
 
       const response = await fetch(`${registry}/releases`, {
         body: form,
+        cache: 'no-store',
+        credentials: 'omit',
+        headers: {
+          accept: 'application/json',
+        },
         method: 'POST',
+        redirect: 'error',
       })
       const body = await response.json()
 

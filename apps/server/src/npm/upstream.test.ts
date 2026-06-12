@@ -6,6 +6,7 @@ describe('createNpmUpstreamFallback', () => {
   it('fetches npm packuments through bounded metadata requests', async () => {
     const upstreamFetch = vi.fn<typeof fetch>((input, init) => {
       expect(input).toBe('https://registry.npmjs.org/%40upstream%2Fpkg')
+      expect(init?.cache).toBe('no-store')
       expect(init?.credentials).toBe('omit')
       expect(init?.headers).toBeInstanceOf(Headers)
       expect(init?.method).toBe('GET')
@@ -155,6 +156,9 @@ describe('createNpmUpstreamFallback', () => {
 
     expect(upstreamFetch).toHaveBeenCalledTimes(3)
     for (const [, init] of upstreamFetch.mock.calls) {
+      expect(init?.cache).toBe('no-store')
+      expect(init?.credentials).toBe('omit')
+      expect(init?.redirect).toBe('error')
       const requestHeaders = init?.headers
       expect(requestHeaders).toBeInstanceOf(Headers)
       if (!(requestHeaders instanceof Headers)) {

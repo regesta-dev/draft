@@ -429,7 +429,8 @@ https://some.dev/.well-known/regesta.json
 ```
 
 The response must be UTF-8 JSON with an `application/json` or `+json` content
-type. The registry does not follow redirects for this fetch. The `domain` field
+type. The registry fetches the binding with a no-store request cache policy,
+without client credentials, and without following redirects. The `domain` field
 must match the owner domain, and the authorization `kid` must match one active
 key in `keys`.
 
