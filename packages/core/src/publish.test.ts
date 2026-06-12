@@ -96,6 +96,30 @@ describe('publishRelease', () => {
     expect(result.event.timestamp).toBe(authorization.signedAt)
   })
 
+  it('verifies releases with ssh-ed25519 authorization proofs', async () => {
+    const adapters = createTestRegistryAdapters()
+    const authorization = createSshAuthorizationProof('ssh signed publish')
+
+    const result = await publishRelease(
+      {
+        ...createPublishInput(),
+        authorization,
+      },
+      adapters,
+    )
+
+    await expect(
+      verifyRelease(adapters, result.manifest.id, result.manifest.version),
+    ).resolves.toMatchObject({
+      ok: true,
+      problems: [],
+    })
+    expect(result.event.authorization).toMatchObject({
+      alg: 'ssh-ed25519',
+      publicKey: expect.stringMatching(/^ssh-ed25519 /u),
+    })
+  })
+
   it('preserves defined release metadata values even when they are falsey', async () => {
     const adapters = createTestRegistryAdapters()
 
@@ -2121,6 +2145,22 @@ function createAuthorizationProof(value: string): WriteAuthorizationProof {
       x: TEST_ED25519_PUBLIC_KEY,
     },
     signature: TEST_ED25519_SIGNATURE,
+    signedAt: '2026-06-01T00:00:00.000Z',
+    wellKnownDigest: sha256(bytes('well-known')),
+  }
+}
+
+function createSshAuthorizationProof(value: string): WriteAuthorizationProof {
+  return {
+    alg: 'ssh-ed25519',
+    domain: 'example.com',
+    kid: 'ssh-ed25519:test-key',
+    object: 'regesta.authorization-proof',
+    payloadDigest: sha256(bytes(value)),
+    publicKey:
+      'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEhlbGxvV29ybGQxMjM0NTY3ODkwMTIzNDU=',
+    signature:
+      '-----BEGIN SSH SIGNATURE-----\nAAAA\n-----END SSH SIGNATURE-----',
     signedAt: '2026-06-01T00:00:00.000Z',
     wellKnownDigest: sha256(bytes('well-known')),
   }

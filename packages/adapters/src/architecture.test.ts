@@ -16,9 +16,9 @@ describe('adapters package architecture', () => {
       { label: 'npm dist-tags logic', pattern: /dist-tags/u },
       { label: 'npm upstream registry', pattern: /registry\.npmjs\.org/u },
       { label: 'npm media type', pattern: /application\/vnd\.npm/u },
-      { label: 'PyPI projection vocabulary', pattern: /\bpypi\b/u },
-      { label: 'Cargo projection vocabulary', pattern: /\bcargo\b/u },
-      { label: 'OCI projection vocabulary', pattern: /\boci\b/u },
+      { label: 'PyPI projection vocabulary', pattern: /\bpypi\b/iu },
+      { label: 'Cargo projection vocabulary', pattern: /\bcargo\b/iu },
+      { label: 'OCI projection vocabulary', pattern: /\boci\b/iu },
       { label: 'package-manager process execution', pattern: /child_process/u },
       { label: 'full package-state replay', pattern: /replayPackageState/u },
       {

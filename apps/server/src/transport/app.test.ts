@@ -243,6 +243,38 @@ describe('createTransportRoutes', () => {
 })
 
 describe('createDeploymentStatisticsRead', () => {
+  it('coalesces concurrent statistics refresh reads', async () => {
+    let resolvePackages: (packages: number) => void = () => {}
+    const packages = new Promise<number>((resolve) => {
+      resolvePackages = resolve
+    })
+    const countPackages = vi
+      .fn<() => Promise<number>>()
+      .mockReturnValue(packages)
+    const readStatistics = createDeploymentStatisticsRead(
+      {
+        countPackages,
+      },
+      {
+        cacheTtlMs: 25,
+      },
+    )
+
+    const firstRead = readStatistics()
+    const secondRead = readStatistics()
+
+    expect(firstRead).toBe(secondRead)
+    expect(countPackages).toHaveBeenCalledTimes(1)
+
+    resolvePackages(13)
+    await expect(Promise.all([firstRead, secondRead])).resolves.toEqual([
+      { packages: 13 },
+      { packages: 13 },
+    ])
+    expect(readStatistics()).toEqual({ packages: 13 })
+    expect(countPackages).toHaveBeenCalledTimes(1)
+  })
+
   it('serves stale cached statistics when a synchronous refresh read fails', async () => {
     const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})

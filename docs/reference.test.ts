@@ -64,6 +64,30 @@ describe('documentation references', () => {
     }
   })
 
+  it('documents community-driven governance without single-operator capture', async () => {
+    const readme = await readWorkspaceText('README.md')
+    const why = await readText('why-regesta.md')
+    const governance = await readText('governance.md')
+    const normalizedWhy = why.replaceAll(/\s+/gu, ' ')
+    const normalizedGovernance = governance.replaceAll(/\s+/gu, ' ')
+
+    expect(readme).toContain(
+      'community-driven and not controlled by any single company or operator',
+    )
+    expect(normalizedWhy).toContain(
+      "not hidden inside one operator's private database",
+    )
+    expect(normalizedWhy).toContain(
+      'no single operator can permanently capture the ecosystem',
+    )
+    expect(normalizedGovernance).toContain(
+      'No single company, hosting provider, registry operator, or package ecosystem',
+    )
+    expect(normalizedGovernance).toContain(
+      'the ecosystem should not depend on permanent trust in one company',
+    )
+  })
+
   it('publishes parseable JSON Schema and OpenAPI references', async () => {
     const schema = await readJson(schemaPath)
     const openapi = await readJson(openapiPath)
