@@ -161,7 +161,7 @@ export async function updatePackageChannel(
     eventType: 'channel.updated',
     object: 'regesta.event',
     package: input.packageId,
-    ...(previousVersion ? { previousVersion } : {}),
+    ...(previousVersion === undefined ? {} : { previousVersion }),
     timestamp,
     version: input.version,
   } satisfies Omit<ChannelUpdatedEvent, 'id'>
@@ -177,7 +177,10 @@ export async function updatePackageChannel(
     version: input.version,
   })
 
-  return { event, ...(previousVersion ? { previousVersion } : {}) }
+  return {
+    event,
+    ...(previousVersion === undefined ? {} : { previousVersion }),
+  }
 }
 
 export async function deletePackageChannel(
@@ -201,7 +204,7 @@ export async function deletePackageChannel(
     eventType: 'channel.deleted',
     object: 'regesta.event',
     package: input.packageId,
-    ...(previousVersion ? { previousVersion } : {}),
+    ...(previousVersion === undefined ? {} : { previousVersion }),
     timestamp,
   } satisfies Omit<ChannelDeletedEvent, 'id'>
   const event = {
@@ -215,7 +218,10 @@ export async function deletePackageChannel(
     package: input.packageId,
   })
 
-  return { event, ...(previousVersion ? { previousVersion } : {}) }
+  return {
+    event,
+    ...(previousVersion === undefined ? {} : { previousVersion }),
+  }
 }
 
 function channelMutationPreviousVersion(

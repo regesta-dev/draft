@@ -540,10 +540,19 @@ describe('documentation references', () => {
     const tarballSchema = await openapiValueAtPointer(
       '#/components/schemas/NpmVersionManifest/properties/dist/properties/tarball',
     )
+    const versionManifestDescription = await openapiValueAtPointer(
+      '#/components/schemas/NpmVersionManifest/description',
+    )
     const redirectDescription = await openapiValueAtPointer(
       '#/components/responses/NpmTarballRedirect/description',
     )
 
+    expect(versionManifestDescription).toContain(
+      'projects only supported resolver fields',
+    )
+    expect(versionManifestDescription).toContain(
+      'upstream fallback metadata preserves upstream fields',
+    )
     expect(tarballSchema).toEqual(
       expect.objectContaining({
         description: expect.stringContaining('core object URL'),
@@ -633,11 +642,23 @@ describe('documentation references', () => {
     })
 
     const api = await readText('api.md')
+    const projections = await readText('projections.md')
     const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+    const normalizedProjections = projections.replaceAll(/\s+/gu, ' ')
     expect(api).toContain('npm projection metadata uses projection-specific')
     expect(api).toContain('may include `Last-Modified`')
     expect(api).toContain('`If-Modified-Since` can produce')
     expect(normalizedApi).toContain('`If-None-Match` takes precedence')
+    expect(api).toContain('explicit supported-field allowlist')
+    expect(normalizedApi).toContain(
+      'Unknown npm artifact metadata fields remain artifact inspection data',
+    )
+    expect(normalizedProjections).toContain(
+      'emits only the supported npm resolver metadata fields',
+    )
+    expect(normalizedProjections).toContain(
+      'Unknown artifact metadata fields stay inside the Regesta artifact metadata',
+    )
     expect(api).toContain('upstream fallback metadata preserves upstream')
     expect(api).toContain('`ETag`, `Last-Modified`, and cache policy headers')
     expect(api).toContain(

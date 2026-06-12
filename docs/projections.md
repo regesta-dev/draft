@@ -97,6 +97,12 @@ For npm, the npm artifact processor can extract package-manager metadata from
 constraints, and description. The npm projection can then expose that data in
 npm-native packuments and version manifests.
 
+For Regesta-hosted releases, the npm projection emits only the supported npm
+resolver metadata fields it knows how to validate and project. Unknown
+artifact metadata fields stay inside the Regesta artifact metadata and are not
+copied into npm version manifests. This keeps artifact inspection data from
+silently becoming package-manager behavior.
+
 Regesta-hosted npm metadata should point `dist.tarball` at the core object URL,
 where the object layer serves the immutable artifact. Fallback metadata should
 preserve the upstream npm metadata, including upstream `dist.tarball` URLs,

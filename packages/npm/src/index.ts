@@ -71,6 +71,21 @@ export interface NpmArtifactProcessingResult {
   ecosystemMetadata?: ArtifactEcosystemMetadata
 }
 
+const npmReleaseMetadataFields = [
+  'bin',
+  'bundleDependencies',
+  'bundledDependencies',
+  'cpu',
+  'dependencies',
+  'devDependencies',
+  'engines',
+  'libc',
+  'optionalDependencies',
+  'os',
+  'peerDependencies',
+  'peerDependenciesMeta',
+] as const satisfies ReadonlyArray<keyof NpmReleaseMetadata>
+
 export function createNpmPackument(
   packageId: PackageId,
   releases: Array<{ manifest: ReleaseManifest }>,
@@ -246,7 +261,35 @@ function npmArtifactMetadata(
   artifact: ReleaseArtifact,
 ): NpmReleaseMetadata | undefined {
   const metadata = artifact.ecosystemMetadata?.npm
-  return isNpmReleaseMetadata(metadata) ? metadata : undefined
+  if (!isNpmReleaseMetadata(metadata)) {
+    return undefined
+  }
+
+  return pickNpmReleaseMetadata(metadata)
+}
+
+function pickNpmReleaseMetadata(
+  metadata: NpmReleaseMetadata,
+): NpmReleaseMetadata | undefined {
+  const output: NpmReleaseMetadata = {}
+
+  for (const field of npmReleaseMetadataFields) {
+    copyNpmReleaseMetadataField(output, metadata, field)
+  }
+
+  return Object.keys(output).length === 0 ? undefined : output
+}
+
+function copyNpmReleaseMetadataField<Field extends keyof NpmReleaseMetadata>(
+  output: NpmReleaseMetadata,
+  metadata: NpmReleaseMetadata,
+  field: Field,
+): void {
+  const value = metadata[field]
+
+  if (value !== undefined) {
+    output[field] = value
+  }
 }
 
 export function npmPackageName(packageId: PackageId): string {

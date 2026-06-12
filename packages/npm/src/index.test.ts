@@ -152,6 +152,44 @@ describe('npm package projection', () => {
     })
   })
 
+  it('does not project unknown npm artifact metadata fields', () => {
+    const packument = createNpmPackument(
+      'npm:some.dev/sdk',
+      [
+        {
+          manifest: releaseManifest({
+            artifacts: [
+              {
+                digest: sha256('artifact'),
+                ecosystemMetadata: {
+                  npm: {
+                    dependencies: {
+                      '@some.dev/base': '^1.0.0',
+                    },
+                    scripts: {
+                      postinstall: 'node install.js',
+                    },
+                  },
+                },
+                mediaType: 'application/gzip',
+                role: 'install',
+                size: 8,
+              },
+            ],
+          }),
+        },
+      ],
+      'https://registry.test',
+    )
+
+    expect(packument.versions['1.0.0']).toMatchObject({
+      dependencies: {
+        '@some.dev/base': '^1.0.0',
+      },
+    })
+    expect(packument.versions['1.0.0']).not.toHaveProperty('scripts')
+  })
+
   it('extracts and projects npm resolver metadata from install artifacts', async () => {
     const processing = await processNpmPublishArtifacts(npmConfig(), [
       {

@@ -1737,6 +1737,7 @@
       },
       "NpmVersionManifest": {
         "type": "object",
+        "description": "npm-compatible version metadata. Regesta-hosted package metadata projects only supported resolver fields from artifact metadata; upstream fallback metadata preserves upstream fields.",
         "additionalProperties": true,
         "properties": {
           "description": { "type": "string" },

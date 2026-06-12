@@ -423,9 +423,9 @@ export function verifyChannelUpdateAuthorization(
       channel: input.channel,
       nonce: authorization.payload.nonce,
       packageId: input.packageId,
-      ...(input.previousVersion
-        ? { previousVersion: input.previousVersion }
-        : {}),
+      ...(input.previousVersion === undefined
+        ? {}
+        : { previousVersion: input.previousVersion }),
       timestamp: authorization.payload.timestamp,
       version: input.version,
     }),
@@ -444,9 +444,9 @@ export function verifyChannelDeleteAuthorization(
       channel: input.channel,
       nonce: authorization.payload.nonce,
       packageId: input.packageId,
-      ...(input.previousVersion
-        ? { previousVersion: input.previousVersion }
-        : {}),
+      ...(input.previousVersion === undefined
+        ? {}
+        : { previousVersion: input.previousVersion }),
       timestamp: authorization.payload.timestamp,
     }),
     fetchBinding: input.fetchBinding,

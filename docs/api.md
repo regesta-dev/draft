@@ -461,6 +461,11 @@ The npm projection derives:
 - dependency and resolver metadata from npm artifact `ecosystemMetadata`;
 - tarball URLs for npm-compatible clients.
 
+For Regesta-hosted packages, dependency and resolver metadata is projected
+through an explicit supported-field allowlist. Unknown npm artifact metadata
+fields remain artifact inspection data and are not copied into local npm
+version manifests.
+
 Regesta-hosted npm metadata points `dist.tarball` at the core object URL, where
 the object layer serves the immutable artifact. Fallback metadata is returned
 from the upstream npm registry without rewriting `dist.tarball`; the npm

@@ -23,6 +23,12 @@ describe('cli package architecture', () => {
       { label: 'SQLite implementation', pattern: /\bDatabaseSync\b/u },
       { label: 'SQLite storage implementation', pattern: /node:sqlite/u },
       { label: 'upstream npm fallback', pattern: /registry\.npmjs\.org/u },
+      { label: 'PyPI upstream registry', pattern: /pypi\.org/u },
+      { label: 'Cargo upstream registry', pattern: /crates\.io/u },
+      { label: 'Cargo upstream index', pattern: /index\.crates\.io/u },
+      { label: 'Go upstream proxy', pattern: /proxy\.golang\.org/u },
+      { label: 'OCI upstream registry', pattern: /registry-1\.docker\.io/u },
+      { label: 'OCI upstream registry', pattern: /\bghcr\.io\b/u },
     ]
     const violations: string[] = []
 

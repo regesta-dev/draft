@@ -454,7 +454,7 @@ export function createCoreRegistryApp(
         channel,
         fetchBinding: bindingFetchForRequest(services, context.req.url),
         packageId,
-        ...(previousVersion ? { previousVersion } : {}),
+        ...(previousVersion === undefined ? {} : { previousVersion }),
         version,
       })
 
@@ -473,7 +473,7 @@ export function createCoreRegistryApp(
           action: 'channel.update',
           channel,
           package: packageId,
-          ...(previousVersion ? { previousVersion } : {}),
+          ...(previousVersion === undefined ? {} : { previousVersion }),
           ...auditRequestFields(context),
           version,
         }),
@@ -489,9 +489,9 @@ export function createCoreRegistryApp(
       kind: 'regesta.core-audit',
       outcome: 'accepted',
       package: packageId,
-      ...(result.previousVersion
-        ? { previousVersion: result.previousVersion }
-        : {}),
+      ...(result.previousVersion === undefined
+        ? {}
+        : { previousVersion: result.previousVersion }),
       ...auditRequestFields(context),
       timestamp: result.event.timestamp,
       version,
@@ -501,9 +501,9 @@ export function createCoreRegistryApp(
       channel,
       event: result.event,
       package: packageId,
-      ...(result.previousVersion
-        ? { previousVersion: result.previousVersion }
-        : {}),
+      ...(result.previousVersion === undefined
+        ? {}
+        : { previousVersion: result.previousVersion }),
       version,
     })
   })
@@ -529,7 +529,7 @@ export function createCoreRegistryApp(
         channel,
         fetchBinding: bindingFetchForRequest(services, context.req.url),
         packageId,
-        ...(previousVersion ? { previousVersion } : {}),
+        ...(previousVersion === undefined ? {} : { previousVersion }),
       })
       result = await deletePackageChannel(adapters, {
         authorization,
@@ -545,7 +545,7 @@ export function createCoreRegistryApp(
           action: 'channel.delete',
           channel,
           package: packageId,
-          ...(previousVersion ? { previousVersion } : {}),
+          ...(previousVersion === undefined ? {} : { previousVersion }),
           ...auditRequestFields(context),
         }),
       )
@@ -560,9 +560,9 @@ export function createCoreRegistryApp(
       kind: 'regesta.core-audit',
       outcome: 'accepted',
       package: packageId,
-      ...(result.previousVersion
-        ? { previousVersion: result.previousVersion }
-        : {}),
+      ...(result.previousVersion === undefined
+        ? {}
+        : { previousVersion: result.previousVersion }),
       ...auditRequestFields(context),
       timestamp: result.event.timestamp,
     })
@@ -571,9 +571,9 @@ export function createCoreRegistryApp(
       channel,
       event: result.event,
       package: packageId,
-      ...(result.previousVersion
-        ? { previousVersion: result.previousVersion }
-        : {}),
+      ...(result.previousVersion === undefined
+        ? {}
+        : { previousVersion: result.previousVersion }),
     })
   })
 
