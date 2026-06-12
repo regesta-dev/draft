@@ -460,6 +460,39 @@ describe('server layer boundaries', () => {
     }
   })
 
+  it('keeps npm upstream fallback header forwarding on named allowlists', async () => {
+    const upstreamSource = await readFile(
+      join(serverSourceRoot, 'npm/upstream.ts'),
+      'utf8',
+    )
+    const fetchSource = sourceBetween(
+      upstreamSource,
+      'function fetchUpstreamNpmMetadata',
+      'function parseUpstreamNpmJson',
+    )
+    const responseHeaderSource = sourceBetween(
+      upstreamSource,
+      'function upstreamNpmResponseHeaders',
+      'function copyHeaders',
+    )
+
+    expect(upstreamSource).toContain('upstreamNpmRequestMetadataHeaders')
+    expect(upstreamSource).toContain('upstreamNpmResponseMetadataHeaders')
+    expect(fetchSource).toContain('upstreamNpmRequestHeaders')
+    expect(fetchSource).toContain('upstreamNpmRequestMetadataHeaders')
+    expect(fetchSource).not.toContain('copyHeader(context.req.raw.headers')
+    expect(responseHeaderSource).toContain('upstreamNpmResponseMetadataHeaders')
+    expect(responseHeaderSource).not.toContain(
+      "copyHeader(response.headers, headers, 'cache-control')",
+    )
+    expect(responseHeaderSource).not.toContain(
+      "copyHeader(response.headers, headers, 'content-type')",
+    )
+    expect(responseHeaderSource).not.toContain(
+      "copyHeader(response.headers, headers, 'last-modified')",
+    )
+  })
+
   it('mounts npm projection behind a layer-owned narrow registry reader', async () => {
     const source = await readFile(join(serverSourceRoot, 'app.ts'), 'utf8')
     const routeSource = await readFile(

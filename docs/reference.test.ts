@@ -604,6 +604,11 @@ describe('documentation references', () => {
       ),
     ).resolves.toContain('Local mutable projections use no-cache')
     await expect(
+      openapiValueAtPointer(
+        '#/components/headers/NpmMetadataCacheControl/description',
+      ),
+    ).resolves.toContain('without forwarding upstream cookies')
+    await expect(
       openapiValueAtPointer('#/components/headers/NpmMetadataEtag/description'),
     ).resolves.toContain('Local projections derive this from Regesta state')
     await expect(
@@ -613,14 +618,29 @@ describe('documentation references', () => {
     ).resolves.toContain('upstream fallback metadata')
     await expect(
       openapiValueAtPointer(
+        '#/components/headers/NpmMetadataLastModified/description',
+      ),
+    ).resolves.toContain('response metadata allowlist')
+    await expect(
+      openapiValueAtPointer(
         '#/components/parameters/NpmMetadataIfNoneMatch/description',
       ),
     ).resolves.toContain('upstream fallback forwards it')
     await expect(
       openapiValueAtPointer(
+        '#/components/parameters/NpmMetadataIfNoneMatch/description',
+      ),
+    ).resolves.toContain('request header allowlist')
+    await expect(
+      openapiValueAtPointer(
         '#/components/parameters/NpmMetadataIfModifiedSince/description',
       ),
     ).resolves.toContain('If-None-Match is not present')
+    await expect(
+      openapiValueAtPointer(
+        '#/components/parameters/NpmMetadataIfModifiedSince/description',
+      ),
+    ).resolves.toContain('request header allowlist')
     await expect(
       openapiValueAtPointer(
         '#/components/responses/NotModified/headers/Cache-Control',
@@ -770,13 +790,47 @@ describe('documentation references', () => {
   })
 
   it('documents npm fallback failures as projection-only structured errors', async () => {
+    const openapi = await readJson(openapiPath)
+    const tags = member(openapi, 'tags')
     const api = await readText('api.md')
     const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+    const projections = await readText('projections.md')
+    const normalizedProjections = projections.replaceAll(/\s+/gu, ' ')
 
+    if (!Array.isArray(tags)) {
+      throw new TypeError('OpenAPI tags must be an array')
+    }
+
+    const npmProjectionTag = tags.find((tag) => {
+      return isRecord(tag) && tag.name === 'npm Projection'
+    })
+
+    expect(npmProjectionTag).toMatchObject({
+      description: expect.stringContaining(
+        'Fallback metadata requests forward only metadata negotiation and cache validators',
+      ),
+    })
+    expect(npmProjectionTag).toMatchObject({
+      description: expect.stringContaining(
+        'fallback metadata responses expose only cache and content metadata headers',
+      ),
+    })
     expect(normalizedApi).toContain('structured `502` error')
     expect(normalizedApi).toContain('`upstream_npm_registry_unavailable`')
     expect(normalizedApi).toContain(
       'does not create Regesta core package state',
+    )
+    expect(normalizedApi).toContain(
+      'Client credentials, including `Authorization`, `Cookie`, and npm token headers, are not forwarded',
+    )
+    expect(normalizedApi).toContain(
+      'Fallback responses preserve only cache and content metadata headers',
+    )
+    expect(normalizedProjections).toContain(
+      'client credentials such as `Authorization`, `Cookie`, and npm token headers stay local',
+    )
+    expect(normalizedProjections).toContain(
+      'upstream cookies, redirects, authentication challenges, and extension headers do not become Regesta projection response headers',
     )
   })
 

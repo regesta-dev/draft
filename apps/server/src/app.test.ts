@@ -5903,8 +5903,14 @@ describe('createRegestaApp', () => {
     }> = []
     const upstreamHeaders = {
       'cache-control': 'public, max-age=300',
+      connection: 'keep-alive',
+      'content-type': 'application/json',
       etag: '"upstream-etag"',
       'last-modified': 'Wed, 10 Jun 2026 00:00:00 GMT',
+      location: 'https://registry.npmjs.org/login',
+      'set-cookie': 'npm_token=secret',
+      'www-authenticate': 'Bearer realm="npm"',
+      'x-upstream-secret': 'secret',
     }
     const fetchMock: typeof fetch = (input, init) => {
       const request = {
@@ -6030,6 +6036,8 @@ describe('createRegestaApp', () => {
     const sensitiveRequestHeaders = {
       authorization: 'Bearer regesta-local-token',
       cookie: 'npm_token=secret',
+      'npm-auth-token': 'secret',
+      'x-custom-secret': 'secret',
     }
 
     const packument = await app.request(
@@ -6046,12 +6054,12 @@ describe('createRegestaApp', () => {
     expect(packument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expectNoSensitiveUpstreamResponseHeaders(packument)
     expect(fetchCalls.map((request) => request.url)).toEqual([
       'https://registry.npmjs.org/%40upstream%2Fpkg',
     ])
     expect(fetchCalls[0]!.headers.get('accept')).toBe('application/json')
-    expect(fetchCalls[0]!.headers.get('authorization')).toBeNull()
-    expect(fetchCalls[0]!.headers.get('cookie')).toBeNull()
+    expectNoSensitiveUpstreamRequestHeaders(fetchCalls[0]!.headers)
     expect(fetchCalls[0]!.credentials).toBe('omit')
     expect(fetchCalls[0]!.method).toBe('GET')
     expect(fetchCalls[0]!.redirect).toBe('error')
@@ -6084,6 +6092,7 @@ describe('createRegestaApp', () => {
     expect(conditionalPackument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expectNoSensitiveUpstreamResponseHeaders(conditionalPackument)
     expect(fetchCalls.at(-1)?.headers.get('if-modified-since')).toBe(
       'Tue, 09 Jun 2026 00:00:00 GMT',
     )
@@ -6101,6 +6110,7 @@ describe('createRegestaApp', () => {
     expect(headPackument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expectNoSensitiveUpstreamResponseHeaders(headPackument)
     expect(await headPackument.text()).toBe('')
     expect(fetchCalls.at(-1)?.method).toBe('HEAD')
 
@@ -6137,6 +6147,7 @@ describe('createRegestaApp', () => {
     expect(headManifest.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expectNoSensitiveUpstreamResponseHeaders(headManifest)
     expect(await headManifest.text()).toBe('')
     expect(fetchCalls.at(-1)?.method).toBe('HEAD')
     expect(fetchCalls.at(-1)?.url).toBe(
@@ -6199,6 +6210,7 @@ describe('createRegestaApp', () => {
     expect(distTags.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expectNoSensitiveUpstreamResponseHeaders(distTags)
     expect(distTagsEtag).toBe('"upstream-etag"')
     expect(fetchCalls.at(-1)?.url).toBe(
       'https://registry.npmjs.org/-/package/%40upstream%2Fpkg/dist-tags',
@@ -6220,6 +6232,7 @@ describe('createRegestaApp', () => {
     expect(conditionalDistTags.status).toBe(304)
     expect(conditionalDistTags.headers.get('content-length')).toBeNull()
     expect(conditionalDistTags.headers.get('etag')).toBe(distTagsEtag)
+    expectNoSensitiveUpstreamResponseHeaders(conditionalDistTags)
     expect(fetchCalls.at(-1)?.headers.get('if-modified-since')).toBe(
       'Tue, 09 Jun 2026 00:00:00 GMT',
     )
@@ -6241,6 +6254,7 @@ describe('createRegestaApp', () => {
     expect(headDistTags.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expectNoSensitiveUpstreamResponseHeaders(headDistTags)
     expect(await headDistTags.text()).toBe('')
     expect(fetchCalls.at(-1)?.method).toBe('HEAD')
     expect(fetchCalls.at(-1)?.url).toBe(
@@ -6253,10 +6267,8 @@ describe('createRegestaApp', () => {
     ).toBe(true)
     expect(
       fetchCalls.every((request) => {
-        return (
-          request.headers.get('authorization') === null &&
-          request.headers.get('cookie') === null
-        )
+        expectNoSensitiveUpstreamRequestHeaders(request.headers)
+        return true
       }),
     ).toBe(true)
 
@@ -7268,6 +7280,29 @@ function requiredHeader(response: Response, name: string): string {
   }
 
   return value
+}
+
+function expectNoSensitiveUpstreamRequestHeaders(headers: Headers): void {
+  for (const name of [
+    'authorization',
+    'cookie',
+    'npm-auth-token',
+    'x-custom-secret',
+  ]) {
+    expect(headers.get(name)).toBeNull()
+  }
+}
+
+function expectNoSensitiveUpstreamResponseHeaders(response: Response): void {
+  for (const name of [
+    'connection',
+    'location',
+    'set-cookie',
+    'www-authenticate',
+    'x-upstream-secret',
+  ]) {
+    expect(response.headers.get(name)).toBeNull()
+  }
 }
 
 function deferred<T>(): {

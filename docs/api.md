@@ -488,7 +488,12 @@ dist-tag metadata are validated and then returned without rewriting. Upstream
 still redirect to upstream npmjs.org tarballs and never proxy tarball bytes.
 Client metadata validators such as `If-None-Match` and `If-Modified-Since` are
 forwarded to the upstream npm registry; upstream `304` responses preserve
-upstream cache headers and do not include a response body.
+upstream cache headers and do not include a response body. Client credentials,
+including `Authorization`, `Cookie`, and npm token headers, are not forwarded to
+the upstream registry. Fallback responses preserve only cache and content
+metadata headers such as `Cache-Control`, `Content-Type`, `ETag`,
+`Last-Modified`, and generated `Content-Length`; upstream cookies, redirects,
+authentication challenges, and extension headers are not forwarded to clients.
 
 If the upstream npm registry is unavailable or returns metadata that cannot be
 projected safely, the npm projection returns a structured `502` error with code

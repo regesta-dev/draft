@@ -18,6 +18,17 @@ export interface NpmUpstreamFallback {
 }
 
 const defaultUpstreamNpmFetchTimeoutMs = 10_000
+const defaultUpstreamNpmMetadataAccept = 'application/json'
+const upstreamNpmRequestMetadataHeaders = [
+  'accept',
+  'if-modified-since',
+  'if-none-match',
+] as const
+const upstreamNpmResponseMetadataHeaders = [
+  'cache-control',
+  'content-type',
+  'last-modified',
+] as const
 
 export function createNpmUpstreamFallback(
   options: NpmUpstreamFallbackOptions = {},
@@ -195,20 +206,23 @@ function fetchUpstreamNpmMetadata(
   upstreamFetch: typeof fetch,
   url: string,
 ): Promise<Response> {
-  const requestHeaders = new Headers()
-  requestHeaders.set(
-    'accept',
-    context.req.header('accept') ?? 'application/json',
-  )
-  copyHeader(context.req.raw.headers, requestHeaders, 'if-modified-since')
-  copyHeader(context.req.raw.headers, requestHeaders, 'if-none-match')
-
   return upstreamFetch(url, {
     credentials: 'omit',
-    headers: requestHeaders,
+    headers: upstreamNpmRequestHeaders(context.req.raw.headers),
     method: context.req.method === 'HEAD' ? 'HEAD' : 'GET',
     redirect: 'error',
   })
+}
+
+function upstreamNpmRequestHeaders(inputHeaders: Headers): Headers {
+  const headers = new Headers()
+  copyHeaders(inputHeaders, headers, upstreamNpmRequestMetadataHeaders)
+
+  if (!headers.has('accept')) {
+    headers.set('accept', defaultUpstreamNpmMetadataAccept)
+  }
+
+  return headers
 }
 
 function parseUpstreamNpmJson(
@@ -388,14 +402,22 @@ function upstreamNpmResponseHeaders(
 ): Headers {
   const headers = new Headers()
 
-  copyHeader(response.headers, headers, 'cache-control')
-  copyHeader(response.headers, headers, 'content-type')
+  copyHeaders(response.headers, headers, upstreamNpmResponseMetadataHeaders)
   if (copyEtag) {
     copyHeader(response.headers, headers, 'etag')
   }
-  copyHeader(response.headers, headers, 'last-modified')
 
   return headers
+}
+
+function copyHeaders(
+  source: Headers,
+  target: Headers,
+  names: readonly string[],
+): void {
+  for (const name of names) {
+    copyHeader(source, target, name)
+  }
 }
 
 function requestId(context: Context): string | undefined {

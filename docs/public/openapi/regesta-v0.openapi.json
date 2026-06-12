@@ -27,7 +27,7 @@
     },
     {
       "name": "npm Projection",
-      "description": "npm-compatible projection over Regesta-native package data, with optional upstream fallback for missing packages."
+      "description": "npm-compatible projection over Regesta-native package data, with optional upstream fallback for missing packages. Fallback metadata requests forward only metadata negotiation and cache validators; fallback metadata responses expose only cache and content metadata headers."
     }
   ],
   "paths": {
@@ -1367,15 +1367,15 @@
         "schema": { "enum": ["no-store", "no-cache"] }
       },
       "NpmMetadataCacheControl": {
-        "description": "Cache policy for npm metadata. Local mutable projections use no-cache, local immutable version responses can be cached long-term, and upstream fallback metadata preserves upstream cache policy.",
+        "description": "Cache policy for npm metadata. Local mutable projections use no-cache, local immutable version responses can be cached long-term, and upstream fallback metadata preserves upstream cache policy without forwarding upstream cookies, redirects, authentication challenges, or extension headers.",
         "schema": { "type": "string" }
       },
       "NpmMetadataEtag": {
-        "description": "Validator for npm metadata. Local projections derive this from Regesta state; upstream fallback metadata preserves upstream validators.",
+        "description": "Validator for npm metadata. Local projections derive this from Regesta state; upstream fallback metadata preserves upstream validators without forwarding upstream cookies, redirects, authentication challenges, or extension headers.",
         "schema": { "type": "string" }
       },
       "NpmMetadataLastModified": {
-        "description": "HTTP date validator for npm metadata when available, especially from upstream fallback metadata.",
+        "description": "HTTP date validator for npm metadata when available, especially from upstream fallback metadata. It is part of the fallback response metadata allowlist.",
         "schema": { "type": "string" }
       },
       "StrongDigestEtag": {
@@ -1428,14 +1428,14 @@
         "in": "header",
         "name": "If-Modified-Since",
         "required": false,
-        "description": "Client timestamp validator for npm metadata. Local projections can use it when Last-Modified is available and If-None-Match is not present; upstream fallback forwards it to the upstream npm registry.",
+        "description": "Client timestamp validator for npm metadata. Local projections can use it when Last-Modified is available and If-None-Match is not present; upstream fallback forwards it to the upstream npm registry as part of the request header allowlist.",
         "schema": { "type": "string" }
       },
       "NpmMetadataIfNoneMatch": {
         "in": "header",
         "name": "If-None-Match",
         "required": false,
-        "description": "Client ETag validator for npm metadata. Local projections can return 304 when it matches the current ETag; upstream fallback forwards it to the upstream npm registry.",
+        "description": "Client ETag validator for npm metadata. Local projections can return 304 when it matches the current ETag; upstream fallback forwards it to the upstream npm registry as part of the request header allowlist.",
         "schema": { "type": "string" }
       },
       "EventLimit": {

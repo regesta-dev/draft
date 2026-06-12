@@ -74,6 +74,213 @@ describe('createNpmUpstreamFallback', () => {
     expect(requestHeaders.get('if-none-match')).toBe('"client-etag"')
   })
 
+  it('forwards only metadata headers to upstream npm metadata requests', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>((input, init) => {
+      expect(init?.credentials).toBe('omit')
+      expect(init?.headers).toBeInstanceOf(Headers)
+
+      if (input === 'https://registry.npmjs.org/%40upstream%2Fpkg/latest') {
+        return Promise.resolve(
+          Response.json({
+            dist: {
+              tarball:
+                'https://registry.npmjs.org/@upstream/pkg/-/pkg-1.0.0.tgz',
+            },
+            name: '@upstream/pkg',
+            version: '1.0.0',
+          }),
+        )
+      }
+
+      if (
+        input ===
+        'https://registry.npmjs.org/-/package/%40upstream%2Fpkg/dist-tags'
+      ) {
+        return Promise.resolve(
+          Response.json({
+            latest: '1.0.0',
+          }),
+        )
+      }
+
+      return Promise.resolve(
+        Response.json({
+          'dist-tags': {
+            latest: '1.0.0',
+          },
+          name: '@upstream/pkg',
+          versions: {
+            '1.0.0': {
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@upstream/pkg/-/pkg-1.0.0.tgz',
+              },
+              name: '@upstream/pkg',
+              version: '1.0.0',
+            },
+          },
+        }),
+      )
+    })
+    const upstream = createNpmUpstreamFallback({
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+    const app = new Hono()
+    app.get('/packument', (context) => {
+      return upstream.packument(context, '@upstream/pkg')
+    })
+    app.get('/manifest', (context) => {
+      return upstream.packageManifest(context, '@upstream/pkg', 'latest')
+    })
+    app.get('/dist-tags', (context) => {
+      return upstream.distTags(context, '@upstream/pkg')
+    })
+
+    const requestInit = {
+      headers: {
+        accept: 'application/vnd.npm.install-v1+json',
+        authorization: 'Bearer npm-token',
+        cookie: 'npm_token=secret',
+        'if-modified-since': 'Mon, 01 Jun 2026 00:00:00 GMT',
+        'if-none-match': '"client-etag"',
+        'npm-auth-token': 'secret',
+        'x-custom-secret': 'secret',
+      },
+    }
+
+    await app.request('/packument', requestInit)
+    await app.request('/manifest', requestInit)
+    await app.request('/dist-tags', requestInit)
+
+    expect(upstreamFetch).toHaveBeenCalledTimes(3)
+    for (const [, init] of upstreamFetch.mock.calls) {
+      const requestHeaders = init?.headers
+      expect(requestHeaders).toBeInstanceOf(Headers)
+      if (!(requestHeaders instanceof Headers)) {
+        throw new TypeError('Expected upstream request headers')
+      }
+      expect([...requestHeaders.entries()].toSorted()).toEqual([
+        ['accept', 'application/vnd.npm.install-v1+json'],
+        ['if-modified-since', 'Mon, 01 Jun 2026 00:00:00 GMT'],
+        ['if-none-match', '"client-etag"'],
+      ])
+    }
+  })
+
+  it('returns only metadata headers from upstream npm metadata responses', async () => {
+    const body = {
+      'dist-tags': {
+        latest: '1.0.0',
+      },
+      name: '@upstream/pkg',
+      versions: {
+        '1.0.0': {
+          dist: {
+            tarball: 'https://registry.npmjs.org/@upstream/pkg/-/pkg-1.0.0.tgz',
+          },
+          name: '@upstream/pkg',
+          version: '1.0.0',
+        },
+      },
+    }
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      return Promise.resolve(
+        Response.json(body, {
+          headers: {
+            'cache-control': 'public, max-age=300',
+            connection: 'keep-alive',
+            'content-type': 'application/json',
+            etag: '"upstream-packument"',
+            'last-modified': 'Mon, 01 Jun 2026 00:00:00 GMT',
+            location: 'https://registry.npmjs.org/login',
+            'set-cookie': 'npm_token=secret',
+            'www-authenticate': 'Bearer realm="npm"',
+            'x-upstream-secret': 'secret',
+          },
+        }),
+      )
+    })
+    const upstream = createNpmUpstreamFallback({
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+    const app = new Hono()
+    app.get('/packument', (context) => {
+      return upstream.packument(context, '@upstream/pkg')
+    })
+
+    const response = await app.request('/packument')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('public, max-age=300')
+    expect(response.headers.get('content-length')).toBeTypeOf('string')
+    expect(response.headers.get('content-type')).toBe('application/json')
+    expect(response.headers.get('etag')).toBe('"upstream-packument"')
+    expect(response.headers.get('last-modified')).toBe(
+      'Mon, 01 Jun 2026 00:00:00 GMT',
+    )
+    expect(response.headers.get('connection')).toBeNull()
+    expect(response.headers.get('location')).toBeNull()
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(response.headers.get('www-authenticate')).toBeNull()
+    expect(response.headers.get('x-upstream-secret')).toBeNull()
+    await expect(response.json()).resolves.toEqual(body)
+  })
+
+  it('returns only metadata headers for upstream npm HEAD metadata responses', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>((_, init) => {
+      expect(init?.method).toBe('HEAD')
+
+      return Promise.resolve(
+        Response.json(
+          {
+            name: '@upstream/pkg',
+          },
+          {
+            headers: {
+              'cache-control': 'public, max-age=300',
+              connection: 'keep-alive',
+              'content-type': 'application/json',
+              etag: '"upstream-packument"',
+              'last-modified': 'Mon, 01 Jun 2026 00:00:00 GMT',
+              location: 'https://registry.npmjs.org/login',
+              'set-cookie': 'npm_token=secret',
+              'www-authenticate': 'Bearer realm="npm"',
+              'x-upstream-secret': 'secret',
+            },
+          },
+        ),
+      )
+    })
+    const upstream = createNpmUpstreamFallback({
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+    const app = new Hono()
+    app.get('/packument', (context) => {
+      return upstream.packument(context, '@upstream/pkg')
+    })
+
+    const response = await app.request('/packument', {
+      method: 'HEAD',
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('public, max-age=300')
+    expect(response.headers.get('content-type')).toBe('application/json')
+    expect(response.headers.get('etag')).toBe('"upstream-packument"')
+    expect(response.headers.get('last-modified')).toBe(
+      'Mon, 01 Jun 2026 00:00:00 GMT',
+    )
+    expect(response.headers.get('connection')).toBeNull()
+    expect(response.headers.get('location')).toBeNull()
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(response.headers.get('www-authenticate')).toBeNull()
+    expect(response.headers.get('x-upstream-secret')).toBeNull()
+    await expect(response.text()).resolves.toBe('')
+  })
+
   it('passes through upstream npm not-modified metadata responses without bodies', async () => {
     const upstreamFetch = vi.fn<typeof fetch>((input, init) => {
       expect(input).toBe('https://registry.npmjs.org/%40upstream%2Fpkg')
@@ -83,8 +290,13 @@ describe('createNpmUpstreamFallback', () => {
         new Response(null, {
           headers: {
             'cache-control': 'public, max-age=300',
+            connection: 'keep-alive',
             etag: '"upstream-packument"',
             'last-modified': 'Mon, 01 Jun 2026 00:00:00 GMT',
+            location: 'https://registry.npmjs.org/login',
+            'set-cookie': 'npm_token=secret',
+            'www-authenticate': 'Bearer realm="npm"',
+            'x-upstream-secret': 'secret',
           },
           status: 304,
           statusText: 'Not Modified',
@@ -114,6 +326,11 @@ describe('createNpmUpstreamFallback', () => {
     expect(response.headers.get('last-modified')).toBe(
       'Mon, 01 Jun 2026 00:00:00 GMT',
     )
+    expect(response.headers.get('connection')).toBeNull()
+    expect(response.headers.get('location')).toBeNull()
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(response.headers.get('www-authenticate')).toBeNull()
+    expect(response.headers.get('x-upstream-secret')).toBeNull()
     await expect(response.text()).resolves.toBe('')
     const requestHeaders = upstreamFetch.mock.calls[0]?.[1]?.headers
     expect(requestHeaders).toBeInstanceOf(Headers)
