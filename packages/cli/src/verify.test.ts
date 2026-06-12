@@ -93,6 +93,42 @@ describe('verifyReleaseFromRegistry', () => {
     })
   })
 
+  it('verifies future ecosystem releases without npm artifact processing', async () => {
+    const fixture = releaseFixture()
+    const artifactBytes = bytes('maven install artifact')
+    const artifact = {
+      ...descriptor(artifactBytes, 'application/octet-stream'),
+      filename: 'artifact-1.0.0.jar',
+      format: 'maven-artifact',
+      role: 'install',
+    }
+
+    fixture.release.manifest = {
+      ...fixture.release.manifest,
+      artifacts: [artifact],
+      ecosystem: 'maven',
+      id: 'maven:example.com/group/artifact',
+      name: 'example.com/group/artifact',
+    }
+    fixture.objects.set(artifact.digest, {
+      bytes: artifactBytes,
+      descriptor: artifact,
+    })
+    refreshReleaseFixtureDerivedObjects(fixture)
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: publicRegistryFetch(fixture),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example/',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      problems: [],
+    })
+  })
+
   it('uses isolated request options while reading public registry data', async () => {
     const fixture = releaseFixture()
     const baseFetch = publicRegistryFetch(fixture)
@@ -1048,7 +1084,7 @@ describe('verifyReleaseFromRegistry', () => {
     })
 
     const result = await verifyReleaseFromRegistry({
-      fetch: publicRegistryFetch(fixture),
+      fetch: publicRegistryFetch(fixture, { packageId, version }),
       packageId,
       registry: 'https://registry.example',
       version,
@@ -1634,6 +1670,36 @@ describe('verifyEventLogFromRegistry', () => {
         channelEvent.id,
       )}&limit=1`,
     ])
+  })
+
+  it('verifies public event logs for future ecosystem package ids', async () => {
+    const fixture = releaseFixture()
+    fixture.release.manifest = {
+      ...fixture.release.manifest,
+      ecosystem: 'maven',
+      id: 'maven:example.com/group/artifact',
+      name: 'example.com/group/artifact',
+    }
+    refreshReleaseFixtureDerivedObjects(fixture)
+    const channelEvent = channelUpdatedEvent(fixture.release.event, {
+      channel: 'beta',
+      timestamp: '2026-06-09T00:01:00.000Z',
+      version: fixture.release.manifest.version,
+    })
+
+    const result = await verifyEventLogFromRegistry({
+      fetch: publicEventLogFetch([fixture.release.event, channelEvent]),
+      limit: 1,
+      registry: 'https://registry.example/',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 2,
+      lastEventId: channelEvent.id,
+      ok: true,
+      packages: 1,
+      problems: [],
+    })
   })
 
   it('uses isolated request options while reading public event logs', async () => {
@@ -2679,10 +2745,13 @@ function descriptor(bytes: Uint8Array, mediaType: string): ObjectDescriptor {
   }
 }
 
-function publicRegistryFetch(fixture: {
-  objects: Map<string, { bytes: Uint8Array; descriptor: ObjectDescriptor }>
-  release: StoredRelease
-}): TestFetch {
+function publicRegistryFetch(
+  fixture: {
+    objects: Map<string, { bytes: Uint8Array; descriptor: ObjectDescriptor }>
+    release: StoredRelease
+  },
+  route: { packageId?: PackageId; version?: string } = {},
+): TestFetch {
   const headRequests: string[] = []
   const requests: string[] = []
   const fetchImpl = (
@@ -2703,10 +2772,13 @@ function publicRegistryFetch(fixture: {
     }
 
     const { pathname } = new URL(url)
+    const releasePath = `/packages/${encodeURIComponent(
+      route.packageId ?? fixture.release.manifest.id,
+    )}/releases/${encodeURIComponent(
+      route.version ?? fixture.release.manifest.version,
+    )}`
 
-    if (
-      pathname === '/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0'
-    ) {
+    if (pathname === releasePath) {
       return Promise.resolve(
         canonicalJsonResponse(fixture.release, {
           headers: {

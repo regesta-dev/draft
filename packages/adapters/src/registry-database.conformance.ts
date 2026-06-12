@@ -164,6 +164,37 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('stores package state for future ecosystem keys without adapter-specific assumptions', async () => {
+      await withDatabase(target, async (database) => {
+        const release = storedRelease(
+          'maven:example.com/group/artifact',
+          '1.0.0',
+        )
+
+        await database.commitPublishedRelease(release, 'latest')
+
+        await expect(database.hasPackage(release.manifest.id)).resolves.toBe(
+          true,
+        )
+        await expect(database.countPackages()).resolves.toBe(1)
+        await expect(
+          database.getPackageChannels(release.manifest.id),
+        ).resolves.toEqual({ latest: '1.0.0' })
+        await expect(
+          database.getPackageEventState(release.manifest.id),
+        ).resolves.toMatchObject({
+          state: {
+            ecosystem: 'maven',
+            id: 'maven:example.com/group/artifact',
+            name: 'example.com/group/artifact',
+          },
+        })
+        await expect(
+          database.listPackageReleases(release.manifest.id),
+        ).resolves.toEqual([release])
+      })
+    })
+
     it('lists package-scoped events in sequence order', async () => {
       await withDatabase(target, async (database) => {
         const packageId: PackageId = 'npm:example.com/events'

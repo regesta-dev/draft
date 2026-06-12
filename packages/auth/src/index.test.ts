@@ -5,7 +5,7 @@ import {
   sign,
   type KeyObject,
 } from 'node:crypto'
-import { canonicalJson, sha256 } from '@regesta/protocol'
+import { canonicalJson, sha256, type PackageId } from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createChannelDeleteIntent,
@@ -57,6 +57,25 @@ describe('verifyWriteAuthorization', () => {
       signature: fixture.authorization.signature,
       signedAt: fixture.authorization.payload.timestamp,
       wellKnownDigest: sha256(bindingBytes),
+    })
+  })
+
+  it('verifies write signatures for future ecosystem package ids', async () => {
+    const fixture = createAuthorizationFixture({
+      packageId: 'maven:example.com/group/artifact',
+    })
+
+    await expect(
+      verifyWriteAuthorization({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        fetchBinding: bindingFetch(fixture.binding),
+        now: fixture.now,
+      }),
+    ).resolves.toMatchObject({
+      domain: 'example.com',
+      object: 'regesta.authorization-proof',
+      payloadDigest: sha256(canonicalJson(fixture.authorization.payload)),
     })
   })
 
@@ -1180,6 +1199,7 @@ describe('write intent helpers', () => {
 function createAuthorizationFixture(
   input: {
     now?: Date
+    packageId?: PackageId
     timestamp?: string
   } = {},
 ): {
@@ -1201,7 +1221,7 @@ function createAuthorizationFixture(
     artifactDigests: [sha256(bytes('artifact'))],
     configDigest: sha256(bytes('config')),
     nonce: 'auth-test-nonce',
-    packageId: 'npm:example.com/auth-test',
+    packageId: input.packageId ?? 'npm:example.com/auth-test',
     sourceDigest: sha256(bytes('source')),
     timestamp: input.timestamp ?? now.toISOString(),
     version: '0.0.1',

@@ -91,6 +91,51 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('mirrors future ecosystem releases by canonical package id', async () => {
+    const fixture = releaseFixture({
+      artifactBytes: bytes('maven install artifact'),
+      artifactFilename: 'artifact-1.0.0.jar',
+      artifactFormat: 'maven-artifact',
+      artifactMediaType: 'application/octet-stream',
+      ecosystem: 'maven',
+      id: 'maven:example.com/group/artifact',
+      name: 'example.com/group/artifact',
+    })
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture),
+        outputDir,
+        registry: 'https://registry.example/',
+      })
+
+      expect(result).toMatchObject({
+        events: 1,
+        ok: true,
+        packages: 1,
+        problems: [],
+        releases: 1,
+      })
+      await expect(
+        readText(releasePath(outputDir, fixture.manifest.id, '1.0.0')),
+      ).resolves.toBe(`${canonicalJson(fixture.releaseEnvelope)}\n`)
+      await expect(
+        readInventory(join(outputDir, 'inventory.json')),
+      ).resolves.toMatchObject({
+        packages: ['maven:example.com/group/artifact'],
+        releases: [
+          {
+            id: 'maven:example.com/group/artifact',
+            version: '1.0.0',
+          },
+        ],
+      })
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('reports object digest mismatches', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -1176,18 +1221,31 @@ describe('compareMirrorDirectories', () => {
   })
 })
 
-function releaseFixture() {
+function releaseFixture(
+  input: {
+    artifactBytes?: Uint8Array
+    artifactFilename?: string
+    artifactFormat?: string
+    artifactMediaType?: string
+    ecosystem?: string
+    id?: string
+    name?: string
+  } = {},
+) {
   const sourceBytes = bytes('source archive')
-  const artifactBytes = bytes('install artifact')
+  const artifactBytes = input.artifactBytes ?? bytes('install artifact')
   const extraObjectBytes = bytes('unreferenced public object')
   const source = objectDescriptor(
     sourceBytes,
     'application/vnd.regesta.source-archive+tgz',
   )
   const artifact = {
-    ...objectDescriptor(artifactBytes, 'application/gzip'),
-    filename: 'hello-regesta-1.0.0.tgz',
-    format: 'npm-tarball',
+    ...objectDescriptor(
+      artifactBytes,
+      input.artifactMediaType ?? 'application/gzip',
+    ),
+    filename: input.artifactFilename ?? 'hello-regesta-1.0.0.tgz',
+    format: input.artifactFormat ?? 'npm-tarball',
     role: 'install',
   } satisfies ReleaseManifest['artifacts'][number]
   const extraObject = objectDescriptor(
@@ -1198,12 +1256,12 @@ function releaseFixture() {
     artifacts: [artifact],
     configDigest: sha256(bytes('config')),
     createdAt: '2026-06-10T00:00:00.000Z',
-    ecosystem: 'npm',
-    id: 'npm:example.com/hello-regesta',
+    ecosystem: input.ecosystem ?? 'npm',
+    id: input.id ?? 'npm:example.com/hello-regesta',
     metadata: {
       description: 'Hello Regesta.',
     },
-    name: 'example.com/hello-regesta',
+    name: input.name ?? 'example.com/hello-regesta',
     object: 'regesta.release-manifest',
     provenance: {
       level: 'source-attached',
@@ -1338,7 +1396,7 @@ function mirrorFetch(
     ],
   ])
   const descriptors = [...objects.values()]
-    .map((object) => object.descriptor)
+    .map((object) => objectInventoryDescriptor(object.descriptor))
     .toSorted((left, right) => {
       return left.digest.localeCompare(right.digest)
     })
@@ -1482,6 +1540,16 @@ function objectDescriptor(bytes: Uint8Array, mediaType: string) {
     digest: sha256(bytes),
     mediaType,
     size: bytes.byteLength,
+  }
+}
+
+function objectInventoryDescriptor(
+  descriptor: ReturnType<typeof objectDescriptor>,
+) {
+  return {
+    digest: descriptor.digest,
+    mediaType: descriptor.mediaType,
+    size: descriptor.size,
   }
 }
 
