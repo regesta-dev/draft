@@ -1,5 +1,5 @@
+import { requestIdHeader, validatedRequestId } from '../request.ts'
 import { errorResponse, jsonResponse } from '../responses.ts'
-import { isValidRequestId } from './logging.ts'
 import type { Context } from 'hono'
 
 export interface KnownTransportError {
@@ -60,9 +60,8 @@ function errorIssues(error: Error): string[] {
 }
 
 function requestId(context: Context): string | undefined {
-  const id =
-    context.res.headers.get('x-request-id') ??
-    context.req.header('x-request-id')
-
-  return id && isValidRequestId(id) ? id : undefined
+  return validatedRequestId(
+    context.res.headers,
+    context.req.header(requestIdHeader),
+  )
 }

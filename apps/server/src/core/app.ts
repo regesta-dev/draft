@@ -45,8 +45,10 @@ import {
   readJsonBody,
   readJsonField,
   readOptionalTextField,
+  requestIdHeader,
   RequestValidationError,
   requiredParam,
+  validatedRequestId,
   validateRequest,
 } from '../request.ts'
 import {
@@ -1533,9 +1535,10 @@ function rejectedCoreWriteAuditEntry(
 }
 
 function auditRequestFields(context: Context): { requestId?: string } {
-  const requestId =
-    context.res.headers.get('x-request-id') ??
-    context.req.header('x-request-id')
+  const requestId = validatedRequestId(
+    context.res.headers,
+    context.req.header(requestIdHeader),
+  )
 
   return requestId ? { requestId } : {}
 }

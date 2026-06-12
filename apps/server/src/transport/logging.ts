@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isValidRequestId, requestIdHeader } from '../request.ts'
 import type { Context, MiddlewareHandler } from 'hono'
 
 export interface RequestLogEntry {
@@ -12,13 +13,6 @@ export interface RequestLogEntry {
 }
 
 export type RequestLogSink = (entry: RequestLogEntry) => Promise<void> | void
-
-const requestIdHeader = 'x-request-id'
-const requestIdPattern = /^[\w.-]{1,128}$/u
-
-export function isValidRequestId(value: string): boolean {
-  return requestIdPattern.test(value)
-}
 
 export function createRequestIdMiddleware(): MiddlewareHandler {
   return async (context, next) => {

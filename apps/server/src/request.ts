@@ -4,8 +4,11 @@ export const nonEmptyStringSchema = v.pipe(
   v.string(),
   v.nonEmpty('Must be a non-empty string'),
 )
+const requestIdPattern = /^[\w.-]{1,128}$/u
 const fileFieldSchema = v.instance(File, 'Must be a file')
 const textFieldSchema = v.union([v.string(), fileFieldSchema])
+
+export const requestIdHeader = 'x-request-id'
 
 export class RequestValidationError extends Error {
   readonly issues: string[]
@@ -30,6 +33,19 @@ export const requestKnownErrors = [
     status: 400,
   },
 ] satisfies RequestKnownError[]
+
+export function isValidRequestId(value: string): boolean {
+  return requestIdPattern.test(value)
+}
+
+export function validatedRequestId(
+  responseHeaders: Headers,
+  requestHeader: string | undefined,
+): string | undefined {
+  const id = responseHeaders.get(requestIdHeader) ?? requestHeader
+
+  return id && isValidRequestId(id) ? id : undefined
+}
 
 export interface BinaryFieldOptions {
   maxBytes?: number

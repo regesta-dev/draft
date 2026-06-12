@@ -1,3 +1,4 @@
+import { requestIdHeader, validatedRequestId } from '../request.ts'
 import { errorResponse, jsonResponse } from '../responses.ts'
 import type { Context } from 'hono'
 
@@ -425,9 +426,9 @@ function copyHeaders(
 }
 
 function requestId(context: Context): string | undefined {
-  return (
-    context.res.headers.get('x-request-id') ??
-    context.req.header('x-request-id')
+  return validatedRequestId(
+    context.res.headers,
+    context.req.header(requestIdHeader),
   )
 }
 

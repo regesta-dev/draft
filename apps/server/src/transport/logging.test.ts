@@ -4,7 +4,6 @@ import { createTransportErrorBoundary } from './errors.ts'
 import {
   createRequestIdMiddleware,
   createRequestLogger,
-  isValidRequestId,
   type RequestLogEntry,
 } from './logging.ts'
 
@@ -240,20 +239,6 @@ describe('createRequestLogger', () => {
         }),
       )
     })
-  })
-})
-
-describe('isValidRequestId', () => {
-  it('accepts bounded portable request ids', () => {
-    expect(isValidRequestId('request-01HZX2V4Q5R6')).toBe(true)
-    expect(isValidRequestId('a'.repeat(128))).toBe(true)
-  })
-
-  it('rejects empty, oversized, and whitespace request ids', () => {
-    expect(isValidRequestId('')).toBe(false)
-    expect(isValidRequestId('a'.repeat(129))).toBe(false)
-    expect(isValidRequestId('invalid request id')).toBe(false)
-    expect(isValidRequestId('invalid\nrequest-id')).toBe(false)
   })
 })
 

@@ -1836,6 +1836,9 @@ describe('documentation references', () => {
     expect(normalizedOperations).toContain(
       'Invalid client request ids are replaced',
     )
+    expect(normalizedOperations).toContain(
+      'same normalized request id is used in the HTTP response, `regesta.request`, and `regesta.core-audit` entries',
+    )
     expect(operations).toContain(
       '`regesta.deployment-statistics-refresh-failure`',
     )

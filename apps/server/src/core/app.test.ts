@@ -2,7 +2,11 @@ import { Buffer } from 'node:buffer'
 import { createMemoryRegistryAdapters } from '@regesta/adapters'
 import { sha256, type WriteAuthorizationProof } from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { createCoreRegistryApp, type CoreRegistryServices } from './app.ts'
+import {
+  createCoreRegistryApp,
+  type CoreRegistryAuditEntry,
+  type CoreRegistryServices,
+} from './app.ts'
 
 describe('createCoreRegistryApp', () => {
   it('passes public Host-header request URLs to write authorization services', async () => {
@@ -265,6 +269,37 @@ describe('createCoreRegistryApp', () => {
     expect(getPackageChannelVersion).toHaveBeenCalledOnce()
     expect(getPackageChannelVersion).toHaveBeenCalledWith(packageId, 'latest')
     expect(getPackageChannels).not.toHaveBeenCalled()
+  })
+
+  it('does not record invalid raw request ids in core audit entries', async () => {
+    const entries: CoreRegistryAuditEntry[] = []
+    const adapters = createMemoryRegistryAdapters()
+    const signedAt = '2026-06-01T00:00:00.000Z'
+    const services = coreRegistryServices(signedAt)
+    const app = createCoreRegistryApp(adapters, services, {
+      auditLog: (entry) => {
+        entries.push(entry)
+      },
+    })
+    const publish = await app.request('/releases', {
+      body: publishForm({
+        id: 'npm:example.com/invalid-audit-request-id',
+        signedAt,
+        version: '0.0.1',
+      }),
+      headers: {
+        'x-request-id': 'invalid request id',
+      },
+      method: 'POST',
+    })
+
+    expect(publish.status).toBe(201)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toEqual(
+      expect.not.objectContaining({
+        requestId: 'invalid request id',
+      }),
+    )
   })
 })
 

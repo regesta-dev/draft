@@ -1205,6 +1205,120 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('uses generated request ids for request logs and core audit entries', async () => {
+    const requestEntries: Array<{
+      requestId: string
+      path: string
+      status: number
+    }> = []
+    const auditEntries: CoreRegistryAuditEntry[] = []
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      auditLog: (entry) => {
+        auditEntries.push(entry)
+      },
+      requestLog: (entry) => {
+        requestEntries.push(entry)
+      },
+    })
+    const auth = createTestDomainAuth()
+    const timestamp = new Date().toISOString()
+    const source = bytes('source archive')
+    const artifacts = [
+      {
+        bytes: bytes('install artifact'),
+        format: 'generic-archive',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ]
+    const config: RegestaConfig = {
+      id: 'demo:example.com/generated-request-id-audit',
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const normalizedConfig = normalizeRegestaConfig(config)
+    const form = new FormData()
+
+    form.set('config', JSON.stringify(config))
+    form.set(
+      'authorization',
+      JSON.stringify(
+        createSignedPublishAuthorization({
+          artifacts,
+          auth,
+          config,
+          nonce: 'generated-request-id-audit-nonce',
+          source,
+          timestamp,
+        }),
+      ),
+    )
+    form.set('createdAt', timestamp)
+    form.set('source', new File([blobPart(source)], 'source.tgz'))
+    form.set(
+      'artifacts',
+      JSON.stringify([
+        {
+          format: 'generic-archive',
+          mediaType: 'application/gzip',
+          part: 'artifact.install',
+          role: 'install',
+        },
+      ]),
+    )
+    form.set(
+      'artifact.install',
+      new File([blobPart(artifacts[0]!.bytes)], 'install.tgz', {
+        type: 'application/gzip',
+      }),
+    )
+
+    vi.stubGlobal('fetch', auth.fetch)
+
+    try {
+      const response = await app.request('/releases', {
+        body: form,
+        headers: {
+          'x-request-id': 'invalid request id',
+        },
+        method: 'POST',
+      })
+      const requestId = response.headers.get('x-request-id')
+
+      expect(response.status).toBe(201)
+      expect(requestId).toMatch(/^[0-9a-f-]{36}$/u)
+      expect(requestId).not.toBe('invalid request id')
+      expect(requestEntries).toMatchObject([
+        {
+          path: '/releases',
+          requestId,
+          status: 201,
+        },
+      ])
+      expect(auditEntries).toHaveLength(1)
+      expect(auditEntries[0]).toMatchObject({
+        action: 'release.publish',
+        kind: 'regesta.core-audit',
+        outcome: 'accepted',
+        package: normalizedConfig.id,
+        requestId,
+        version: normalizedConfig.version,
+      })
+      expect(auditEntries[0]).toEqual(
+        expect.not.objectContaining({
+          requestId: 'invalid request id',
+        }),
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('does not fail accepted writes when the operator audit sink fails', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const adapters = createMemoryRegistryAdapters()

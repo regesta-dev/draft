@@ -120,20 +120,112 @@ describe('server layer boundaries', () => {
     expect(source).not.toContain('JSON.stringify')
   })
 
-  it('keeps request id validation centralized in transport logging helpers', async () => {
+  it('keeps internal server error responses centralized in the transport error boundary', async () => {
+    const violations: string[] = []
+
+    for (const file of await sourceFiles(serverSourceRoot)) {
+      const relativePath = relative(serverSourceRoot, file)
+      const source = await readFile(file, 'utf8')
+
+      if (relativePath === 'transport/errors.ts') {
+        const errorBoundarySource = sourceBetween(
+          source,
+          'export function createTransportErrorBoundary',
+          'function errorIssues',
+        )
+
+        expect(errorBoundarySource).toContain('internal_server_error')
+        expect(errorBoundarySource).toMatch(/\bstatus\s*:\s*500\b/u)
+        expect(errorBoundarySource).toContain('console.error')
+        continue
+      }
+
+      if (
+        source.includes('internal_server_error') ||
+        /\bstatus\s*:\s*500\b/u.test(source)
+      ) {
+        violations.push(relativePath)
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
+  it('keeps request id validation centralized in shared request helpers', async () => {
     const errorsSource = await readFile(
       join(serverSourceRoot, 'transport/errors.ts'),
+      'utf8',
+    )
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
       'utf8',
     )
     const loggingSource = await readFile(
       join(serverSourceRoot, 'transport/logging.ts'),
       'utf8',
     )
+    const upstreamSource = await readFile(
+      join(serverSourceRoot, 'npm/upstream.ts'),
+      'utf8',
+    )
+    const requestSource = await readFile(
+      join(serverSourceRoot, 'request.ts'),
+      'utf8',
+    )
 
-    expect(loggingSource).toContain('export function isValidRequestId')
-    expect(loggingSource).toContain('const requestIdPattern')
-    expect(errorsSource).toContain('import { isValidRequestId }')
+    expect(requestSource).toContain(
+      "export const requestIdHeader = 'x-request-id'",
+    )
+    expect(requestSource).toContain('export function isValidRequestId')
+    expect(requestSource).toContain('export function validatedRequestId')
+    expect(requestSource).toContain('const requestIdPattern')
+    expect(coreSource).toContain('validatedRequestId')
+    expect(loggingSource).toContain('isValidRequestId')
+    expect(upstreamSource).toContain('validatedRequestId')
+    expect(errorsSource).toContain('validatedRequestId')
+    expect(coreSource).not.toContain('requestIdPattern')
     expect(errorsSource).not.toContain('requestIdPattern')
+    expect(loggingSource).not.toContain('requestIdPattern')
+    expect(upstreamSource).not.toContain('requestIdPattern')
+  })
+
+  it('keeps the raw request id header name in shared request helpers', async () => {
+    const violations: string[] = []
+
+    for (const file of await sourceFiles(serverSourceRoot)) {
+      const source = await readFile(file, 'utf8')
+
+      if (!source.includes("'x-request-id'")) {
+        continue
+      }
+
+      if (relative(serverSourceRoot, file) !== 'request.ts') {
+        violations.push(relative(serverSourceRoot, file))
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
+  it('keeps production request id header access paired with shared validation', async () => {
+    const violations: string[] = []
+
+    for (const file of await sourceFiles(serverSourceRoot)) {
+      const source = await readFile(file, 'utf8')
+
+      if (!source.includes('requestIdHeader')) {
+        continue
+      }
+
+      if (
+        !source.includes('validatedRequestId') &&
+        !source.includes('isValidRequestId')
+      ) {
+        violations.push(relative(serverSourceRoot, file))
+      }
+    }
+
+    expect(violations).toEqual([])
   })
 
   it('keeps shared HTTP response helpers independent from business layers', async () => {

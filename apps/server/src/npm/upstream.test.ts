@@ -388,6 +388,42 @@ describe('createNpmUpstreamFallback', () => {
     }
   })
 
+  it('does not log invalid raw request ids for upstream failures', async () => {
+    const upstreamError = new Error('upstream unavailable')
+    const upstreamFetch = vi.fn<typeof fetch>(() =>
+      Promise.reject(upstreamError),
+    )
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined)
+    const upstream = createNpmUpstreamFallback({
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+    const app = new Hono()
+    app.get('/packument', (context) => {
+      return upstream.packument(context, '@upstream/pkg')
+    })
+
+    try {
+      const response = await app.request('/packument', {
+        headers: {
+          'x-request-id': 'invalid request id',
+        },
+      })
+
+      expect(response.status).toBe(502)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry request failed',
+        expect.not.objectContaining({
+          requestId: 'invalid request id',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('builds npm tarball redirect URLs without fetching tarball bytes', () => {
     const upstreamFetch = vi.fn<typeof fetch>()
     const upstream = createNpmUpstreamFallback({
