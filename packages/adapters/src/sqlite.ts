@@ -65,9 +65,6 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
         PRIMARY KEY (package_id, version)
       );
 
-      CREATE INDEX IF NOT EXISTS releases_package_created_idx
-        ON releases (package_id, created_at);
-
       CREATE TABLE IF NOT EXISTS package_channels (
         package_id TEXT NOT NULL,
         channel TEXT NOT NULL,
@@ -134,6 +131,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     this.ensureRegistryPackageHeads()
     this.ensureRegistryPackageReleaseHeads()
     this.ensureRegistryStats()
+    this.ensureRegistryReadIndexes()
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS registry_events_authorization_payload_digest_unique_idx
         ON registry_events (authorization_payload_digest)
@@ -1190,6 +1188,18 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
           DO UPDATE SET value = excluded.value`,
       )
       .run(requiredNumber(row, 'count'))
+  }
+
+  private ensureRegistryReadIndexes(): void {
+    this.db.exec(`
+      DROP INDEX IF EXISTS releases_package_created_idx;
+
+      CREATE INDEX IF NOT EXISTS releases_package_created_version_idx
+        ON releases (package_id, created_at, version);
+
+      CREATE INDEX IF NOT EXISTS registry_event_releases_package_created_version_idx
+        ON registry_event_releases (package_id, created_at, version);
+    `)
   }
 
   private registryStatExists(key: string): boolean {

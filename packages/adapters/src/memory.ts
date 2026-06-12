@@ -405,7 +405,10 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     const releases = [...(this.eventReleases.get(packageId)?.values() ?? [])]
       .map((release) => ({ ...release }))
       .toSorted((left, right) => {
-        return left.createdAt.localeCompare(right.createdAt)
+        return (
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.version.localeCompare(right.version)
+        )
       })
     const channels = Object.fromEntries(
       this.eventChannels.get(packageId)?.entries() ?? [],

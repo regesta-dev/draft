@@ -61,6 +61,27 @@ describe('replayPackageState', () => {
     })
   })
 
+  it('orders releases deterministically when publish timestamps match', () => {
+    const packageId: PackageId = 'npm:example.com/same-timestamp'
+    const second = publishEvent(packageId, '2.0.0', '2026-06-01T00:00:00.000Z')
+    const first = publishEvent(packageId, '1.0.0', '2026-06-01T00:00:00.000Z')
+
+    expect(replayPackageState([second, first], packageId)).toMatchObject({
+      releases: [
+        {
+          createdAt: '2026-06-01T00:00:00.000Z',
+          manifestDigest: first.release.manifestDigest,
+          version: '1.0.0',
+        },
+        {
+          createdAt: '2026-06-01T00:00:00.000Z',
+          manifestDigest: second.release.manifestDigest,
+          version: '2.0.0',
+        },
+      ],
+    })
+  })
+
   it('rejects events whose id does not match the canonical payload', () => {
     const event = publishEvent(
       'npm:example.com/hello-regesta',

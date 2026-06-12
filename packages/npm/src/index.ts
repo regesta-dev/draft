@@ -97,9 +97,12 @@ export function createNpmPackument(
   for (const release of releases) {
     assertNpmReleaseMatchesPackage(packageId, release.manifest)
   }
-  const sortedReleases = releases.toSorted((left, right) =>
-    left.manifest.createdAt.localeCompare(right.manifest.createdAt),
-  )
+  const sortedReleases = releases.toSorted((left, right) => {
+    return (
+      left.manifest.createdAt.localeCompare(right.manifest.createdAt) ||
+      left.manifest.version.localeCompare(right.manifest.version)
+    )
+  })
   const latest = sortedReleases.at(-1)
   const knownVersions = new Set(
     sortedReleases.map((release) => release.manifest.version),

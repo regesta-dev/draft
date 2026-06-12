@@ -387,6 +387,41 @@ describe('npm package projection', () => {
     })
   })
 
+  it('orders packument releases deterministically when timestamps match', () => {
+    const packument = createNpmPackument(
+      'npm:some.dev/sdk',
+      [
+        {
+          manifest: releaseManifest({
+            createdAt: '2026-06-01T00:00:00.000Z',
+            version: '2.0.0',
+          }),
+        },
+        {
+          manifest: releaseManifest({
+            createdAt: '2026-06-01T00:00:00.000Z',
+            version: '1.0.0',
+          }),
+        },
+      ],
+      'https://registry.test',
+      {
+        latest: '9.9.9',
+      },
+    )
+
+    expect(Object.keys(packument.versions)).toEqual(['1.0.0', '2.0.0'])
+    expect(packument['dist-tags']).toEqual({
+      latest: '2.0.0',
+    })
+    expect(packument.time).toMatchObject({
+      '1.0.0': '2026-06-01T00:00:00.000Z',
+      '2.0.0': '2026-06-01T00:00:00.000Z',
+      created: '2026-06-01T00:00:00.000Z',
+      modified: '2026-06-01T00:00:00.000Z',
+    })
+  })
+
   it('extracts npm dev dependencies as npm artifact metadata', async () => {
     await expect(
       processNpmPublishArtifacts(npmConfig(), [

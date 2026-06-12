@@ -182,6 +182,64 @@ describe('local npm projection', () => {
     expect(getPackageEventState).not.toHaveBeenCalled()
   })
 
+  it('does not read an extra empty release page at the page-size boundary', async () => {
+    const releases = Array.from({ length: 999 }, (_, index) => {
+      const version = `1.0.${index}`
+      const manifest = release(version, '2025-01-01T00:00:00.000Z')
+      const event = publish(manifest, 'latest', manifest.createdAt)
+
+      return {
+        event,
+        manifest,
+      }
+    })
+    const last = releases.at(-1)!
+    const getPackageReleaseHead = vi.fn(() =>
+      Promise.resolve({
+        modifiedAt: last.manifest.createdAt,
+        releaseCount: releases.length,
+      }),
+    )
+    const listPackageReleases = vi.fn(() => Promise.resolve(releases))
+    const reader = {
+      database: {
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('uncached reads should not read package event heads')
+        }),
+        getPackageEventState: vi.fn(() =>
+          Promise.resolve(
+            packageStateSnapshotFromEvents(
+              releases.map((item) => item.event),
+              {
+                latest: last.manifest.version,
+              },
+              last.event,
+            ),
+          ),
+        ),
+        getPackageReleaseHead,
+        listPackageReleases,
+      },
+    } satisfies NpmProjectionStateReader
+
+    const projection = await readLocalNpmPackageProjection(
+      reader,
+      packageId,
+      new URL('https://npm.registry.test/@example.com/hello-regesta'),
+    )
+
+    if (!projection) {
+      throw new Error('Expected local npm projection')
+    }
+
+    expect(projection.packument.versions).toHaveProperty('1.0.998')
+    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
+    expect(listPackageReleases).toHaveBeenCalledOnce()
+    expect(listPackageReleases).toHaveBeenCalledWith(packageId, {
+      limit: 999,
+    })
+  })
+
   it('reuses cached packuments while the package event id is unchanged', async () => {
     const first = release('1.0.0', '2025-01-01T00:00:00.000Z')
     const firstPublished = publish(first, 'latest', '2025-01-01T00:00:00.000Z')
@@ -328,10 +386,10 @@ describe('local npm projection', () => {
     expect(listPackageReleases).toHaveBeenCalledTimes(2)
     expect(getPackageEventState).toHaveBeenCalledTimes(2)
     expect(getPackageEventHead).toHaveBeenCalledOnce()
-    expect(getPackageReleaseHead).toHaveBeenCalledTimes(2)
+    expect(getPackageReleaseHead).toHaveBeenCalledTimes(3)
   })
 
-  it('invalidates cached packuments when stored releases change without event state changes', async () => {
+  it('does not cache packuments when stored releases and event state disagree', async () => {
     const first = release('1.0.0', '2025-01-01T00:00:00.000Z')
     const second = release('2.0.0', '2025-01-02T00:00:00.000Z')
     const firstPublished = publish(first, 'latest', '2025-01-01T00:00:00.000Z')
@@ -408,10 +466,10 @@ describe('local npm projection', () => {
 
     expect(refreshedProjection).not.toBe(firstProjection)
     expect(refreshedProjection.packument.versions).toHaveProperty('2.0.0')
-    expect(listPackageReleases).toHaveBeenCalledTimes(4)
-    expect(getPackageEventState).toHaveBeenCalledTimes(4)
-    expect(getPackageEventHead).toHaveBeenCalledOnce()
-    expect(getPackageReleaseHead).toHaveBeenCalledTimes(3)
+    expect(listPackageReleases).toHaveBeenCalledTimes(6)
+    expect(getPackageEventState).toHaveBeenCalledTimes(6)
+    expect(getPackageEventHead).not.toHaveBeenCalled()
+    expect(getPackageReleaseHead).toHaveBeenCalledTimes(6)
   })
 
   it('does not retry direct projection-only package reads', async () => {

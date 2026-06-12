@@ -257,6 +257,19 @@ describe('adapters package architecture', () => {
     expect(sqliteSource).toContain('LIMIT ?')
     expect(sqliteSource).toContain('created_at > ?')
     expect(sqliteSource).toContain('version > ?')
+    expect(sources.sqlite).toContain(
+      'DROP INDEX IF EXISTS releases_package_created_idx',
+    )
+    expect(sources.sqlite).toContain('releases_package_created_version_idx')
+    expect(sources.sqlite).toContain(
+      'ON releases (package_id, created_at, version)',
+    )
+    expect(sources.sqlite).toContain(
+      'registry_event_releases_package_created_version_idx',
+    )
+    expect(sources.sqlite).toContain(
+      'ON registry_event_releases (package_id, created_at, version)',
+    )
     for (const source of [memorySource, sqliteSource]) {
       expect(source).not.toContain('options.limit === undefined')
       expect(source).not.toContain('Number.POSITIVE_INFINITY')

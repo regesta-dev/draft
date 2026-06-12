@@ -77,9 +77,12 @@ export function replayPackageState(
     id: packageId,
     name: parsed.name,
     object: 'regesta.package-state',
-    releases: [...releases.values()].toSorted((left, right) =>
-      left.createdAt.localeCompare(right.createdAt),
-    ),
+    releases: [...releases.values()].toSorted((left, right) => {
+      return (
+        left.createdAt.localeCompare(right.createdAt) ||
+        left.version.localeCompare(right.version)
+      )
+    }),
   }
 }
 

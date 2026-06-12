@@ -170,12 +170,6 @@ async function readFreshLocalNpmPackageProjectionInput(
     }
   | undefined
 > {
-  const releaseHead = await reader.database.getPackageReleaseHead(packageId)
-
-  if (releaseHead.releaseCount === 0) {
-    return undefined
-  }
-
   let latest:
     | {
         releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }>
@@ -188,7 +182,17 @@ async function readFreshLocalNpmPackageProjectionInput(
     attempt < maxLocalNpmProjectionReadAttempts;
     attempt++
   ) {
-    const releases = await listLocalNpmPackageReleases(reader, packageId)
+    const releaseHead = await reader.database.getPackageReleaseHead(packageId)
+
+    if (releaseHead.releaseCount === 0) {
+      return undefined
+    }
+
+    const releases = await listLocalNpmPackageReleases(
+      reader,
+      packageId,
+      releaseHead.releaseCount,
+    )
 
     if (releases.length === 0) {
       return undefined
@@ -197,11 +201,23 @@ async function readFreshLocalNpmPackageProjectionInput(
     const snapshot = await reader.database.getPackageEventState(packageId)
     latest = { releases, snapshot }
 
-    if (localNpmProjectionReadIsConsistent(releases, snapshot)) {
+    if (
+      localNpmProjectionReadIsConsistent(
+        releases,
+        snapshot,
+        releaseHead.releaseCount,
+      )
+    ) {
       return { ...latest, cacheable: true }
     }
 
-    if (localNpmProjectionReadIsDirectProjectionOnly(releases, snapshot)) {
+    if (
+      localNpmProjectionReadIsDirectProjectionOnly(
+        releases,
+        snapshot,
+        releaseHead.releaseCount,
+      )
+    ) {
       return { ...latest, cacheable: false }
     }
   }
@@ -214,12 +230,13 @@ async function readFreshLocalNpmPackageProjectionInput(
 async function listLocalNpmPackageReleases(
   reader: NpmProjectionStateReader,
   packageId: PackageId,
+  expectedReleaseCount: number,
 ): Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>> {
   const releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }> =
     []
   let after: string | undefined
 
-  while (true) {
+  while (releases.length < expectedReleaseCount) {
     const page = await reader.database.listPackageReleases(packageId, {
       ...(after === undefined ? {} : { after }),
       limit: localNpmPackageReleasePageLimit,
@@ -231,20 +248,27 @@ async function listLocalNpmPackageReleases(
 
     releases.push(...page)
 
-    if (page.length < localNpmPackageReleasePageLimit) {
+    if (
+      releases.length >= expectedReleaseCount ||
+      page.length < localNpmPackageReleasePageLimit
+    ) {
       return releases
     }
 
     after = page.at(-1)!.manifest.version
   }
+
+  return releases
 }
 
 function localNpmProjectionReadIsDirectProjectionOnly(
   releases: Array<{ event: RegistryEvent }>,
   snapshot: NpmPackageStateSnapshot,
+  expectedReleaseCount: number,
 ): boolean {
   return (
-    releases.length > 0 &&
+    releases.length === expectedReleaseCount &&
+    expectedReleaseCount > 0 &&
     snapshot.lastEventId === undefined &&
     snapshot.state.releases.length === 0
   )
@@ -253,8 +277,12 @@ function localNpmProjectionReadIsDirectProjectionOnly(
 function localNpmProjectionReadIsConsistent(
   releases: Array<{ event: RegistryEvent }>,
   snapshot: NpmPackageStateSnapshot,
+  expectedReleaseCount: number,
 ): boolean {
-  if (releases.length !== snapshot.state.releases.length) {
+  if (
+    releases.length !== expectedReleaseCount ||
+    releases.length !== snapshot.state.releases.length
+  ) {
     return false
   }
 

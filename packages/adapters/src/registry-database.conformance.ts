@@ -314,6 +314,53 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('orders event-derived package releases deterministically', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/event-state-order'
+        const secondEvent = publishEventForPackage(
+          packageId,
+          '0.0.2',
+          '2026-06-01T00:00:00.000Z',
+        )
+        const firstEvent = publishEventForPackage(
+          packageId,
+          '0.0.1',
+          '2026-06-01T00:00:00.000Z',
+        )
+
+        await database.appendEvent(secondEvent)
+        await database.appendEvent(firstEvent)
+
+        await expect(database.getPackageEventState(packageId)).resolves.toEqual(
+          {
+            lastEventId: firstEvent.id,
+            lastEventTimestamp: firstEvent.timestamp,
+            state: {
+              channels: {
+                latest: '0.0.1',
+              },
+              ecosystem: 'npm',
+              id: packageId,
+              name: 'example.com/event-state-order',
+              object: 'regesta.package-state',
+              releases: [
+                {
+                  createdAt: '2026-06-01T00:00:00.000Z',
+                  manifestDigest: firstEvent.release.manifestDigest,
+                  version: '0.0.1',
+                },
+                {
+                  createdAt: '2026-06-01T00:00:00.000Z',
+                  manifestDigest: secondEvent.release.manifestDigest,
+                  version: '0.0.2',
+                },
+              ],
+            },
+          },
+        )
+      })
+    })
+
     it('reads package event heads from indexed package state', async () => {
       await withDatabase(target, async (database) => {
         const packageId: PackageId = 'npm:example.com/event-head'
