@@ -835,7 +835,7 @@ function normalizeWriteAuthorization(value: unknown): WriteAuthorization {
     signature:
       value.alg === 'ssh-ed25519'
         ? normalizeSshSignature(value.signature)
-        : value.signature,
+        : normalizeEd25519Signature(value.signature),
   }
 }
 
@@ -873,10 +873,7 @@ function normalizeWriteIntent(value: unknown): WriteIntent {
         'artifactDescriptorDigest',
       ),
       artifactDigests: normalizeDigestArray(value.artifactDigests),
-      channel:
-        value.channel === undefined
-          ? defaultPackageChannel
-          : normalizeChannel(value.channel),
+      channel: normalizeChannel(value.channel),
       configDigest: normalizeDigest(value.configDigest, 'configDigest'),
       operation: 'release.publish',
       sourceDigest: normalizeDigest(value.sourceDigest, 'sourceDigest'),
@@ -962,11 +959,20 @@ function normalizeWriteIntentBase(
     )
   }
 
+  const domain = normalizeDomain(value.domain)
+  const packageId = parsePackageId(normalizeString(value.package, 'package'))
+
+  if (domain !== packageId.ownerDomain) {
+    throw new WriteAuthorizationError(
+      'Write intent domain must match package owner',
+    )
+  }
+
   return {
-    domain: normalizeDomain(value.domain),
+    domain,
     nonce: normalizeTokenString(value.nonce, 'nonce'),
     object: 'regesta.write-intent',
-    package: parsePackageId(normalizeString(value.package, 'package')).id,
+    package: packageId.id,
     timestamp: normalizeTimestamp(value.timestamp, 'timestamp'),
   }
 }
@@ -1753,6 +1759,11 @@ function ed25519SignatureBytes(value: string): Uint8Array {
   }
 
   return bytes
+}
+
+function normalizeEd25519Signature(value: string): string {
+  ed25519SignatureBytes(value)
+  return value
 }
 
 function ed25519PublicKey(value: unknown): string {

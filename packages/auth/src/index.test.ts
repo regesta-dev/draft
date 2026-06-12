@@ -5,7 +5,12 @@ import {
   sign,
   type KeyObject,
 } from 'node:crypto'
-import { canonicalJson, sha256, type PackageId } from '@regesta/protocol'
+import {
+  canonicalJson,
+  defaultPackageChannel,
+  sha256,
+  type PackageId,
+} from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createChannelDeleteIntent,
@@ -25,6 +30,7 @@ import {
   type Ed25519PrivateKeyJwk,
   type Ed25519PublicKeyJwk,
   type WriteAuthorization,
+  type WriteIntent,
 } from './index.ts'
 
 describe('verifyWriteAuthorization', () => {
@@ -577,83 +583,166 @@ describe('verifyWriteAuthorization', () => {
       payload: intent,
     }
 
-    await expect(
-      verifyWriteAuthorization({
-        authorization,
-        expectedIntent: intent,
-        fetchBinding: bindingFetch(fixture.binding),
-        now: fixture.now,
-      }),
-    ).rejects.toMatchObject({
+    await expectWriteAuthorizationRejectsBeforeDomainBinding({
+      authorization,
+      expectedIntent: intent,
       message: 'timestamp must be canonical ISO 8601',
-      name: WriteAuthorizationError.name,
+      now: fixture.now,
     })
+  })
+
+  it('rejects stale or future write intent timestamps before fetching domain bindings', async () => {
+    for (const now of [
+      new Date('2026-06-01T00:10:00.001Z'),
+      new Date('2026-05-31T23:49:59.999Z'),
+    ]) {
+      const fixture = createAuthorizationFixture({
+        now,
+        timestamp: '2026-06-01T00:00:00.000Z',
+      })
+
+      await expectWriteAuthorizationRejectsBeforeDomainBinding({
+        authorization: fixture.authorization,
+        expectedIntent: fixture.intent,
+        message: 'Write intent timestamp is outside window',
+        now,
+      })
+    }
   })
 
   it('rejects payload mismatches before fetching domain bindings', async () => {
     const fixture = createAuthorizationFixture()
-    const fetchBinding = vi.fn(() => Promise.resolve(new Response(null)))
 
-    await expect(
-      verifyWriteAuthorization({
-        authorization: fixture.authorization,
-        expectedIntent: {
-          ...fixture.intent,
-          version: '0.0.2',
-        },
-        fetchBinding,
-        now: fixture.now,
-      }),
-    ).rejects.toMatchObject({
+    await expectWriteAuthorizationRejectsBeforeDomainBinding({
+      authorization: fixture.authorization,
+      expectedIntent: {
+        ...fixture.intent,
+        version: '0.0.2',
+      },
       message: 'Write authorization payload mismatch',
-      name: WriteAuthorizationError.name,
+      now: fixture.now,
     })
-    expect(fetchBinding).not.toHaveBeenCalled()
+  })
+
+  it('rejects malformed write authorization envelopes before fetching domain bindings', async () => {
+    const fixture = createAuthorizationFixture()
+
+    for (const [authorization, message] of [
+      [
+        {
+          ...fixture.authorization,
+          alg: 'none',
+        },
+        'Write authorization alg must be EdDSA or ssh-ed25519',
+      ],
+      [
+        {
+          ...fixture.authorization,
+          extra: 'not signed',
+        },
+        'Write authorization must not include unknown field: extra',
+      ],
+      [
+        {
+          ...fixture.authorization,
+          payload: null,
+        },
+        'Write intent must be an object',
+      ],
+      [
+        {
+          ...fixture.authorization,
+          payload: {
+            ...fixture.authorization.payload,
+            operation: 'package.yank',
+          },
+        },
+        'Unsupported write intent operation',
+      ],
+      [
+        {
+          ...fixture.authorization,
+          signature: '',
+        },
+        'Write authorization must include signature',
+      ],
+    ]) {
+      await expectWriteAuthorizationRejectsBeforeDomainBinding({
+        authorization,
+        expectedIntent: fixture.intent,
+        message,
+        now: fixture.now,
+      })
+    }
+  })
+
+  it('rejects release publish intents without a channel before fetching domain bindings', async () => {
+    const fixture = createAuthorizationFixture()
+    const payload: Record<string, unknown> = {
+      ...fixture.authorization.payload,
+    }
+    delete payload.channel
+
+    await expectWriteAuthorizationRejectsBeforeDomainBinding({
+      authorization: {
+        ...fixture.authorization,
+        payload,
+      },
+      expectedIntent: fixture.intent,
+      message: 'channel must be a non-empty string',
+      now: fixture.now,
+    })
+  })
+
+  it('rejects write intent domains that do not match package owners before fetching domain bindings', async () => {
+    const fixture = createAuthorizationFixture()
+
+    await expectWriteAuthorizationRejectsBeforeDomainBinding({
+      authorization: {
+        ...fixture.authorization,
+        payload: {
+          ...fixture.authorization.payload,
+          domain: 'other.example.com',
+        },
+      },
+      expectedIntent: {
+        ...fixture.intent,
+        domain: 'other.example.com',
+      },
+      message: 'Write intent domain must match package owner',
+      now: fixture.now,
+    })
   })
 
   it('rejects unknown write authorization fields before fetching domain bindings', async () => {
     const fixture = createAuthorizationFixture()
-    const fetchBinding = vi.fn(() => Promise.resolve(new Response(null)))
 
-    await expect(
-      verifyWriteAuthorization({
-        authorization: {
-          ...fixture.authorization,
-          payload: {
-            ...fixture.authorization.payload,
-            extra: 'not signed',
-          },
+    await expectWriteAuthorizationRejectsBeforeDomainBinding({
+      authorization: {
+        ...fixture.authorization,
+        payload: {
+          ...fixture.authorization.payload,
+          extra: 'not signed',
         },
-        expectedIntent: fixture.intent,
-        fetchBinding,
-        now: fixture.now,
-      }),
-    ).rejects.toMatchObject({
+      },
+      expectedIntent: fixture.intent,
       message: 'Write intent must not include unknown field: extra',
-      name: WriteAuthorizationError.name,
+      now: fixture.now,
     })
-    expect(fetchBinding).not.toHaveBeenCalled()
   })
 
   it('rejects write authorization key ids with control characters before fetching domain bindings', async () => {
     const fixture = createAuthorizationFixture()
-    const fetchBinding = vi.fn(() => Promise.resolve(new Response(null)))
 
-    await expect(
-      verifyWriteAuthorization({
-        authorization: {
-          ...fixture.authorization,
-          kid: `${fixture.authorization.kid}\r\nx`,
-        },
-        expectedIntent: fixture.intent,
-        fetchBinding,
-        now: fixture.now,
-      }),
-    ).rejects.toMatchObject({
+    await expectWriteAuthorizationRejectsBeforeDomainBinding({
+      authorization: {
+        ...fixture.authorization,
+        kid: `${fixture.authorization.kid}\r\nx`,
+      },
+      expectedIntent: fixture.intent,
       message: 'kid must not include control characters',
-      name: WriteAuthorizationError.name,
+      now: fixture.now,
     })
-    expect(fetchBinding).not.toHaveBeenCalled()
   })
 
   it('rejects unknown domain binding fields', async () => {
@@ -789,19 +878,14 @@ describe('verifyWriteAuthorization', () => {
       ],
       ['YWJj', 'Write authorization signature must be an Ed25519 signature'],
     ]) {
-      await expect(
-        verifyWriteAuthorization({
-          authorization: {
-            ...fixture.authorization,
-            signature,
-          },
-          expectedIntent: fixture.intent,
-          fetchBinding: bindingFetch(fixture.binding),
-          now: fixture.now,
-        }),
-      ).rejects.toMatchObject({
+      await expectWriteAuthorizationRejectsBeforeDomainBinding({
+        authorization: {
+          ...fixture.authorization,
+          signature,
+        },
+        expectedIntent: fixture.intent,
         message,
-        name: WriteAuthorizationError.name,
+        now: fixture.now,
       })
     }
   })
@@ -924,6 +1008,22 @@ describe('domain binding helpers', () => {
 
 describe('write intent helpers', () => {
   it('normalizes release publish intent fields at creation time', () => {
+    expect(
+      createReleasePublishIntent({
+        artifactDescriptorDigest: testArtifactDescriptorDigest(),
+        artifactDigests: [sha256(bytes('artifact'))],
+        configDigest: sha256(bytes('config')),
+        nonce: 'default-channel',
+        packageId: 'npm:example.com/auth-test',
+        sourceDigest: sha256(bytes('source')),
+        timestamp: '2026-06-01T00:00:00.000Z',
+        version: '0.0.1',
+      }),
+    ).toMatchObject({
+      channel: defaultPackageChannel,
+      operation: 'release.publish',
+    })
+
     expect(() =>
       createReleasePublishIntent({
         artifactDescriptorDigest: testArtifactDescriptorDigest(),
@@ -1195,6 +1295,28 @@ describe('write intent helpers', () => {
     ).toThrow('artifact role must not include control characters')
   })
 })
+
+async function expectWriteAuthorizationRejectsBeforeDomainBinding(input: {
+  authorization: unknown
+  expectedIntent: WriteIntent
+  message: string
+  now?: Date
+}): Promise<void> {
+  const fetchBinding = vi.fn(() => Promise.resolve(new Response(null)))
+
+  await expect(
+    verifyWriteAuthorization({
+      authorization: input.authorization,
+      expectedIntent: input.expectedIntent,
+      fetchBinding,
+      ...(input.now === undefined ? {} : { now: input.now }),
+    }),
+  ).rejects.toMatchObject({
+    message: input.message,
+    name: WriteAuthorizationError.name,
+  })
+  expect(fetchBinding).not.toHaveBeenCalled()
+}
 
 function createAuthorizationFixture(
   input: {

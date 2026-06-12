@@ -4749,6 +4749,82 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('rejects publish authorizations that omit the release publish channel before domain binding fetch', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const prepared = await prepareFixtureNpmPublish(
+      await createFixtureProject(),
+    )
+    const auth = createTestDomainAuth()
+    const form = createSignedPublishForm({
+      auth,
+      nonce: 'missing-channel-publish-authorization-nonce',
+      prepared,
+      timestamp: new Date().toISOString(),
+    })
+    updateSignedPublishAuthorization(form, (_authorization, payload) => {
+      delete payload.channel
+    })
+
+    const fetchBinding = vi.fn(() =>
+      Promise.reject(new Error('domain binding fetch should not be called')),
+    )
+    vi.stubGlobal('fetch', fetchBinding)
+
+    try {
+      const response = await app.request('/releases', {
+        body: form,
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'write_authorization_invalid',
+        message: 'channel must be a non-empty string',
+      })
+      expect(fetchBinding).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects publish authorization domains that do not match package owners before domain binding fetch', async () => {
+    const app = createRegestaApp(createMemoryRegistryAdapters())
+    const prepared = await prepareFixtureNpmPublish(
+      await createFixtureProject(),
+    )
+    const auth = createTestDomainAuth()
+    const form = createSignedPublishForm({
+      auth,
+      nonce: 'mismatched-domain-publish-authorization-nonce',
+      prepared,
+      timestamp: new Date().toISOString(),
+    })
+    updateSignedPublishAuthorization(form, (_authorization, payload) => {
+      payload.domain = 'other.example.com'
+    })
+
+    const fetchBinding = vi.fn(() =>
+      Promise.reject(new Error('domain binding fetch should not be called')),
+    )
+    vi.stubGlobal('fetch', fetchBinding)
+
+    try {
+      const response = await app.request('/releases', {
+        body: form,
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'write_authorization_invalid',
+        message: 'Write intent domain must match package owner',
+      })
+      expect(fetchBinding).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('infers core release description from npm install artifacts before verifying publish signatures', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const prepared = await prepareFixtureNpmPublish(
@@ -7018,6 +7094,32 @@ function createSignedPublishForm(input: {
   })
 
   return form
+}
+
+function updateSignedPublishAuthorization(
+  form: FormData,
+  update: (
+    authorization: Record<string, unknown>,
+    payload: Record<string, unknown>,
+  ) => void,
+): void {
+  const authorizationText = form.get('authorization')
+
+  if (typeof authorizationText !== 'string') {
+    throw new TypeError(
+      'Signed publish form did not include authorization JSON',
+    )
+  }
+
+  const authorization: unknown = JSON.parse(authorizationText)
+  if (!isRecord(authorization) || !isRecord(authorization.payload)) {
+    throw new TypeError(
+      'Signed publish authorization payload must be an object',
+    )
+  }
+
+  update(authorization, authorization.payload)
+  form.set('authorization', JSON.stringify(authorization))
 }
 
 function invalidPackageManifestTarball(): Uint8Array {
