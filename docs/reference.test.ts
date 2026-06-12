@@ -50,13 +50,35 @@ describe('documentation references', () => {
 
   it('keeps the landing page honest about project status and public demo endpoints', async () => {
     const index = await readText('index.md')
+    const readme = await readWorkspaceText('README.md')
+    const normalizedIndex = index.replaceAll(/\s+/gu, ' ')
+    const normalizedReadme = readme.replaceAll(/\s+/gu, ' ')
 
     expect(index).toContain(
       'Regesta is an early draft and experimental implementation, not a production',
     )
+    expect(readme).toContain(
+      'Regesta is an early draft and experimental implementation, not a production registry',
+    )
     expect(index).toContain('https://registry.regesta.dev/')
     expect(index).toContain('https://npm.regesta.dev/')
     expect(index).toContain('The demo is not a production registry')
+    expect(index).toContain('The current implementation is an npm-first demo')
+    expect(readme).toContain('currently provides an npm-first demo path')
+    expect(index).toContain(
+      'future ecosystem projections need separate design and implementation',
+    )
+    expect(readme).toContain(
+      'future projections need separate design and implementation',
+    )
+    expect(index).toContain('V0 is TypeScript-first')
+    expect(readme).toContain('V0 is TypeScript-first')
+    expect(normalizedIndex).toContain(
+      'native, Rust, or WASM components remain future optimization paths',
+    )
+    expect(normalizedReadme).toContain(
+      'Native, Rust, or WASM components remain future optimization paths',
+    )
     expect(index).toContain('Ecosystem-neutral core')
     expect(index).toContain(
       'npm, PyPI, Cargo, Go, OCI, and future protocols are projections over Regesta-native data',
@@ -93,6 +115,9 @@ describe('documentation references', () => {
     )
     expect(normalizedProjections).toContain(
       'Regesta core stores neutral registry facts. Ecosystem projections render those facts into package-manager-native protocols.',
+    )
+    expect(normalizedProjections).toContain(
+      'V0 implements the npm projection. PyPI, Cargo, Go, OCI, and other projections need separate design before implementation.',
     )
     expect(normalizedWhy).toContain(
       'Ecosystem APIs are projections over those facts.',
@@ -342,6 +367,68 @@ describe('documentation references', () => {
     expect(sshKeyProperties.expiresAt).toEqual({
       $ref: '#/$defs/canonicalTimestamp',
     })
+  })
+
+  it('documents domain binding well-known files with key-level algorithms', async () => {
+    const gettingStarted = await readText('getting-started.md')
+    const schema = await readText('schema.md')
+    const normalizedGettingStarted = gettingStarted.replaceAll(/\s+/gu, ' ')
+
+    expect(gettingStarted).toContain(
+      'The top-level binding object contains only `object`, `domain`, and `keys`.',
+    )
+    expect(normalizedGettingStarted).toContain(
+      'Fields such as `alg`, `use`, `publicKeyJwk`, and `publicKey` belong to each entry in `keys`',
+    )
+    expect(schema).toContain(
+      'The top-level binding object contains only `object`, `domain`, and `keys`.',
+    )
+    expect(schema).toContain(
+      'Algorithm and public-key material are key-level fields.',
+    )
+
+    for (const source of [gettingStarted, schema]) {
+      const bindings = parseJsonCodeBlocks(source).filter((block) => {
+        return (
+          isRecord(block) &&
+          member(block, 'object') === 'regesta.domain-binding'
+        )
+      })
+
+      expect(bindings.length).toBeGreaterThanOrEqual(1)
+
+      for (const binding of bindings) {
+        expect(Object.keys(binding).toSorted()).toEqual([
+          'domain',
+          'keys',
+          'object',
+        ])
+        const keys = member(binding, 'keys')
+        if (!Array.isArray(keys)) {
+          throw new TypeError('Domain binding keys must be an array')
+        }
+
+        for (const key of keys) {
+          if (!isRecord(key)) {
+            throw new TypeError('Domain binding key must be an object')
+          }
+
+          expect(key).toHaveProperty('alg')
+          expect(key).toHaveProperty('kid')
+          expect(key).toHaveProperty('use', 'regesta-write')
+
+          if (key.alg === 'EdDSA') {
+            expect(key).toHaveProperty('publicKeyJwk')
+            expect(key).not.toHaveProperty('publicKey')
+          } else if (key.alg === 'ssh-ed25519') {
+            expect(key).toHaveProperty('publicKey')
+            expect(key).not.toHaveProperty('publicKeyJwk')
+          } else {
+            throw new TypeError(`Unexpected domain binding key alg: ${key.alg}`)
+          }
+        }
+      }
+    }
   })
 
   it('keeps Ed25519 schema fields aligned with fixed-size auth values', async () => {
@@ -629,6 +716,29 @@ describe('documentation references', () => {
     )
   })
 
+  it('keeps the OpenAPI surface limited to implemented layers', async () => {
+    const openapi = await readJson(openapiPath)
+    const api = await readText('api.md')
+    const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+    const tags = member(openapi, 'tags')
+
+    if (!Array.isArray(tags)) {
+      throw new TypeError('OpenAPI tags must be an array')
+    }
+
+    expect(tags.map((tag) => member(tag, 'name'))).toEqual([
+      'Transport',
+      'Core Registry',
+      'npm Projection',
+    ])
+    expect(normalizedApi).toContain(
+      'The current OpenAPI surface is limited to Transport, Core Registry, and the npm projection.',
+    )
+    expect(normalizedApi).toContain(
+      'Future PyPI, Cargo, Go, OCI, and other projection profiles are design targets, not implemented HTTP APIs.',
+    )
+  })
+
   it('documents unscoped npm fallback version routes on the shared npm path', async () => {
     await expect(readText('api.md')).resolves.toContain('GET /tinyexec/latest')
     await expect(
@@ -859,7 +969,9 @@ describe('documentation references', () => {
       'Read concurrency defaults to `1`',
       'read requests per iteration',
       'domain well-known binding discovery',
-      'tarball routes, which remain redirect-only',
+      'tarball routes, which either redirect or return `404 package_not_found`',
+      'For the default npm-enabled deployment shape',
+      'replace npm reads with projection-specific checks for the ecosystem routes they actually expose',
       'REGESTA_STATISTICS_CACHE_TTL_MS',
       'disable cross-request statistics caching',
       'In-flight statistics reads are still coalesced',
@@ -973,14 +1085,17 @@ describe('documentation references', () => {
       expect.stringContaining('Local releases redirect'),
     )
     expect(redirectDescription).toEqual(
-      expect.stringContaining('missing packages and versions redirect'),
+      expect.stringContaining('when server-side fallback is enabled'),
+    )
+    expect(redirectDescription).toEqual(
+      expect.stringContaining('Local-only deployments return 404'),
     )
     expect(redirectDescription).toEqual(
       expect.stringContaining('never serves or proxies tarball bytes'),
     )
   })
 
-  it('documents npm tarball routes as redirect-only endpoints', async () => {
+  it('documents npm tarball routes as redirects with local-only 404 responses', async () => {
     await expect(
       openapiValueAtPointer(
         '#/components/responses/NpmTarballRedirect/headers/Cache-Control',
@@ -991,6 +1106,11 @@ describe('documentation references', () => {
 
     for (const path of ['/{name}/-/{file}', '/{scope}/{name}/-/{file}']) {
       for (const method of ['get', 'head']) {
+        const errorResponse =
+          method === 'head'
+            ? '#/components/responses/HeadError'
+            : '#/components/responses/Error'
+
         await expect(
           openapiValueAtPointer(
             `#/paths/${escapeJsonPointer(path)}/${method}/responses`,
@@ -998,6 +1118,9 @@ describe('documentation references', () => {
         ).resolves.toEqual({
           '302': {
             $ref: '#/components/responses/NpmTarballRedirect',
+          },
+          '404': {
+            $ref: errorResponse,
           },
         })
       }
@@ -1283,6 +1406,12 @@ describe('documentation references', () => {
     expect(normalizedApi).toContain(
       'missing npm metadata and tarball routes return `404 package_not_found` instead of contacting or redirecting to `registry.npmjs.org`',
     )
+    expect(normalizedApi).toContain(
+      'Direct npm projection tarball routes redirect local releases to core object URLs and redirect missing releases to upstream npmjs.org tarballs only when server-side fallback is enabled.',
+    )
+    expect(normalizedApi).toContain(
+      'Local-only deployments return `404 package_not_found` for missing tarballs.',
+    )
     expect(normalizedProjections).toContain(
       'client credentials such as `Authorization`, `Cookie`, and npm token headers stay local',
     )
@@ -1384,6 +1513,11 @@ describe('documentation references', () => {
       throw new TypeError('OpenAPI info must be an object')
     }
 
+    const description = member(info, 'description')
+    if (typeof description !== 'string') {
+      throw new TypeError('OpenAPI info description must be a string')
+    }
+
     if (!isRecord(packageStatistics)) {
       throw new TypeError('DeploymentInfo package statistics must be an object')
     }
@@ -1407,6 +1541,12 @@ describe('documentation references', () => {
       minimum: 0,
       type: 'integer',
     })
+    expect(description).toContain(
+      'implemented Transport routes, Core Registry routes, and the current npm projection routes',
+    )
+    expect(description).toContain(
+      'Future PyPI, Cargo, Go, OCI, and other projection profiles are design targets, not implemented HTTP APIs.',
+    )
 
     for (const key of ['title', 'summary', 'description']) {
       const value = member(info, key)
@@ -2141,7 +2281,7 @@ describe('documentation references', () => {
       'event and object collection reads rely on adapter-owned cursor validation',
     )
     expect(operations).toContain(
-      'npm tarball routes redirect to the canonical object or upstream URL',
+      'npm tarball routes redirect to the canonical object or upstream URL when',
     )
     expect(operations).toContain('`REGESTA_NPM_PROJECTION=false`')
     expect(operations).toContain('`REGESTA_NPM_ARTIFACT_PROCESSING=false`')
@@ -2543,6 +2683,12 @@ function member(value: unknown, key: string): unknown {
   }
 
   return value[key]
+}
+
+function parseJsonCodeBlocks(source: string): unknown[] {
+  return [...source.matchAll(/```json\n([\s\S]*?)\n```/gu)].map((match) => {
+    return JSON.parse(match[1] ?? 'null') as unknown
+  })
 }
 
 function requiredDocument(value: unknown): unknown {

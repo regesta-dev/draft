@@ -6,7 +6,9 @@ and the intended boundary between core APIs and ecosystem projections.
 A machine-readable OpenAPI reference is available at
 [`/openapi/regesta-v0.openapi.json`](/openapi/regesta-v0.openapi.json). It
 describes implemented HTTP routes and references the JSON Schema definitions
-for Regesta-native objects.
+for Regesta-native objects. The current OpenAPI surface is limited to
+Transport, Core Registry, and the npm projection. Future PyPI, Cargo, Go, OCI,
+and other projection profiles are design targets, not implemented HTTP APIs.
 
 Public demo hosts:
 
@@ -502,8 +504,10 @@ mounted.
 When the server projection handles fallback, packument, version-manifest, and
 dist-tag metadata are validated and then returned without rewriting. Upstream
 `dist.tarball` URLs remain upstream URLs. Direct npm projection tarball routes
-redirect local releases to core object URLs, redirect missing releases to
-upstream npmjs.org tarballs, and never proxy tarball bytes.
+redirect local releases to core object URLs and redirect missing releases to
+upstream npmjs.org tarballs only when server-side fallback is enabled.
+Local-only deployments return `404 package_not_found` for missing tarballs. The
+npm projection never proxies tarball bytes.
 Client metadata validators such as `If-None-Match` and `If-Modified-Since` are
 forwarded to the upstream npm registry; upstream `304` responses preserve
 upstream cache headers and do not include a response body. Client credentials,

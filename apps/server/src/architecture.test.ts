@@ -501,7 +501,7 @@ describe('server layer boundaries', () => {
     expect(utilityJsonSource).not.toContain('JSON.stringify')
   })
 
-  it('keeps npm tarball routes redirect-only and byte-storage-free', async () => {
+  it('keeps npm tarball routes byte-storage-free', async () => {
     const routeSource = await readFile(
       join(serverSourceRoot, 'npm/app.ts'),
       'utf8',

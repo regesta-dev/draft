@@ -4,6 +4,8 @@ Regesta is a draft for a modern package registry built around transparency, secu
 
 The goal is not to create another npm-compatible database with a different UI. Regesta treats package distribution as public infrastructure: releases, source archives, artifacts, ownership, and registry state changes should be verifiable facts that independent clients, mirrors, auditors, and package managers can inspect.
 
+Current status: Regesta is an early draft and experimental implementation, not a production registry. V0 is TypeScript-first and currently provides an npm-first demo path; PyPI, Cargo, Go, OCI, and future projections need separate design and implementation. Native, Rust, or WASM components remain future optimization paths rather than the current primary runtime.
+
 Core principles:
 
 - Transparency: public registry state should be derived from append-only events, not hidden mutable database rows.

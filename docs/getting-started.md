@@ -62,6 +62,10 @@ The file must be served as JSON, and its `domain` value must match the owner
 domain exactly. A new user can start with either the built-in Ed25519 key file
 format or an existing `ssh-ed25519` signing key.
 
+The top-level binding object contains only `object`, `domain`, and `keys`.
+Fields such as `alg`, `use`, `publicKeyJwk`, and `publicKey` belong to each
+entry in `keys`, not to the top-level object.
+
 ### Ed25519 Key File
 
 Generate Regesta key material:
@@ -209,7 +213,9 @@ client/package manager instead of the server projection.
 Fallback packuments and version manifests preserve upstream npm metadata,
 including upstream `dist.tarball` URLs. The npm projection does not proxy
 tarball bytes; direct npm projection tarball routes redirect local releases to
-core objects and missing packages or versions to npmjs.org.
+core objects and redirect missing packages or versions to npmjs.org only when
+server-side fallback is enabled. Local-only deployments return
+`404 package_not_found`.
 
 ## Docker Smoke Test
 

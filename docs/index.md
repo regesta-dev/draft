@@ -26,7 +26,10 @@ features:
 
 ::: warning Project Status
 Regesta is an early draft and experimental implementation, not a production
-registry.
+registry. The current implementation is an npm-first demo; PyPI, Cargo, Go,
+OCI, and future ecosystem projections need separate design and implementation.
+V0 is TypeScript-first; native, Rust, or WASM components remain future
+optimization paths rather than the current primary runtime.
 :::
 
 ## What Regesta Is

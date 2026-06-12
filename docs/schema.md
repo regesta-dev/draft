@@ -433,6 +433,10 @@ type. The registry does not follow redirects for this fetch. The `domain` field
 must match the owner domain, and the authorization `kid` must match one active
 key in `keys`.
 
+The top-level binding object contains only `object`, `domain`, and `keys`.
+Algorithm and public-key material are key-level fields. For example, `alg`
+belongs inside each `keys[]` entry, not beside `domain`.
+
 ```json
 {
   "object": "regesta.domain-binding",

@@ -149,9 +149,10 @@ Fallback metadata should not be committed as Regesta package state. When the
 server projection handles fallback, upstream packument, version-manifest, and
 dist-tag metadata are validated and returned without rewriting. Direct npm
 projection tarball routes redirect local releases to core object URLs and
-missing releases to upstream tarballs; the npm projection never proxies tarball
-bytes. The projection forwards only metadata negotiation and cache validation
-headers to the upstream registry; client
+missing releases to upstream tarballs only when server-side fallback is enabled;
+local-only deployments return `404 package_not_found`. The npm projection never
+proxies tarball bytes. The projection forwards only metadata negotiation and
+cache validation headers to the upstream registry; client
 credentials such as `Authorization`, `Cookie`, and npm token headers stay local
 to the Regesta request. It also returns only cache and content metadata headers
 from upstream responses, so upstream cookies, redirects, authentication

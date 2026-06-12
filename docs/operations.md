@@ -235,11 +235,14 @@ The production adapter gate should publish its parameters with the result:
 - data durability settings;
 - whether the run used a cold or warm cache.
 
-As a minimum, a production adapter profile should cover the same behavioral
-surface as `pnpm smoke:load`: publish, root deployment statistics, package
-reads, release reads, event reads, readiness reads, object inventory reads,
-object reads, npm packuments, npm version manifests, npm tarball redirects, and
-redirected object downloads.
+For the default npm-enabled deployment shape, a production adapter profile
+should cover the same behavioral surface as `pnpm smoke:load`: publish, root
+deployment statistics, package reads, release reads, event reads, readiness
+reads, object inventory reads, object reads, npm packuments, npm version
+manifests, npm tarball redirects, and redirected object downloads. Core-only or
+non-npm deployments should keep the same core, storage, verification, and
+readiness coverage, then replace npm reads with projection-specific checks for
+the ecosystem routes they actually expose.
 
 A production gate fails if:
 
@@ -306,8 +309,9 @@ Current hot-path boundaries:
 - event and object collection reads rely on adapter-owned cursor validation
   inside the paginated read instead of separate cursor preflight reads;
 - npm tag and version reads use indexed channel and release state;
-- npm tarball routes redirect to the canonical object or upstream URL instead
-  of proxying bytes through the npm compatibility layer;
+- npm tarball routes redirect to the canonical object or upstream URL when
+  available, or return `404 package_not_found`, instead of proxying bytes
+  through the npm compatibility layer;
 - upstream npm fallback metadata requests are bounded by
   `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`;
 - request-log, audit-log, and derived-queue sinks run outside the committed
@@ -412,14 +416,14 @@ status codes and `console.error` logging.
 The npm projection bounds upstream npm metadata fallback requests with
 `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`, falling back to a 10s timeout when the
 variable is not set. Set it to `0` to disable the timeout. This does not affect
-tarball routes, which remain redirect-only. Local npm packument `HEAD` requests
-use indexed package heads when package state is stable, so metadata probes do
-not need to build full packuments. Local npm version manifest `HEAD` requests
-also skip npm body projection after the addressed release is found. Local npm
-dist-tags `HEAD` requests skip JSON body serialization after reading indexed
-channel state. npm utility `HEAD` requests such as `/` and `/-/ping`, local
-not-found errors, and upstream fallback failures also avoid serializing JSON
-bodies.
+tarball routes, which either redirect or return `404 package_not_found` without
+serving tarball bytes. Local npm packument `HEAD` requests use indexed package
+heads when package state is stable, so metadata probes do not need to build full
+packuments. Local npm version manifest `HEAD` requests also skip npm body
+projection after the addressed release is found. Local npm dist-tags `HEAD`
+requests skip JSON body serialization after reading indexed channel state. npm
+utility `HEAD` requests such as `/` and `/-/ping`, local not-found errors, and
+upstream fallback failures also avoid serializing JSON bodies.
 
 The backend can be Postgres, DynamoDB, S3, R2, GCS, a platform queue, KMS, or
 another service. The registry core should continue to see only adapters.
