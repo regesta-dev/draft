@@ -36,6 +36,10 @@ npm:some.dev/sdk -> npm%3Asome.dev%2Fsdk
 This avoids ambiguous route parsing when native ecosystem names contain slashes
 or reserved words such as `channels` and `releases`.
 
+Core API routes do not enumerate supported ecosystem keys. The package id
+schema accepts any lowercase portable ecosystem key that follows the canonical
+`ecosystem:owner-domain/name` shape.
+
 ## Transport
 
 ```http

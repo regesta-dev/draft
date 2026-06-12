@@ -53,6 +53,17 @@ describe('parsePackageState', () => {
     expect(parsePackageState(state)).toEqual(state)
   })
 
+  it('parses package states for future ecosystem keys', () => {
+    const state: PackageState = {
+      ...packageState(),
+      ecosystem: 'maven',
+      id: 'maven:example.com/group/artifact',
+      name: 'example.com/group/artifact',
+    }
+
+    expect(parsePackageState(state)).toEqual(state)
+  })
+
   it('rejects package states whose ecosystem does not match the package id', () => {
     expect(() =>
       parsePackageState({

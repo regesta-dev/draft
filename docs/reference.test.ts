@@ -99,10 +99,38 @@ describe('documentation references', () => {
 
   it('keeps the package id schema aligned with domain-scoped ids', async () => {
     const packageId = new RegExp(await schemaDefPattern('packageId'), 'u')
+    const packageIdSchema = await schemaValueAtPointer('#/$defs/packageId')
+    const openapiPackageIdParameterSchema = await openapiValueAtPointer(
+      '#/components/parameters/PackageId/schema',
+    )
+    const openapiPackageIdSchema = await openapiValueAtPointer(
+      '#/components/schemas/PackageId',
+    )
 
-    for (const ecosystem of ['npm', 'pypi', 'cargo', 'go', 'oci']) {
+    for (const ecosystem of [
+      'npm',
+      'pypi',
+      'cargo',
+      'go',
+      'oci',
+      'maven',
+      'swift-pm',
+    ]) {
       expect(packageId.test(`${ecosystem}:some.dev/sdk`)).toBe(true)
     }
+
+    expect(member(packageIdSchema, 'description')).toContain(
+      'ecosystem key is not a closed enum',
+    )
+    await expect(readText('api.md')).resolves.toContain(
+      'Core API routes do not enumerate supported ecosystem keys',
+    )
+    expect(openapiPackageIdParameterSchema).toEqual({
+      $ref: '#/components/schemas/PackageId',
+    })
+    expect(openapiPackageIdSchema).toEqual({
+      $ref: '../schema/regesta-v0.schema.json#/$defs/packageId',
+    })
 
     for (const value of [
       'NPM:some.dev/sdk',

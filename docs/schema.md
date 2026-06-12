@@ -43,6 +43,10 @@ Fields:
 | `provenance`  | no       | Defaults to `{ "level": "source-attached" }` in V0.      |
 | `family`      | no       | Cross-ecosystem family id, such as `some.dev/sdk`.       |
 
+The `ecosystem` key inside package ids is not a closed enum. Current examples
+include npm, PyPI, Cargo, Go, and OCI, but future projection/client ecosystems
+can use the same `ecosystem:domain/name` shape without changing core objects.
+
 Rejected fields:
 
 - `$schema`;

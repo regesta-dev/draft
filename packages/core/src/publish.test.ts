@@ -772,22 +772,22 @@ describe('publishRelease', () => {
     }
   })
 
-  it('publishes non-npm package ids without ecosystem-specific assumptions', async () => {
+  it('publishes future ecosystem package ids without ecosystem-specific assumptions', async () => {
     const adapters = createTestRegistryAdapters()
 
     const result = await publishRelease(
       {
         artifacts: [
           {
-            bytes: bytes('crate artifact'),
-            format: 'cargo-crate',
+            bytes: bytes('install artifact'),
+            format: 'maven-artifact',
             mediaType: 'application/gzip',
             role: 'install',
           },
         ],
         config: {
-          id: 'cargo:example.com/hello-regesta',
-          languages: ['rust'],
+          id: 'maven:example.com/group/artifact',
+          languages: ['java'],
           provenance: {
             level: 'source-attached',
           },
@@ -803,29 +803,29 @@ describe('publishRelease', () => {
     )
     const verification = await verifyRelease(
       adapters,
-      'cargo:example.com/hello-regesta',
+      'maven:example.com/group/artifact',
       '0.0.1',
     )
     const state = await getPackageState(
       adapters,
-      'cargo:example.com/hello-regesta',
+      'maven:example.com/group/artifact',
     )
 
-    expect(result.manifest.id).toBe('cargo:example.com/hello-regesta')
-    expect(result.manifest.ecosystem).toBe('cargo')
-    expect(result.manifest.name).toBe('example.com/hello-regesta')
-    expect(result.manifest.languages).toEqual(['rust'])
+    expect(result.manifest.id).toBe('maven:example.com/group/artifact')
+    expect(result.manifest.ecosystem).toBe('maven')
+    expect(result.manifest.name).toBe('example.com/group/artifact')
+    expect(result.manifest.languages).toEqual(['java'])
     expect(result.manifest.artifacts).toEqual([
       expect.objectContaining({
-        format: 'cargo-crate',
+        format: 'maven-artifact',
         mediaType: 'application/gzip',
         role: 'install',
       }),
     ])
     expect(result.manifest.metadata).toBeUndefined()
     expect(result.manifest.artifacts[0]!.ecosystemMetadata).toBeUndefined()
-    expect(state.ecosystem).toBe('cargo')
-    expect(state.name).toBe('example.com/hello-regesta')
+    expect(state.ecosystem).toBe('maven')
+    expect(state.name).toBe('example.com/group/artifact')
     expect(state.channels).toEqual({ latest: '0.0.1' })
     expect(verification.ok).toBe(true)
   })

@@ -24,7 +24,7 @@ describe('parsePackageId', () => {
     })
   })
 
-  it('uses the same domain-scoped package id shape for planned ecosystems', () => {
+  it('uses the same domain-scoped package id shape for documented example ecosystems', () => {
     for (const ecosystem of ['npm', 'pypi', 'cargo', 'go', 'oci']) {
       expect(parsePackageId(`${ecosystem}:some.dev/sdk`)).toEqual({
         ecosystem,
@@ -33,6 +33,21 @@ describe('parsePackageId', () => {
         ownerDomain: 'some.dev',
       })
     }
+  })
+
+  it('accepts future ecosystem keys without changing the core id parser', () => {
+    expect(parsePackageId('maven:some.dev/group/artifact')).toEqual({
+      ecosystem: 'maven',
+      id: 'maven:some.dev/group/artifact',
+      name: 'some.dev/group/artifact',
+      ownerDomain: 'some.dev',
+    })
+    expect(parsePackageId('swift-pm:some.dev/sdk')).toEqual({
+      ecosystem: 'swift-pm',
+      id: 'swift-pm:some.dev/sdk',
+      name: 'some.dev/sdk',
+      ownerDomain: 'some.dev',
+    })
   })
 
   it('allows multi-segment package names for ecosystems that need paths', () => {

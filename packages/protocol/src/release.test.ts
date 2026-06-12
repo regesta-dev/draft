@@ -117,6 +117,17 @@ describe('parseReleaseManifest', () => {
     expect(parseReleaseManifest(manifest)).toEqual(manifest)
   })
 
+  it('parses release manifests for future ecosystem keys', () => {
+    const manifest: ReleaseManifest = {
+      ...releaseManifest(),
+      ecosystem: 'swift-pm',
+      id: 'swift-pm:some.dev/sdk',
+      name: 'some.dev/sdk',
+    }
+
+    expect(parseReleaseManifest(manifest)).toEqual(manifest)
+  })
+
   it('rejects release manifests whose ecosystem does not match the package id', () => {
     expect(() =>
       parseReleaseManifest({

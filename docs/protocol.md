@@ -24,6 +24,8 @@ oci:some.dev/sdk
 Rules:
 
 - `ecosystem` is lowercase ASCII plus digits and hyphens.
+- `ecosystem` is not a closed enum; new projection/client ecosystems can define
+  new keys without changing the core id shape.
 - `owner-domain` is a canonical lowercase DNS-style domain.
 - `package-name` is the name inside that owner domain.
 - public Regesta objects always store the full id.
