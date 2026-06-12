@@ -185,6 +185,55 @@ describe('server layer boundaries', () => {
       join(serverSourceRoot, 'npm/projection.ts'),
       'utf8',
     )
+    const freshProjectionSource = sourceBetween(
+      projectionSource,
+      'async function readFreshLocalNpmPackageProjectionInput',
+      'function localNpmProjectionReadIsDirectProjectionOnly',
+    )
+    const distTagsSource = sourceBetween(
+      routeSource,
+      'async function serveNpmDistTags',
+      'async function serveNpmPackageManifest',
+    )
+    const packageManifestSource = sourceBetween(
+      routeSource,
+      'async function serveNpmPackageManifest',
+      'async function serveNpmPackument',
+    )
+    const releaseHeadIndex = freshProjectionSource.indexOf(
+      'getPackageReleaseHead',
+    )
+    const listReleasesIndex = freshProjectionSource.indexOf(
+      'listPackageReleases',
+    )
+    const distTagsReleaseHeadIndex = distTagsSource.indexOf(
+      'getPackageReleaseHead',
+    )
+    const distTagsChannelsIndex = distTagsSource.indexOf('getPackageChannels')
+    const packageManifestReleaseHeadIndex = packageManifestSource.indexOf(
+      'getPackageReleaseHead',
+    )
+    const packageManifestChannelIndex = packageManifestSource.indexOf(
+      'getPackageChannelVersion',
+    )
+    const packageManifestReleaseIndex =
+      packageManifestSource.indexOf('getRelease')
+    const packageManifestConditionalIndex = packageManifestSource.indexOf(
+      'serveConditionalNpmProjectionJson',
+    )
+    const packageManifestProjectionIndex = packageManifestSource.indexOf(
+      'createLocalNpmVersionManifest',
+    )
+    const projectionJsonSource = sourceBetween(
+      routeSource,
+      'function serveNpmProjectionJson',
+      'function serveConditionalNpmProjectionJson',
+    )
+    const projectionJsonConditionalIndex = projectionJsonSource.indexOf(
+      'serveConditionalNpmProjectionJson',
+    )
+    const projectionJsonSerializeIndex =
+      projectionJsonSource.indexOf('JSON.stringify')
 
     expect(routeSource).toContain('readLocalNpmPackageProjection')
     expect(routeSource).not.toContain('replayPackageState')
@@ -195,6 +244,34 @@ describe('server layer boundaries', () => {
     expect(projectionSource).toContain('getPackageEventState')
     expect(projectionSource).toContain('getPackageReleaseHead')
     expect(projectionSource).not.toContain('getPackageChannels')
+    expect(releaseHeadIndex).toBeGreaterThanOrEqual(0)
+    expect(freshProjectionSource).toContain('releaseHead.releaseCount === 0')
+    expect(listReleasesIndex).toBeGreaterThan(releaseHeadIndex)
+    expect(distTagsSource).toContain('releaseHead.releaseCount > 0')
+    expect(distTagsSource).not.toContain('hasPackage')
+    expect(distTagsReleaseHeadIndex).toBeGreaterThanOrEqual(0)
+    expect(distTagsChannelsIndex).toBeGreaterThan(distTagsReleaseHeadIndex)
+    expect(packageManifestSource).toContain('getPackageReleaseHead')
+    expect(packageManifestSource).toContain('releaseHead.releaseCount === 0')
+    expect(packageManifestSource).toContain('releaseHead.releaseCount > 0')
+    expect(packageManifestSource).not.toContain('hasPackage')
+    expect(packageManifestReleaseHeadIndex).toBeGreaterThanOrEqual(0)
+    expect(packageManifestChannelIndex).toBeGreaterThan(
+      packageManifestReleaseHeadIndex,
+    )
+    expect(packageManifestReleaseIndex).toBeGreaterThan(
+      packageManifestReleaseHeadIndex,
+    )
+    expect(packageManifestConditionalIndex).toBeGreaterThan(
+      packageManifestReleaseIndex,
+    )
+    expect(packageManifestProjectionIndex).toBeGreaterThan(
+      packageManifestConditionalIndex,
+    )
+    expect(projectionJsonConditionalIndex).toBeGreaterThanOrEqual(0)
+    expect(projectionJsonSerializeIndex).toBeGreaterThan(
+      projectionJsonConditionalIndex,
+    )
   })
 
   it('keeps npm tarball routes redirect-only and byte-storage-free', async () => {
@@ -637,8 +714,8 @@ describe('server layer boundaries', () => {
     expect(readerSource).toContain('getPackageEventState')
     expect(readerSource).toContain('getPackageReleaseHead')
     expect(readerSource).toContain('getRelease')
-    expect(readerSource).toContain('hasPackage')
     expect(readerSource).toContain('listPackageReleases')
+    expect(readerSource).not.toContain('hasPackage')
     expect(readerSource).not.toContain('.objects')
     expect(readerSource).not.toContain('.queue')
     expect(readerSource).not.toContain('.signer')

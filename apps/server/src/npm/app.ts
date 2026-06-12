@@ -243,12 +243,11 @@ async function serveNpmDistTags(
   const packageId = localNpmPackageId(packageName)
 
   if (packageId) {
-    const channels = await adapters.database.getPackageChannels(packageId)
+    const releaseHead = await adapters.database.getPackageReleaseHead(packageId)
 
-    if (
-      Object.keys(channels).length > 0 ||
-      (await adapters.database.hasPackage(packageId))
-    ) {
+    if (releaseHead.releaseCount > 0) {
+      const channels = await adapters.database.getPackageChannels(packageId)
+
       return serveNpmProjectionJson(
         context,
         channels,
@@ -271,6 +270,12 @@ async function serveNpmPackageManifest(
   const packageId = localNpmPackageId(packageName)
 
   if (packageId) {
+    const releaseHead = await adapters.database.getPackageReleaseHead(packageId)
+
+    if (releaseHead.releaseCount === 0) {
+      return upstream.packageManifest(context, packageName, tagOrVersion)
+    }
+
     const taggedVersion = await adapters.database.getPackageChannelVersion(
       packageId,
       tagOrVersion,
@@ -283,6 +288,23 @@ async function serveNpmPackageManifest(
         taggedVersion === undefined
           ? 'public, max-age=31536000, immutable'
           : 'no-cache'
+      const responseOptions: NpmProjectionJsonOptions = {
+        cacheControl,
+        ...(taggedVersion === undefined
+          ? { lastModified: release.manifest.createdAt }
+          : {}),
+      }
+      const etag = npmVersionManifestEtag(release.event.id)
+      const conditionalResponse = serveConditionalNpmProjectionJson(
+        context,
+        etag,
+        responseOptions,
+      )
+
+      if (conditionalResponse) {
+        return conditionalResponse
+      }
+
       return serveNpmProjectionJson(
         context,
         createLocalNpmVersionManifest(
@@ -292,17 +314,12 @@ async function serveNpmPackageManifest(
             manifest: release.manifest,
           },
         ),
-        npmVersionManifestEtag(release.event.id),
-        {
-          cacheControl,
-          ...(taggedVersion === undefined
-            ? { lastModified: release.manifest.createdAt }
-            : {}),
-        },
+        etag,
+        responseOptions,
       )
     }
 
-    if (await adapters.database.hasPackage(packageId)) {
+    if (releaseHead.releaseCount > 0) {
       return context.json(
         errorResponse('package_version_not_found', 'Package version not found'),
         404,
@@ -404,35 +421,62 @@ function serveNpmProjectionJson(
   etag: string,
   options: NpmProjectionJsonOptions = {},
 ): Response {
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
-  const headers: Record<string, string> = {
-    'cache-control': options.cacheControl ?? 'no-cache',
-    'content-length': String(bytes.byteLength),
-    'content-type': 'application/json; charset=UTF-8',
+  const conditionalResponse = serveConditionalNpmProjectionJson(
+    context,
     etag,
-  }
-  if (options.lastModified) {
-    headers['last-modified'] = httpDate(options.lastModified)
+    options,
+  )
+
+  if (conditionalResponse) {
+    return conditionalResponse
   }
 
-  const ifNoneMatch = context.req.header('if-none-match')
-  if (
-    matchesIfNoneMatch(ifNoneMatch, etag) ||
-    (!ifNoneMatch &&
-      matchesIfModifiedSince(
-        context.req.header('if-modified-since'),
-        headers['last-modified'],
-      ))
-  ) {
-    const conditionalHeaders = new Headers(headers)
-    conditionalHeaders.delete('content-length')
-
-    return npmProjectionNotModified(conditionalHeaders)
-  }
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  const headers = npmProjectionJsonHeaders(etag, options, bytes.byteLength)
 
   return context.req.method === 'HEAD'
     ? new Response(null, { headers })
     : new Response(bytes, { headers })
+}
+
+function serveConditionalNpmProjectionJson(
+  context: Context,
+  etag: string,
+  options: NpmProjectionJsonOptions,
+): Response | undefined {
+  const headers = npmProjectionJsonHeaders(etag, options)
+
+  const ifNoneMatch = context.req.header('if-none-match')
+  return matchesIfNoneMatch(ifNoneMatch, etag) ||
+    (!ifNoneMatch &&
+      matchesIfModifiedSince(
+        context.req.header('if-modified-since'),
+        headers.get('last-modified') ?? undefined,
+      ))
+    ? npmProjectionNotModified(headers)
+    : undefined
+}
+
+function npmProjectionJsonHeaders(
+  etag: string,
+  options: NpmProjectionJsonOptions,
+  contentLength?: number,
+): Headers {
+  const headers = new Headers({
+    'cache-control': options.cacheControl ?? 'no-cache',
+    'content-type': 'application/json; charset=UTF-8',
+    etag,
+  })
+
+  if (contentLength !== undefined) {
+    headers.set('content-length', String(contentLength))
+  }
+
+  if (options.lastModified) {
+    headers.set('last-modified', httpDate(options.lastModified))
+  }
+
+  return headers
 }
 
 function npmProjectionNotModified(
@@ -454,16 +498,7 @@ function npmProjectionNotModifiedHeaders(
   etag: string,
   options: NpmProjectionJsonOptions,
 ): Headers {
-  const headers = new Headers({
-    'cache-control': options.cacheControl ?? 'no-cache',
-    etag,
-  })
-
-  if (options.lastModified) {
-    headers.set('last-modified', httpDate(options.lastModified))
-  }
-
-  return headers
+  return npmProjectionJsonHeaders(etag, options)
 }
 
 interface NpmProjectionJsonOptions {

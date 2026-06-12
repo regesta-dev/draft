@@ -46,7 +46,6 @@ export interface NpmRegistryReader {
     ) => Promise<
       { event: RegistryEvent; manifest: ReleaseManifest } | undefined
     >
-    hasPackage: (packageId: PackageId) => Promise<boolean>
     listPackageReleases: (
       packageId: PackageId,
     ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
@@ -79,9 +78,6 @@ export function createNpmRegistryReader(
       },
       getRelease: (packageId, version) => {
         return adapters.database.getRelease(packageId, version)
-      },
-      hasPackage: (packageId) => {
-        return adapters.database.hasPackage(packageId)
       },
       listPackageReleases: (packageId) => {
         return adapters.database.listPackageReleases(packageId)

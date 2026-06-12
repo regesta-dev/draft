@@ -163,6 +163,12 @@ async function readFreshLocalNpmPackageProjectionInput(
     }
   | undefined
 > {
+  const releaseHead = await reader.database.getPackageReleaseHead(packageId)
+
+  if (releaseHead.releaseCount === 0) {
+    return undefined
+  }
+
   let latest:
     | {
         releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }>

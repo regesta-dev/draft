@@ -145,6 +145,43 @@ describe('local npm projection', () => {
     )
   })
 
+  it('skips full projection reads when the package has no local releases', async () => {
+    const getPackageReleaseHead = vi
+      .fn<NpmProjectionStateReader['database']['getPackageReleaseHead']>()
+      .mockResolvedValue({
+        releaseCount: 0,
+      })
+    const listPackageReleases = vi.fn(() => {
+      throw new Error('missing package projection should not list releases')
+    })
+    const getPackageEventState = vi.fn(() => {
+      throw new Error('missing package projection should not read event state')
+    })
+    const reader = {
+      database: {
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('uncached reads should not read package event heads')
+        }),
+        getPackageEventState,
+        getPackageReleaseHead,
+        listPackageReleases,
+      },
+    } satisfies NpmProjectionStateReader
+
+    await expect(
+      readLocalNpmPackageProjection(
+        reader,
+        packageId,
+        new URL('https://npm.registry.test/@example.com/hello-regesta'),
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
+    expect(getPackageReleaseHead).toHaveBeenCalledWith(packageId)
+    expect(listPackageReleases).not.toHaveBeenCalled()
+    expect(getPackageEventState).not.toHaveBeenCalled()
+  })
+
   it('reuses cached packuments while the package event id is unchanged', async () => {
     const first = release('1.0.0', '2025-01-01T00:00:00.000Z')
     const firstPublished = publish(first, 'latest', '2025-01-01T00:00:00.000Z')
@@ -204,7 +241,7 @@ describe('local npm projection', () => {
     expect(listPackageReleases).toHaveBeenCalledOnce()
     expect(getPackageEventState).toHaveBeenCalledOnce()
     expect(getPackageEventHead).toHaveBeenCalledOnce()
-    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
+    expect(getPackageReleaseHead).toHaveBeenCalledTimes(2)
   })
 
   it('retries before caching when package state changes during projection reads', async () => {
@@ -291,7 +328,7 @@ describe('local npm projection', () => {
     expect(listPackageReleases).toHaveBeenCalledTimes(2)
     expect(getPackageEventState).toHaveBeenCalledTimes(2)
     expect(getPackageEventHead).toHaveBeenCalledOnce()
-    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
+    expect(getPackageReleaseHead).toHaveBeenCalledTimes(2)
   })
 
   it('invalidates cached packuments when stored releases change without event state changes', async () => {
@@ -321,7 +358,7 @@ describe('local npm projection', () => {
         modifiedAt: first.createdAt,
         releaseCount: 2,
       })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         modifiedAt: second.createdAt,
         releaseCount: 2,
       })
@@ -374,7 +411,7 @@ describe('local npm projection', () => {
     expect(listPackageReleases).toHaveBeenCalledTimes(4)
     expect(getPackageEventState).toHaveBeenCalledTimes(4)
     expect(getPackageEventHead).toHaveBeenCalledOnce()
-    expect(getPackageReleaseHead).toHaveBeenCalledOnce()
+    expect(getPackageReleaseHead).toHaveBeenCalledTimes(3)
   })
 
   it('does not retry direct projection-only package reads', async () => {
@@ -406,11 +443,12 @@ describe('local npm projection', () => {
           throw new Error('uncached reads should not read package event heads')
         }),
         getPackageEventState,
-        getPackageReleaseHead: vi.fn(() => {
-          throw new Error(
-            'uncached reads should not read package release heads',
-          )
-        }),
+        getPackageReleaseHead: vi.fn(() =>
+          Promise.resolve({
+            modifiedAt: first.createdAt,
+            releaseCount: 1,
+          }),
+        ),
         listPackageReleases,
       },
     } satisfies NpmProjectionStateReader
@@ -430,6 +468,7 @@ describe('local npm projection', () => {
     expect(projection.etag).toBe('W/"regesta.npm-projection:empty"')
     expect(listPackageReleases).toHaveBeenCalledOnce()
     expect(getPackageEventState).toHaveBeenCalledOnce()
+    expect(reader.database.getPackageReleaseHead).toHaveBeenCalledOnce()
   })
 })
 
