@@ -29,37 +29,35 @@ export interface NpmPackageReleaseListOptions {
   limit: number
 }
 
+export interface NpmRegistryReadDatabase {
+  getPackageChannelVersion: (
+    packageId: PackageId,
+    channel: string,
+  ) => Promise<string | undefined>
+  getPackageChannels: (packageId: PackageId) => Promise<Record<string, string>>
+  getPackageEventHead: (packageId: PackageId) => Promise<NpmPackageEventHead>
+  getPackageEventState: (
+    packageId: PackageId,
+  ) => Promise<NpmPackageStateSnapshot>
+  getPackageReleaseHead: (
+    packageId: PackageId,
+  ) => Promise<NpmPackageReleaseHead>
+  getRelease: (
+    packageId: PackageId,
+    version: string,
+  ) => Promise<{ event: RegistryEvent; manifest: ReleaseManifest } | undefined>
+  listPackageReleases: (
+    packageId: PackageId,
+    options: NpmPackageReleaseListOptions,
+  ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
+}
+
 export interface NpmRegistryReader {
-  database: {
-    getPackageChannelVersion: (
-      packageId: PackageId,
-      channel: string,
-    ) => Promise<string | undefined>
-    getPackageChannels: (
-      packageId: PackageId,
-    ) => Promise<Record<string, string>>
-    getPackageEventHead: (packageId: PackageId) => Promise<NpmPackageEventHead>
-    getPackageEventState: (
-      packageId: PackageId,
-    ) => Promise<NpmPackageStateSnapshot>
-    getPackageReleaseHead: (
-      packageId: PackageId,
-    ) => Promise<NpmPackageReleaseHead>
-    getRelease: (
-      packageId: PackageId,
-      version: string,
-    ) => Promise<
-      { event: RegistryEvent; manifest: ReleaseManifest } | undefined
-    >
-    listPackageReleases: (
-      packageId: PackageId,
-      options: NpmPackageReleaseListOptions,
-    ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
-  }
+  database: NpmRegistryReadDatabase
 }
 
 export interface NpmRegistryReaderSource {
-  database: NpmRegistryReader['database']
+  database: NpmRegistryReadDatabase
 }
 
 export function createNpmRegistryReader(

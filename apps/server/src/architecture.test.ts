@@ -811,6 +811,52 @@ describe('server layer boundaries', () => {
     expect(violations).toEqual([])
   })
 
+  it('normalizes processed publish config before authorization verification', async () => {
+    const coreSource = await readFile(
+      join(serverSourceRoot, 'core/app.ts'),
+      'utf8',
+    )
+    const publishSource = sourceBetween(
+      coreSource,
+      'async function publishFromRequest',
+      'function processPublishArtifacts',
+    )
+    const inputNormalizeIndex = publishSource.indexOf(
+      'const inputConfig = normalizeRegestaConfig(input.config)',
+    )
+    const processIndex = publishSource.indexOf(
+      'const processed = await processPublishArtifacts',
+    )
+    const cloneIndex = publishSource.indexOf(
+      'config: cloneRegestaConfig(inputConfig)',
+    )
+    const normalizeIndex = publishSource.indexOf(
+      'const processedConfig = normalizeRegestaConfig(processed.config)',
+    )
+    const boundaryIndex = publishSource.indexOf(
+      'assertProcessedPublishConfigBoundary(inputConfig, processedConfig)',
+    )
+    const verifyIndex = publishSource.indexOf(
+      'services.verifyPublishAuthorization',
+    )
+    const publishIndex = publishSource.indexOf('return await publishRelease')
+
+    expect(inputNormalizeIndex).toBeGreaterThanOrEqual(0)
+    expect(processIndex).toBeGreaterThan(inputNormalizeIndex)
+    expect(cloneIndex).toBeGreaterThan(processIndex)
+    expect(normalizeIndex).toBeGreaterThan(processIndex)
+    expect(boundaryIndex).toBeGreaterThan(normalizeIndex)
+    expect(verifyIndex).toBeGreaterThan(boundaryIndex)
+    expect(publishIndex).toBeGreaterThan(verifyIndex)
+    expect(publishSource).toContain('configDigest(processedConfig)')
+    expect(publishSource).toContain('packageId: processedConfig.id')
+    expect(publishSource).toContain('version: processedConfig.version')
+    expect(publishSource).toContain('config: processedConfig')
+    expect(publishSource).not.toContain('configDigest(processed.config)')
+    expect(publishSource).not.toContain('packageId: processed.config.id')
+    expect(publishSource).not.toContain('version: processed.config.version')
+  })
+
   it('keeps npm helper imports confined to npm-facing server layers', async () => {
     const allowedImporters = new Set(['artifacts/npm.ts', 'npm/projection.ts'])
     const violations: string[] = []
@@ -1027,6 +1073,11 @@ describe('server layer boundaries', () => {
     const projectionAppStart = projectionAppSource.indexOf(
       'export function createNpmProjectionApp',
     )
+    const readDatabaseSource = sourceBetween(
+      readerSource,
+      'export interface NpmRegistryReadDatabase',
+      'export interface NpmRegistryReader',
+    )
 
     expect(source).toContain('createNpmProjectionApp(')
     expect(source).toContain('database: adapters.database')
@@ -1049,10 +1100,15 @@ describe('server layer boundaries', () => {
     expect(readerSource).toContain('getPackageReleaseHead')
     expect(readerSource).toContain('getRelease')
     expect(readerSource).toContain('listPackageReleases')
+    expect(readDatabaseSource).not.toContain('appendEvent')
+    expect(readDatabaseSource).not.toContain('commit')
     expect(readerSource).not.toContain('hasPackage')
     expect(readerSource).not.toContain('.objects')
     expect(readerSource).not.toContain('.queue')
     expect(readerSource).not.toContain('.signer')
+    expect(readDatabaseSource).not.toContain('objects')
+    expect(readDatabaseSource).not.toContain('queue')
+    expect(readDatabaseSource).not.toContain('signer')
   })
 
   it('keeps deployment statistics caching in the transport layer', async () => {

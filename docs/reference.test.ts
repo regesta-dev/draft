@@ -854,6 +854,12 @@ describe('documentation references', () => {
       'Unknown npm artifact metadata fields remain artifact inspection data',
     )
     expect(normalizedProjections).toContain(
+      'Artifact processors may enrich neutral release metadata and artifact-level `ecosystemMetadata`',
+    )
+    expect(normalizedProjections).toContain(
+      'they must not change package identity, source intent, provenance, language hints, or cross-ecosystem family identity',
+    )
+    expect(normalizedProjections).toContain(
       'emits only the supported npm resolver metadata fields',
     )
     expect(normalizedProjections).toContain(

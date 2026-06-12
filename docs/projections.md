@@ -88,6 +88,10 @@ an explicit `regesta.json` id instead of guessing.
 Core can expose small neutral metadata, such as `metadata.description`, when it
 is useful across ecosystems.
 
+Artifact processors may enrich neutral release metadata and artifact-level
+`ecosystemMetadata`, but they must not change package identity, source intent,
+provenance, language hints, or cross-ecosystem family identity.
+
 Core should not define a universal dependency model. Dependency and resolver
 metadata belong to artifact-level `ecosystemMetadata`, extracted by artifact
 processors and consumed by projections.

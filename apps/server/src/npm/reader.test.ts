@@ -68,4 +68,36 @@ describe('createNpmRegistryReader', () => {
     expect(getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(listPackageReleases).toHaveBeenCalledWith(packageId, { limit: 1 })
   })
+
+  it('does not expose write or storage capabilities from the source database', () => {
+    const database = Object.assign(new MemoryRegistryDatabase(), {
+      commitPublishedRelease: vi.fn(),
+      objects: {
+        get: vi.fn(),
+        put: vi.fn(),
+      },
+      queue: {
+        enqueue: vi.fn(),
+      },
+      signer: {
+        sign: vi.fn(),
+      },
+    })
+    const reader = createNpmRegistryReader({ database })
+
+    expect(reader.database).not.toBe(database)
+    expect(Object.keys(reader.database).toSorted()).toEqual([
+      'getPackageChannelVersion',
+      'getPackageChannels',
+      'getPackageEventHead',
+      'getPackageEventState',
+      'getPackageReleaseHead',
+      'getRelease',
+      'listPackageReleases',
+    ])
+    expect('commitPublishedRelease' in reader.database).toBe(false)
+    expect('objects' in reader.database).toBe(false)
+    expect('queue' in reader.database).toBe(false)
+    expect('signer' in reader.database).toBe(false)
+  })
 })

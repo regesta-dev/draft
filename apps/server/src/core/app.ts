@@ -1396,25 +1396,28 @@ async function publishFromRequest(
 ) {
   try {
     services.readWriteAuthorization(input.authorization)
+    const inputConfig = normalizeRegestaConfig(input.config)
     const processed = await processPublishArtifacts(services, {
       artifacts: input.artifacts,
-      config: input.config,
+      config: cloneRegestaConfig(inputConfig),
     })
+    const processedConfig = normalizeRegestaConfig(processed.config)
+    assertProcessedPublishConfigBoundary(inputConfig, processedConfig)
     const authorization = await services.verifyPublishAuthorization({
       artifacts: processed.artifacts,
       authorization: input.authorization,
-      configDigest: configDigest(processed.config),
-      packageId: processed.config.id,
+      configDigest: configDigest(processedConfig),
+      packageId: processedConfig.id,
       requestUrl: input.requestUrl,
       source: input.source,
-      version: processed.config.version,
+      version: processedConfig.version,
     })
 
     return await publishRelease(
       {
         artifacts: processed.artifacts,
         authorization,
-        config: processed.config,
+        config: processedConfig,
         ...(input.createdAt ? { createdAt: input.createdAt } : {}),
         source: input.source,
       },
@@ -1436,6 +1439,47 @@ function processPublishArtifacts(
   return services.processPublishArtifacts
     ? services.processPublishArtifacts(input)
     : input
+}
+
+function assertProcessedPublishConfigBoundary(
+  input: RegestaConfig,
+  processed: RegestaConfig,
+): void {
+  if (processed.id !== input.id) {
+    throw new TypeError('Publish artifact processor must not change package id')
+  }
+
+  if (processed.version !== input.version) {
+    throw new TypeError(
+      'Publish artifact processor must not change package version',
+    )
+  }
+
+  if (
+    canonicalJson(configWithoutReleaseMetadata(processed)) !==
+    canonicalJson(configWithoutReleaseMetadata(input))
+  ) {
+    throw new TypeError(
+      'Publish artifact processor must not change non-metadata package config',
+    )
+  }
+}
+
+function configWithoutReleaseMetadata(
+  config: RegestaConfig,
+): Omit<RegestaConfig, 'description' | 'exports' | 'repository'> {
+  const {
+    description: _description,
+    exports: _exports,
+    repository: _repository,
+    ...baseConfig
+  } = config
+
+  return baseConfig
+}
+
+function cloneRegestaConfig(config: RegestaConfig): RegestaConfig {
+  return normalizeRegestaConfig(JSON.parse(canonicalJson(config)))
 }
 
 function parseRequestPackageId(value: string): PackageId {

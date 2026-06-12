@@ -1,6 +1,10 @@
 import { Buffer } from 'node:buffer'
 import { createMemoryRegistryAdapters } from '@regesta/adapters'
-import { sha256, type WriteAuthorizationProof } from '@regesta/protocol'
+import {
+  sha256,
+  type RegestaConfig,
+  type WriteAuthorizationProof,
+} from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createCoreRegistryApp,
@@ -299,6 +303,175 @@ describe('createCoreRegistryApp', () => {
       expect.not.objectContaining({
         requestId: 'invalid request id',
       }),
+    )
+  })
+
+  it('allows artifact processors to enrich neutral release metadata', async () => {
+    const signedAt = '2026-06-01T00:00:00.000Z'
+    const app = createCoreRegistryApp(createMemoryRegistryAdapters(), {
+      ...coreRegistryServices(signedAt),
+      processPublishArtifacts: (input) => {
+        return {
+          artifacts: input.artifacts,
+          config: {
+            ...input.config,
+            description: 'Processed package description',
+          },
+        }
+      },
+    })
+
+    const response = await app.request('/releases', {
+      body: publishForm({
+        id: 'npm:example.com/processor-metadata',
+        signedAt,
+        version: '0.0.1',
+      }),
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      manifest: {
+        metadata: {
+          description: 'Processed package description',
+        },
+      },
+    })
+  })
+
+  it('normalizes artifact processor config before publish authorization verification', async () => {
+    const signedAt = '2026-06-01T00:00:00.000Z'
+    const verifyPublishAuthorization = vi.fn(() => {
+      return Promise.resolve(authorizationProof('publish', signedAt))
+    })
+    const app = createCoreRegistryApp(createMemoryRegistryAdapters(), {
+      ...coreRegistryServices(signedAt),
+      processPublishArtifacts: (input) => {
+        return {
+          artifacts: input.artifacts,
+          config: {
+            ...input.config,
+            description: JSON.parse('1'),
+          },
+        }
+      },
+      verifyPublishAuthorization,
+    })
+    app.onError((error) => {
+      return new Response(error.message, { status: 400 })
+    })
+
+    const response = await app.request('/releases', {
+      body: publishForm({
+        id: 'npm:example.com/processor-invalid-metadata',
+        signedAt,
+        version: '0.0.1',
+      }),
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.text()).resolves.toBe(
+      'regesta.json description must be a string',
+    )
+    expect(verifyPublishAuthorization).not.toHaveBeenCalled()
+  })
+
+  it('rejects artifact processors that change non-metadata package config', async () => {
+    const signedAt = '2026-06-01T00:00:00.000Z'
+    const mutations: Array<{
+      message: string
+      mutate: (config: RegestaConfig) => RegestaConfig
+    }> = [
+      {
+        message: 'Publish artifact processor must not change package id',
+        mutate: (config) => ({
+          ...config,
+          id: 'npm:example.com/other-package',
+        }),
+      },
+      {
+        message: 'Publish artifact processor must not change package version',
+        mutate: (config) => ({
+          ...config,
+          version: '9.9.9',
+        }),
+      },
+      {
+        message:
+          'Publish artifact processor must not change non-metadata package config',
+        mutate: (config) => ({
+          ...config,
+          languages: ['typescript'],
+        }),
+      },
+      {
+        message:
+          'Publish artifact processor must not change non-metadata package config',
+        mutate: (config) => ({
+          ...config,
+          source: {
+            include: ['package.json'],
+          },
+        }),
+      },
+    ]
+
+    for (const mutation of mutations) {
+      const app = createCoreRegistryApp(createMemoryRegistryAdapters(), {
+        ...coreRegistryServices(signedAt),
+        processPublishArtifacts: (input) => {
+          return {
+            artifacts: input.artifacts,
+            config: mutation.mutate(input.config),
+          }
+        },
+      })
+      app.onError((error) => {
+        return new Response(error.message, { status: 400 })
+      })
+
+      const response = await app.request('/releases', {
+        body: publishForm({
+          id: 'npm:example.com/processor-identity',
+          signedAt,
+          version: '0.0.1',
+        }),
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(400)
+      await expect(response.text()).resolves.toBe(mutation.message)
+    }
+  })
+
+  it('rejects artifact processors that mutate package config in place', async () => {
+    const signedAt = '2026-06-01T00:00:00.000Z'
+    const app = createCoreRegistryApp(createMemoryRegistryAdapters(), {
+      ...coreRegistryServices(signedAt),
+      processPublishArtifacts: (input) => {
+        input.config.id = 'npm:example.com/mutated-package'
+
+        return input
+      },
+    })
+    app.onError((error) => {
+      return new Response(error.message, { status: 400 })
+    })
+
+    const response = await app.request('/releases', {
+      body: publishForm({
+        id: 'npm:example.com/original-package',
+        signedAt,
+        version: '0.0.1',
+      }),
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.text()).resolves.toBe(
+      'Publish artifact processor must not change package id',
     )
   })
 })
