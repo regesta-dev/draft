@@ -241,6 +241,7 @@ describe('createNpmUpstreamFallback', () => {
             headers: {
               'cache-control': 'public, max-age=300',
               connection: 'keep-alive',
+              'content-length': '999',
               'content-type': 'application/json',
               etag: '"upstream-packument"',
               'last-modified': 'Mon, 01 Jun 2026 00:00:00 GMT',
@@ -268,6 +269,7 @@ describe('createNpmUpstreamFallback', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('public, max-age=300')
+    expect(response.headers.get('content-length')).toBeNull()
     expect(response.headers.get('content-type')).toBe('application/json')
     expect(response.headers.get('etag')).toBe('"upstream-packument"')
     expect(response.headers.get('last-modified')).toBe(

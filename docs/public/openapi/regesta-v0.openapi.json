@@ -68,9 +68,6 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/RootCacheControl"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
               }
             }
           }
@@ -109,9 +106,6 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
               }
             }
           }
@@ -166,9 +160,6 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
               }
             }
           },
@@ -177,9 +168,6 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStoreCacheControl"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
               }
             }
           }
@@ -304,7 +292,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/MutableNotModified" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -355,7 +343,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/ImmutableNotModified" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -450,7 +438,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/MutableNotModified" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" }
         }
       },
       "put": {
@@ -590,7 +578,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/MutableNotModified" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -690,7 +678,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/ObjectNotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/HeadError" },
           "416": { "$ref": "#/components/responses/ObjectRangeNotSatisfiable" }
         }
       }
@@ -793,7 +781,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/ObjectNotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/HeadError" },
           "416": { "$ref": "#/components/responses/ObjectRangeNotSatisfiable" }
         }
       }
@@ -845,7 +833,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/MutableNotModified" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -896,7 +884,7 @@
             }
           },
           "304": { "$ref": "#/components/responses/ImmutableNotModified" },
-          "404": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -939,9 +927,6 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoCacheControl"
-              },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
               }
             }
           }
@@ -998,9 +983,6 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1008,8 +990,8 @@
             }
           },
           "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "502": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" },
+          "502": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -1065,9 +1047,6 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1075,8 +1054,8 @@
             }
           },
           "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "502": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" },
+          "502": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -1130,9 +1109,6 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1140,8 +1116,8 @@
             }
           },
           "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "502": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" },
+          "502": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -1199,9 +1175,6 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1209,8 +1182,8 @@
             }
           },
           "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "502": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" },
+          "502": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -1268,9 +1241,6 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/NpmMetadataCacheControl"
               },
-              "Content-Length": {
-                "$ref": "#/components/headers/ContentLength"
-              },
               "ETag": { "$ref": "#/components/headers/NpmMetadataEtag" },
               "Last-Modified": {
                 "$ref": "#/components/headers/NpmMetadataLastModified"
@@ -1278,8 +1248,8 @@
             }
           },
           "304": { "$ref": "#/components/responses/NotModified" },
-          "404": { "$ref": "#/components/responses/Error" },
-          "502": { "$ref": "#/components/responses/Error" }
+          "404": { "$ref": "#/components/responses/HeadError" },
+          "502": { "$ref": "#/components/responses/HeadError" }
         }
       }
     },
@@ -1530,6 +1500,9 @@
             "schema": { "$ref": "#/components/schemas/ErrorResponse" }
           }
         }
+      },
+      "HeadError": {
+        "description": "Error status for HEAD requests. Runtime responses keep the status and JSON content type but do not include a response body."
       },
       "NpmTarballRedirect": {
         "description": "Redirect direct npm projection tarball requests. Local releases redirect to immutable core object URLs; missing packages and versions redirect to the upstream npm registry tarball URL. The npm projection never serves or proxies tarball bytes.",

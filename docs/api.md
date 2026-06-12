@@ -73,8 +73,10 @@ are ready. It returns `503` when any dependency is not ready. Clients should
 read the `checks` object and must not depend on probe ordering. Checkpoint
 readiness appears only when a checkpoint store adapter is configured.
 
-Transport status responses use `Cache-Control: no-store` and include
-`Content-Length` for the exact JSON response body.
+Transport status `GET` responses use `Cache-Control: no-store` and include
+`Content-Length` for the exact JSON response body. Transport status `HEAD`
+responses return the same status and cache headers without a response body or
+JSON `Content-Length`.
 
 `/favicon.ico` returns `204` with short public caching so browser favicon probes
 do not fall through to package routes.
@@ -452,8 +454,9 @@ HEAD /-/ping
 
 On npm projection hosts, the root path returns an empty JSON object for npm
 client compatibility. This is the same public path as the core registry root,
-but selected by host routing. Root and ping utility responses include
-`Cache-Control: no-cache` and `Content-Length`.
+but selected by host routing. Root and ping utility `GET` responses include
+`Cache-Control: no-cache` and `Content-Length`. Their `HEAD` responses return
+the same cache behavior without a response body or JSON `Content-Length`.
 
 The `GET /@scope/name` and `HEAD /@scope/name` entries above use the same
 physical path shape as npm-compatible unscoped version or tag reads, such as
@@ -520,6 +523,9 @@ Public API errors are structured JSON:
   "code": "release_already_exists"
 }
 ```
+
+For `HEAD` requests, error responses keep the same status and error headers but
+do not include the JSON response body.
 
 Validation failures should return client errors, not internal server errors.
 Write authorization failures return `401` with code

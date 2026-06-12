@@ -881,13 +881,19 @@ describe('documentation references', () => {
         ).resolves.toEqual({
           $ref: '#/components/headers/NpmMetadataCacheControl',
         })
-        await expect(
-          openapiValueAtPointer(
+        if (method === 'get') {
+          await expect(
+            openapiValueAtPointer(
+              `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Content-Length`,
+            ),
+          ).resolves.toEqual({
+            $ref: '#/components/headers/ContentLength',
+          })
+        } else {
+          await expectOpenapiMissing(
             `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Content-Length`,
-          ),
-        ).resolves.toEqual({
-          $ref: '#/components/headers/ContentLength',
-        })
+          )
+        }
         await expect(
           openapiValueAtPointer(
             `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/ETag`,
@@ -932,21 +938,27 @@ describe('documentation references', () => {
       ).resolves.toEqual({
         $ref: '#/components/headers/NoCacheControl',
       })
-      await expect(
-        openapiValueAtPointer(
+      if (method === 'get') {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/~1-~1ping/${method}/responses/200/headers/Content-Length`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/ContentLength',
+        })
+      } else {
+        await expectOpenapiMissing(
           `#/paths/~1-~1ping/${method}/responses/200/headers/Content-Length`,
-        ),
-      ).resolves.toEqual({
-        $ref: '#/components/headers/ContentLength',
-      })
+        )
+      }
     }
 
     const api = await readText('api.md')
 
     expect(api).toContain('the root path returns an empty JSON object')
-    expect(api).toContain('Root and ping utility responses include')
+    expect(api).toContain('Root and ping utility `GET` responses include')
     expect(api).toContain('`Cache-Control: no-cache`')
-    expect(api).toContain('and `Content-Length`')
+    expect(api).toContain('Their `HEAD` responses return')
   })
 
   it('documents npm metadata routes as upstream-fallback error surfaces', async () => {
@@ -957,15 +969,20 @@ describe('documentation references', () => {
       '/{scope}/{name}',
       '/{scope}/{name}/{tagOrVersion}',
     ]) {
-      for (const method of ['get', 'head']) {
-        await expect(
-          openapiValueAtPointer(
-            `#/paths/${escapeJsonPointer(path)}/${method}/responses/502`,
-          ),
-        ).resolves.toEqual({
-          $ref: '#/components/responses/Error',
-        })
-      }
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/${escapeJsonPointer(path)}/get/responses/502`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/responses/Error',
+      })
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/${escapeJsonPointer(path)}/head/responses/502`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/responses/HeadError',
+      })
     }
   })
 
@@ -1588,31 +1605,115 @@ describe('documentation references', () => {
 
   it('documents transport JSON response lengths', async () => {
     for (const path of ['/', '/health']) {
-      for (const method of ['get', 'head']) {
-        await expect(
-          openapiValueAtPointer(
-            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Content-Length`,
-          ),
-        ).resolves.toEqual({
-          $ref: '#/components/headers/ContentLength',
-        })
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/${escapeJsonPointer(path)}/get/responses/200/headers/Content-Length`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/ContentLength',
+      })
+      await expectOpenapiMissing(
+        `#/paths/${escapeJsonPointer(path)}/head/responses/200/headers/Content-Length`,
+      )
+    }
+
+    for (const status of ['200', '503']) {
+      await expect(
+        openapiValueAtPointer(
+          `#/paths/~1ready/get/responses/${status}/headers/Content-Length`,
+        ),
+      ).resolves.toEqual({
+        $ref: '#/components/headers/ContentLength',
+      })
+      await expectOpenapiMissing(
+        `#/paths/~1ready/head/responses/${status}/headers/Content-Length`,
+      )
+    }
+
+    const normalizedApi = (await readText('api.md')).replaceAll(/\s+/gu, ' ')
+    expect(normalizedApi).toContain('Transport status `GET` responses use')
+    expect(normalizedApi).toContain('Transport status `HEAD` responses return')
+  })
+
+  it('limits OpenAPI HEAD content lengths to byte-oriented object responses', async () => {
+    const openapi = await readJson(openapiPath)
+    const paths = member(openapi, 'paths')
+
+    if (!isRecord(paths)) {
+      throw new TypeError('OpenAPI paths must be an object')
+    }
+
+    const headContentLengthResponses: string[] = []
+    for (const [path, operations] of Object.entries(paths)) {
+      if (!isRecord(operations)) {
+        throw new TypeError(`OpenAPI path must be an object: ${path}`)
+      }
+
+      const head = operations.head
+      if (!isRecord(head)) {
+        continue
+      }
+
+      const responses = member(head, 'responses')
+      if (!isRecord(responses)) {
+        throw new TypeError(`OpenAPI HEAD responses must be an object: ${path}`)
+      }
+
+      for (const [status, response] of Object.entries(responses)) {
+        if (!isRecord(response)) {
+          continue
+        }
+
+        const headers = response.headers
+        if (isRecord(headers) && 'Content-Length' in headers) {
+          headContentLengthResponses.push(`${path} ${status}`)
+        }
       }
     }
 
-    for (const method of ['get', 'head']) {
-      for (const status of ['200', '503']) {
-        await expect(
-          openapiValueAtPointer(
-            `#/paths/~1ready/${method}/responses/${status}/headers/Content-Length`,
-          ),
-        ).resolves.toEqual({
-          $ref: '#/components/headers/ContentLength',
-        })
+    expect(headContentLengthResponses.toSorted()).toEqual([
+      '/objects/{algorithm}/{hex} 200',
+      '/objects/{algorithm}/{hex} 206',
+      '/objects/{digest} 200',
+      '/objects/{digest} 206',
+    ])
+  })
+
+  it('keeps OpenAPI HEAD responses bodyless', async () => {
+    const openapi = await readJson(openapiPath)
+    const paths = member(openapi, 'paths')
+
+    if (!isRecord(paths)) {
+      throw new TypeError('OpenAPI paths must be an object')
+    }
+
+    const headResponsesWithBodies: string[] = []
+    for (const [path, operations] of Object.entries(paths)) {
+      if (!isRecord(operations)) {
+        throw new TypeError(`OpenAPI path must be an object: ${path}`)
+      }
+
+      const head = operations.head
+      if (!isRecord(head)) {
+        continue
+      }
+
+      const responses = member(head, 'responses')
+      if (!isRecord(responses)) {
+        throw new TypeError(`OpenAPI HEAD responses must be an object: ${path}`)
+      }
+
+      for (const [status, response] of Object.entries(responses)) {
+        const resolvedResponse = resolveOpenapiReference(openapi, response)
+        if (isRecord(resolvedResponse) && 'content' in resolvedResponse) {
+          headResponsesWithBodies.push(`${path} ${status}`)
+        }
       }
     }
 
+    expect(headResponsesWithBodies).toEqual([])
     await expect(readText('api.md')).resolves.toContain(
-      'include `Content-Length` for the exact JSON response body',
+      'For `HEAD` requests, error responses keep the same status and error headers',
     )
   })
 
@@ -1910,6 +2011,20 @@ async function schemaValueAtPointer(pointer: string): Promise<unknown> {
 
 async function openapiValueAtPointer(pointer: string): Promise<unknown> {
   return resolveJsonPointer(await readJson(openapiPath), pointer, pointer)
+}
+
+async function expectOpenapiMissing(pointer: string): Promise<void> {
+  await expect(openapiValueAtPointer(pointer)).rejects.toThrow(
+    /points to missing/u,
+  )
+}
+
+function resolveOpenapiReference(openapi: unknown, value: unknown): unknown {
+  if (!isRecord(value) || typeof value.$ref !== 'string') {
+    return value
+  }
+
+  return resolveJsonPointer(openapi, value.$ref, value.$ref)
 }
 
 async function openapiRouteMethods(): Promise<Record<string, string[]>> {

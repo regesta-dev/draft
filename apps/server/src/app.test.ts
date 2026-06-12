@@ -6936,6 +6936,7 @@ describe('createRegestaApp', () => {
     const upstreamHeaders = {
       'cache-control': 'public, max-age=300',
       connection: 'keep-alive',
+      'content-length': '999',
       'content-type': 'application/json',
       etag: '"upstream-etag"',
       'last-modified': 'Wed, 10 Jun 2026 00:00:00 GMT',
@@ -7142,6 +7143,7 @@ describe('createRegestaApp', () => {
     expect(headPackument.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expect(headPackument.headers.get('content-length')).toBeNull()
     expectNoSensitiveUpstreamResponseHeaders(headPackument)
     expect(await headPackument.text()).toBe('')
     expect(fetchCalls.at(-1)?.method).toBe('HEAD')
@@ -7179,6 +7181,7 @@ describe('createRegestaApp', () => {
     expect(headManifest.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expect(headManifest.headers.get('content-length')).toBeNull()
     expectNoSensitiveUpstreamResponseHeaders(headManifest)
     expect(await headManifest.text()).toBe('')
     expect(fetchCalls.at(-1)?.method).toBe('HEAD')
@@ -7286,6 +7289,7 @@ describe('createRegestaApp', () => {
     expect(headDistTags.headers.get('last-modified')).toBe(
       'Wed, 10 Jun 2026 00:00:00 GMT',
     )
+    expect(headDistTags.headers.get('content-length')).toBeNull()
     expectNoSensitiveUpstreamResponseHeaders(headDistTags)
     expect(await headDistTags.text()).toBe('')
     expect(fetchCalls.at(-1)?.method).toBe('HEAD')
