@@ -308,6 +308,7 @@ describe('server layer boundaries', () => {
     await expectNoForbiddenImports('npm/reader.ts', [
       '@regesta/adapters',
       '@regesta/auth',
+      '@regesta/core',
       '@regesta/npm',
       'hono',
       '../responses',
@@ -319,6 +320,7 @@ describe('server layer boundaries', () => {
     await expectNoForbiddenImports('npm/projection-app.ts', [
       '@regesta/adapters',
       '@regesta/auth',
+      '@regesta/core',
       '@regesta/npm',
       '@regesta/protocol',
       '../responses',
@@ -365,6 +367,25 @@ describe('server layer boundaries', () => {
 
       const source = await readFile(file, 'utf8')
       if (source.includes('processNpmArtifacts')) {
+        violations.push(relativePath)
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
+  it('keeps npm helper imports confined to npm-facing server layers', async () => {
+    const allowedImporters = new Set(['artifacts/npm.ts', 'npm/projection.ts'])
+    const violations: string[] = []
+
+    for (const file of await sourceFiles(serverSourceRoot)) {
+      const relativePath = relative(serverSourceRoot, file)
+      const source = await readFile(file, 'utf8')
+
+      if (
+        importsSpecifier(source, '@regesta/npm') &&
+        !allowedImporters.has(relativePath)
+      ) {
         violations.push(relativePath)
       }
     }
@@ -569,7 +590,9 @@ describe('server layer boundaries', () => {
       'export function createNpmProjectionApp',
     )
 
-    expect(source).toContain('createNpmProjectionApp(adapters')
+    expect(source).toContain('createNpmProjectionApp(')
+    expect(source).toContain('database: adapters.database')
+    expect(source).not.toContain('createNpmProjectionApp(adapters')
     expect(source).not.toContain('createNpmRegistryReader')
     expect(source).not.toContain('createNpmRegistryRoutes(adapters')
     expect(source).not.toContain('function createNpmRegistryReader')

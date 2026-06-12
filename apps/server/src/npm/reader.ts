@@ -1,9 +1,16 @@
-import type { PackageStateSnapshot, RegistryAdapters } from '@regesta/core'
 import type {
   PackageId,
+  PackageState,
   RegistryEvent,
   ReleaseManifest,
+  Sha256Digest,
 } from '@regesta/protocol'
+
+export interface NpmPackageStateSnapshot {
+  lastEventId?: Sha256Digest
+  lastEventTimestamp?: string
+  state: PackageState
+}
 
 export interface NpmRegistryReader {
   database: {
@@ -12,7 +19,7 @@ export interface NpmRegistryReader {
     ) => Promise<Record<string, string>>
     getPackageEventState: (
       packageId: PackageId,
-    ) => Promise<PackageStateSnapshot>
+    ) => Promise<NpmPackageStateSnapshot>
     getRelease: (
       packageId: PackageId,
       version: string,
@@ -26,8 +33,12 @@ export interface NpmRegistryReader {
   }
 }
 
+export interface NpmRegistryReaderSource {
+  database: NpmRegistryReader['database']
+}
+
 export function createNpmRegistryReader(
-  adapters: Pick<RegistryAdapters, 'database'>,
+  adapters: NpmRegistryReaderSource,
 ): NpmRegistryReader {
   return {
     database: {

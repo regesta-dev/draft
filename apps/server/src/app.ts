@@ -101,10 +101,15 @@ export function createRegestaApp(
   )
   app.route(
     '/npm',
-    createNpmProjectionApp(adapters, {
-      upstreamFetch: options.npmUpstreamFetch,
-      upstreamTimeoutMs: options.npmUpstream?.upstreamTimeoutMs,
-    }),
+    createNpmProjectionApp(
+      {
+        database: adapters.database,
+      },
+      {
+        upstreamFetch: options.npmUpstreamFetch,
+        upstreamTimeoutMs: options.npmUpstream?.upstreamTimeoutMs,
+      },
+    ),
   )
   mountDevLocalhostRoutes(app)
 

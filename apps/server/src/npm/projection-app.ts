@@ -1,12 +1,14 @@
 import { createNpmRegistryRoutes, type NpmRegistryRouteOptions } from './app.ts'
-import { createNpmRegistryReader } from './reader.ts'
-import type { RegistryAdapters } from '@regesta/core'
+import {
+  createNpmRegistryReader,
+  type NpmRegistryReaderSource,
+} from './reader.ts'
 import type { Hono } from 'hono'
 
 export type { NpmRegistryRouteOptions } from './app.ts'
 
 export function createNpmProjectionApp(
-  adapters: Pick<RegistryAdapters, 'database'>,
+  adapters: NpmRegistryReaderSource,
   options: NpmRegistryRouteOptions = {},
 ): Hono {
   return createNpmRegistryRoutes(createNpmRegistryReader(adapters), options)

@@ -5848,6 +5848,85 @@ describe('createRegestaApp', () => {
     expect(rootPathOnMainHost.status).toBe(404)
   })
 
+  it('keeps npm projection reads isolated to the database adapter', async () => {
+    const adapters = createMemoryRegistryAdapters()
+
+    await publishRelease(
+      {
+        artifacts: [
+          {
+            bytes: bytes('install artifact bytes'),
+            format: 'npm-tarball',
+            mediaType: 'application/gzip',
+            role: 'install',
+          },
+        ],
+        config: {
+          id: 'npm:example.com/projection-boundary',
+          source: {
+            include: ['regesta.json'],
+          },
+          version: '0.0.1',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        source: bytes('source archive'),
+      },
+      adapters,
+    )
+
+    adapters.objects.get = () => {
+      throw new Error('npm projection must not read object bytes')
+    }
+    adapters.objects.getDescriptor = () => {
+      throw new Error('npm projection must not read object descriptors')
+    }
+    adapters.objects.listDescriptors = () => {
+      throw new Error('npm projection must not list objects')
+    }
+    adapters.objects.put = () => {
+      throw new Error('npm projection must not write objects')
+    }
+    adapters.queue.enqueue = () => {
+      throw new Error('npm projection must not enqueue jobs')
+    }
+    adapters.signer.sign = () => {
+      throw new Error('npm projection must not sign bytes')
+    }
+    if (adapters.checkpoints) {
+      adapters.checkpoints.get = () => {
+        throw new Error('npm projection must not read checkpoint bytes')
+      }
+      adapters.checkpoints.getDescriptor = () => {
+        throw new Error('npm projection must not read checkpoint descriptors')
+      }
+      adapters.checkpoints.listDescriptors = () => {
+        throw new Error('npm projection must not list checkpoints')
+      }
+      adapters.checkpoints.put = () => {
+        throw new Error('npm projection must not write checkpoints')
+      }
+    }
+
+    const app = createRegestaApp(adapters)
+    const response = await app.request(
+      'http://npm.registry.test/@example.com/projection-boundary',
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      'dist-tags': {
+        latest: '0.0.1',
+      },
+      name: '@example.com/projection-boundary',
+      versions: {
+        '0.0.1': {
+          name: '@example.com/projection-boundary',
+          version: '0.0.1',
+        },
+      },
+    })
+  })
+
   it('serves locally persisted publish data after app restart', async () => {
     const root = await mkdtemp(join(tmpdir(), 'regesta-server-local-'))
     const projectDir = await createFixtureProject({
