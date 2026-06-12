@@ -5,6 +5,7 @@ export interface RuntimeDeploymentStatisticsOptions {
 }
 
 export interface RuntimeNpmUpstreamOptions {
+  upstreamFallback?: boolean
   upstreamTimeoutMs?: number
 }
 
@@ -27,6 +28,8 @@ export interface RuntimeTrustOptions {
 
 export interface RuntimeOptions {
   deploymentStatistics?: RuntimeDeploymentStatisticsOptions
+  npmArtifactProcessing?: boolean
+  npmProjection?: boolean
   npmUpstream?: RuntimeNpmUpstreamOptions
   publishUploadLimits?: RuntimePublishUploadLimits
   readiness?: RuntimeReadinessOptions
@@ -40,6 +43,14 @@ const positiveIntegerPattern = /^[1-9]\d*$/
 export function runtimeOptionsFromEnv(env: RuntimeEnvironment): RuntimeOptions {
   return {
     deploymentStatistics: readDeploymentStatisticsOptions(env),
+    npmArtifactProcessing: readOptionalBoolean(
+      env.REGESTA_NPM_ARTIFACT_PROCESSING,
+      'REGESTA_NPM_ARTIFACT_PROCESSING',
+    ),
+    npmProjection: readOptionalBoolean(
+      env.REGESTA_NPM_PROJECTION,
+      'REGESTA_NPM_PROJECTION',
+    ),
     npmUpstream: readNpmUpstreamOptions(env),
     publishUploadLimits: readPublishUploadLimits(env),
     readiness: readReadinessOptions(env),
@@ -105,12 +116,21 @@ function readDeploymentStatisticsOptions(
 function readNpmUpstreamOptions(
   env: RuntimeEnvironment,
 ): RuntimeNpmUpstreamOptions | undefined {
+  const upstreamFallback = readOptionalBoolean(
+    env.REGESTA_NPM_UPSTREAM_FALLBACK,
+    'REGESTA_NPM_UPSTREAM_FALLBACK',
+  )
   const upstreamTimeoutMs = readOptionalNonNegativeInteger(
     env.REGESTA_NPM_UPSTREAM_TIMEOUT_MS,
     'REGESTA_NPM_UPSTREAM_TIMEOUT_MS',
   )
 
-  return upstreamTimeoutMs === undefined ? undefined : { upstreamTimeoutMs }
+  return upstreamFallback === undefined && upstreamTimeoutMs === undefined
+    ? undefined
+    : {
+        ...(upstreamFallback === undefined ? {} : { upstreamFallback }),
+        ...(upstreamTimeoutMs === undefined ? {} : { upstreamTimeoutMs }),
+      }
 }
 
 function readReadinessOptions(
@@ -152,6 +172,25 @@ function readOptionalPositiveInteger(
   }
 
   return safeIntegerFromDecimal(value, name, 'positive safe integer')
+}
+
+function readOptionalBoolean(
+  value: string | undefined,
+  name: string,
+): boolean | undefined {
+  if (value === undefined || value.length === 0) {
+    return undefined
+  }
+
+  if (value === 'true') {
+    return true
+  }
+
+  if (value === 'false') {
+    return false
+  }
+
+  throw new TypeError(`${name} must be a boolean value: true or false`)
 }
 
 function safeIntegerFromDecimal(

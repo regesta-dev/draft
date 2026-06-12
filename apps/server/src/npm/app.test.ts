@@ -269,6 +269,48 @@ describe('createNpmRegistryRoutes', () => {
     ])
   })
 
+  it('can disable upstream npm fallback for missing projection packages', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('disabled npm fallback must not fetch upstream')
+    })
+    const app = createNpmProjectionApp(createMemoryRegistryAdapters(), {
+      upstreamFallback: false,
+      upstreamFetch,
+    })
+
+    const packument = await app.request('https://npm.registry.test/not-local')
+    const packumentHead = await app.request(
+      'https://npm.registry.test/not-local',
+      {
+        method: 'HEAD',
+      },
+    )
+    const manifest = await app.request(
+      'https://npm.registry.test/not-local/latest',
+    )
+    const distTags = await app.request(
+      'https://npm.registry.test/-/package/not-local/dist-tags',
+    )
+    const tarball = await app.request(
+      'https://npm.registry.test/not-local/-/not-local-1.0.0.tgz',
+    )
+
+    for (const response of [packument, manifest, distTags, tarball]) {
+      expect(response.status).toBe(404)
+      expect(response.headers.get('cache-control')).toBe('no-cache')
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'package_not_found',
+        error: 'Package not found',
+        message: 'Package not found',
+      })
+    }
+    expect(packumentHead.status).toBe(404)
+    expect(packumentHead.headers.get('cache-control')).toBe('no-cache')
+    await expect(packumentHead.text()).resolves.toBe('')
+    expect(tarball.headers.get('location')).toBeNull()
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
   it('serves local npm packuments from the narrow registry reader', async () => {
     const manifest = releaseManifest()
     const event = publishEvent(manifest)

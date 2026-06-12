@@ -56,3 +56,6 @@ curl http://127.0.0.1:4321/ready
 
 The Compose setup stores SQLite metadata and object bytes in the
 `regesta-data` volume. Override `REGESTA_PORT` to bind a different host port.
+Runtime configuration variables documented in [Operations](docs/operations.md)
+can also be passed through Compose, including the npm projection, npm artifact
+processing, and npm upstream fallback switches.

@@ -493,6 +493,12 @@ Fallback is not part of the core package state. It can be implemented by the
 server projection, or by a client/package manager that tries Regesta first and
 then asks the ecosystem's default registry for missing packages.
 
+Server-side npm fallback is optional deployment policy. When it is disabled,
+missing npm metadata and tarball routes return `404 package_not_found` instead
+of contacting or redirecting to `registry.npmjs.org`. Local Regesta-hosted npm
+packages still resolve through the npm projection when the projection is
+mounted.
+
 When the server projection handles fallback, packument, version-manifest, and
 dist-tag metadata are validated and then returned without rewriting. Upstream
 `dist.tarball` URLs remain upstream URLs. Direct npm projection tarball routes

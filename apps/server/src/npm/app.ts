@@ -613,7 +613,20 @@ async function serveNpmTarball(
     }
   }
 
-  return redirectToTarball(upstream.tarballUrl(packageName, file))
+  const upstreamTarballUrl = upstream.tarballUrl(packageName, file)
+
+  return upstreamTarballUrl
+    ? redirectToTarball(upstreamTarballUrl)
+    : jsonResponse(
+        context.req.method,
+        errorResponse('package_not_found', 'Package not found'),
+        {
+          headers: {
+            'cache-control': 'no-cache',
+          },
+          status: 404,
+        },
+      )
 }
 
 function npmTarballVersion(

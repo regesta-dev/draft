@@ -51,6 +51,7 @@ import {
   devLocalhostKeyId,
   devLocalhostPrivateKeyFile,
 } from './dev/keys.ts'
+import { runtimeOptionsFromEnv } from './runtime-options.ts'
 import type { CoreRegistryAuditEntry } from './core/app.ts'
 
 const execFileAsync = promisify(execFile)
@@ -215,6 +216,27 @@ describe('createRegestaApp', () => {
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
+  it('can disable the default npm projection mount from runtime environment options', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error(
+        'disabled runtime npm projection must not fetch upstream npm',
+      )
+    })
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      ...runtimeOptionsFromEnv({
+        REGESTA_NPM_PROJECTION: 'false',
+      }),
+      npmUpstreamFetch: upstreamFetch,
+    })
+
+    const npmRoot = await app.request('http://npm.registry.test/')
+    const coreRoot = await app.request('http://registry.test/')
+
+    expect(npmRoot.status).toBe(404)
+    expect(coreRoot.status).toBe(200)
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
   it('keeps the npm projection mounted when explicitly enabled', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters(), {
       npmProjection: true,
@@ -234,6 +256,35 @@ describe('createRegestaApp', () => {
     await expect(response.json()).resolves.toMatchObject({
       name: 'tinyexec',
     })
+  })
+
+  it('can keep npm projection routes local-only by disabling upstream fallback', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('disabled npm upstream fallback must not fetch upstream')
+    })
+    const app = createRegestaApp(createMemoryRegistryAdapters(), {
+      npmUpstream: {
+        upstreamFallback: false,
+      },
+      npmUpstreamFetch: upstreamFetch,
+    })
+
+    const packument = await app.request('http://npm.registry.test/tinyexec')
+    const tarball = await app.request(
+      'http://npm.registry.test/tinyexec/-/tinyexec-0.0.1.tgz',
+    )
+    const coreRoot = await app.request('http://registry.test/')
+
+    expect(packument.status).toBe(404)
+    await expect(packument.json()).resolves.toMatchObject({
+      code: 'package_not_found',
+      error: 'Package not found',
+      message: 'Package not found',
+    })
+    expect(tarball.status).toBe(404)
+    expect(tarball.headers.get('location')).toBeNull()
+    expect(coreRoot.status).toBe(200)
+    expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
   it('allows deployments to compose and replace the default publish artifact processor', async () => {

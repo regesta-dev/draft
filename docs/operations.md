@@ -32,20 +32,40 @@ queue, signer, checkpoint store, or KMS.
 
 The default Node server accepts these deployment environment variables:
 
-| Variable                             | Default         | Purpose                                                                       |
-| ------------------------------------ | --------------- | ----------------------------------------------------------------------------- |
-| `REGESTA_DATA_DIR`                   | `.regesta-data` | Local SQLite, filesystem object storage, queue, signer, and checkpoint state. |
-| `REGESTA_DOMAIN_BINDING_TIMEOUT_MS`  | `10000`         | Domain well-known binding fetch timeout. Set `0` to disable it.               |
-| `REGESTA_MAX_REQUEST_BYTES`          | unlimited       | Maximum declared HTTP request body size.                                      |
-| `REGESTA_MAX_PUBLISH_ARTIFACT_BYTES` | unlimited       | Maximum uploaded install artifact size per publish request.                   |
-| `REGESTA_MAX_PUBLISH_SOURCE_BYTES`   | unlimited       | Maximum uploaded source archive size per publish request.                     |
-| `REGESTA_READINESS_TIMEOUT_MS`       | `5000`          | Per-adapter readiness probe timeout.                                          |
-| `REGESTA_STATISTICS_CACHE_TTL_MS`    | `10000`         | Root deployment statistics cache TTL. Set `0` to disable caching.             |
-| `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`    | `10000`         | npm upstream metadata fallback timeout. Set `0` to disable it.                |
+| Variable                             | Default         | Purpose                                                                                                            |
+| ------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `REGESTA_DATA_DIR`                   | `.regesta-data` | Local SQLite, filesystem object storage, queue, signer, and checkpoint state.                                      |
+| `REGESTA_DOMAIN_BINDING_TIMEOUT_MS`  | `10000`         | Domain well-known binding fetch timeout. Set `0` to disable it.                                                    |
+| `REGESTA_MAX_REQUEST_BYTES`          | unlimited       | Maximum declared HTTP request body size.                                                                           |
+| `REGESTA_MAX_PUBLISH_ARTIFACT_BYTES` | unlimited       | Maximum uploaded install artifact size per publish request.                                                        |
+| `REGESTA_MAX_PUBLISH_SOURCE_BYTES`   | unlimited       | Maximum uploaded source archive size per publish request.                                                          |
+| `REGESTA_NPM_ARTIFACT_PROCESSING`    | `true`          | Run the default npm artifact metadata processor. Set `false` for core-only deployments.                            |
+| `REGESTA_NPM_PROJECTION`             | `true`          | Mount the npm compatibility projection. Set `false` to disable npm routes.                                         |
+| `REGESTA_NPM_UPSTREAM_FALLBACK`      | `true`          | Allow npm projection misses to fall back to `registry.npmjs.org`. Set `false` for local-only npm projection reads. |
+| `REGESTA_READINESS_TIMEOUT_MS`       | `5000`          | Per-adapter readiness probe timeout.                                                                               |
+| `REGESTA_STATISTICS_CACHE_TTL_MS`    | `10000`         | Root deployment statistics cache TTL. Set `0` to disable caching.                                                  |
+| `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`    | `10000`         | npm upstream metadata fallback timeout. Set `0` to disable it.                                                     |
 
 Numeric runtime values must be decimal safe integers without whitespace,
 fractional notation, exponent notation, or leading zeroes. Timeout and cache
 values are milliseconds. Request and publish limits are byte counts.
+Boolean runtime values must be exactly `true` or `false`.
+
+`REGESTA_NPM_PROJECTION=false` disables the default npm compatibility mount for
+deployments that want to expose only core routes or a different projection mix.
+It does not change stored release data, artifact processing, or core registry
+semantics.
+
+`REGESTA_NPM_ARTIFACT_PROCESSING=false` disables the default npm artifact
+metadata processor in the default server entrypoint. This is useful for
+core-only or non-npm deployments that provide their own artifact processor
+pipeline. It does not disable HTTP projection routes; use
+`REGESTA_NPM_PROJECTION=false` for that.
+
+`REGESTA_NPM_UPSTREAM_FALLBACK=false` keeps the npm projection local-only.
+Missing package metadata and tarball routes return `404` instead of contacting
+or redirecting to `registry.npmjs.org`. Local Regesta-hosted npm packages still
+resolve through the npm projection when it is mounted.
 
 `REGESTA_MAX_REQUEST_BYTES` is a transport guard over declared
 `Content-Length`, not a protocol object-size rule. Malformed `Content-Length`
@@ -103,6 +123,13 @@ runs a real OCI image before checking persistence across a Docker volume.
 adapter path. It publishes packages, reads root deployment statistics, checks
 readiness, reads core package state, reads events, lists object inventory,
 reads objects, and reads the npm projection.
+
+The current load and Docker smokes validate the default npm-enabled deployment
+shape. They assume the default npm artifact processor and npm projection are
+enabled. A core-only or non-npm deployment can disable those features with
+`REGESTA_NPM_ARTIFACT_PROCESSING=false` or `REGESTA_NPM_PROJECTION=false`, but
+that deployment should define its own smoke profile and result schema instead
+of reusing the npm-first local gate unchanged.
 
 The script supports two profiles. Publish concurrency defaults to the package
 count, matching the current all-at-once publish behavior. Read concurrency

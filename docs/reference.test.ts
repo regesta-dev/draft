@@ -128,6 +128,20 @@ describe('documentation references', () => {
     )
   })
 
+  it('documents Docker Compose runtime configuration in the README', async () => {
+    const readme = await readWorkspaceText('README.md')
+    const normalizedReadme = readme.replaceAll(/\s+/gu, ' ')
+
+    expect(normalizedReadme).toContain('docker compose up -d --build')
+    expect(normalizedReadme).toContain('Override `REGESTA_PORT`')
+    expect(normalizedReadme).toContain(
+      'Runtime configuration variables documented in [Operations](docs/operations.md) can also be passed through Compose',
+    )
+    expect(normalizedReadme).toContain(
+      'npm projection, npm artifact processing, and npm upstream fallback switches',
+    )
+  })
+
   it('publishes parseable JSON Schema and OpenAPI references', async () => {
     const schema = await readJson(schemaPath)
     const loadSmokeResultSchema = await readJson(loadSmokeResultSchemaPath)
@@ -813,12 +827,20 @@ describe('documentation references', () => {
       'lists object inventory',
       'reads objects',
       'reads the npm projection',
+      'default npm-enabled deployment shape',
+      'They assume the default npm artifact processor and npm projection are enabled',
+      'core-only or non-npm deployment',
+      'should define its own smoke profile and result schema',
       'Runtime Configuration',
       'REGESTA_DATA_DIR',
       'REGESTA_DOMAIN_BINDING_TIMEOUT_MS',
       'REGESTA_MAX_REQUEST_BYTES',
       'REGESTA_MAX_PUBLISH_ARTIFACT_BYTES',
       'REGESTA_MAX_PUBLISH_SOURCE_BYTES',
+      'REGESTA_NPM_ARTIFACT_PROCESSING',
+      'REGESTA_NPM_PROJECTION',
+      'REGESTA_NPM_UPSTREAM_FALLBACK',
+      'Boolean runtime values must be exactly `true` or `false`',
       'readiness reads',
       'root deployment statistics',
       'object inventory reads',
@@ -1255,11 +1277,23 @@ describe('documentation references', () => {
     expect(normalizedApi).toContain(
       'Fallback responses preserve only cache and content metadata headers',
     )
+    expect(normalizedApi).toContain(
+      'Server-side npm fallback is optional deployment policy.',
+    )
+    expect(normalizedApi).toContain(
+      'missing npm metadata and tarball routes return `404 package_not_found` instead of contacting or redirecting to `registry.npmjs.org`',
+    )
     expect(normalizedProjections).toContain(
       'client credentials such as `Authorization`, `Cookie`, and npm token headers stay local',
     )
     expect(normalizedProjections).toContain(
       'upstream cookies, redirects, authentication challenges, and extension headers do not become Regesta projection response headers',
+    )
+    expect(normalizedProjections).toContain(
+      'Operators can also disable server-side npm fallback.',
+    )
+    expect(normalizedProjections).toContain(
+      'missing npm metadata and tarball routes return `404 package_not_found` without contacting or redirecting to `registry.npmjs.org`',
     )
   })
 
@@ -2108,6 +2142,18 @@ describe('documentation references', () => {
     )
     expect(operations).toContain(
       'npm tarball routes redirect to the canonical object or upstream URL',
+    )
+    expect(operations).toContain('`REGESTA_NPM_PROJECTION=false`')
+    expect(operations).toContain('`REGESTA_NPM_ARTIFACT_PROCESSING=false`')
+    expect(operations).toMatch(
+      /It does not change stored release data, artifact processing, or core registry\s+semantics\./u,
+    )
+    expect(operations).toContain(
+      'It does not disable HTTP projection routes; use',
+    )
+    expect(operations).toContain('`REGESTA_NPM_UPSTREAM_FALLBACK=false`')
+    expect(operations).toContain(
+      'Missing package metadata and tarball routes return `404` instead of contacting',
     )
     expect(operations).toContain('`REGESTA_NPM_UPSTREAM_TIMEOUT_MS`')
     expect(operations).toMatch(/outside the committed\s+write path/u)

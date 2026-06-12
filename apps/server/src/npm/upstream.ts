@@ -3,6 +3,7 @@ import { errorResponse, jsonResponse } from '../responses.ts'
 import type { Context } from 'hono'
 
 export interface NpmUpstreamFallbackOptions {
+  upstreamFallback?: boolean
   upstreamFetch?: typeof fetch
   upstreamTimeoutMs?: number
 }
@@ -15,7 +16,7 @@ export interface NpmUpstreamFallback {
     tagOrVersion: string,
   ) => Promise<Response>
   packument: (context: Context, packageName: string) => Promise<Response>
-  tarballUrl: (packageName: string, file: string) => string
+  tarballUrl: (packageName: string, file: string) => string | undefined
 }
 
 const defaultUpstreamNpmFetchTimeoutMs = 10_000
@@ -34,6 +35,10 @@ const upstreamNpmResponseMetadataHeaders = [
 export function createNpmUpstreamFallback(
   options: NpmUpstreamFallbackOptions = {},
 ): NpmUpstreamFallback {
+  if (options.upstreamFallback === false) {
+    return createDisabledNpmUpstreamFallback()
+  }
+
   const upstreamFetch = createBoundedUpstreamNpmFetch(
     options.upstreamFetch ?? fetch,
     options.upstreamTimeoutMs,
@@ -65,6 +70,34 @@ export function createNpmUpstreamFallback(
     },
     tarballUrl: upstreamNpmTarballUrl,
   }
+}
+
+function createDisabledNpmUpstreamFallback(): NpmUpstreamFallback {
+  return {
+    distTags: (context) => {
+      return Promise.resolve(npmPackageNotFoundResponse(context))
+    },
+    packageManifest: (context) => {
+      return Promise.resolve(npmPackageNotFoundResponse(context))
+    },
+    packument: (context) => {
+      return Promise.resolve(npmPackageNotFoundResponse(context))
+    },
+    tarballUrl: () => undefined,
+  }
+}
+
+function npmPackageNotFoundResponse(context: Context): Response {
+  return jsonResponse(
+    context.req.method,
+    errorResponse('package_not_found', 'Package not found'),
+    {
+      headers: {
+        'cache-control': 'no-cache',
+      },
+      status: 404,
+    },
+  )
 }
 
 function createBoundedUpstreamNpmFetch(

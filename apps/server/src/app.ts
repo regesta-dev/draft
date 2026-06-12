@@ -41,7 +41,7 @@ export type { DeploymentStatisticsReadOptions } from './transport/app.ts'
 
 export type NpmUpstreamOptions = Pick<
   NpmRegistryRouteOptions,
-  'upstreamTimeoutMs'
+  'upstreamFallback' | 'upstreamTimeoutMs'
 >
 
 export interface RegestaAppOptions {
@@ -118,6 +118,7 @@ export function createRegestaApp(
           database: adapters.database,
         },
         {
+          upstreamFallback: options.npmUpstream?.upstreamFallback,
           upstreamFetch: options.npmUpstreamFetch,
           upstreamTimeoutMs: options.npmUpstream?.upstreamTimeoutMs,
         },

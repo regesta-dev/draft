@@ -1190,18 +1190,44 @@ describe('server layer boundaries', () => {
       'utf8',
     )
 
-    expect(source).toContain('runtimeOptionsFromEnv(process.env)')
+    expect(source).toContain('runtimeOptionsFromEnv')
+    expect(source).toContain('regestaAppOptionsFromRuntimeOptions')
+    expect(source).toContain('process.env')
+    expect(source).not.toContain('npmArtifactProcessing')
+    expect(source).not.toContain('createPublishArtifactProcessor([])')
 
     for (const text of [
       'REGESTA_MAX_PUBLISH_ARTIFACT_BYTES',
       'REGESTA_MAX_PUBLISH_SOURCE_BYTES',
       'REGESTA_MAX_REQUEST_BYTES',
       'REGESTA_DOMAIN_BINDING_TIMEOUT_MS',
+      'REGESTA_NPM_ARTIFACT_PROCESSING',
+      'REGESTA_NPM_PROJECTION',
+      'REGESTA_NPM_UPSTREAM_FALLBACK',
       'REGESTA_NPM_UPSTREAM_TIMEOUT_MS',
       'REGESTA_READINESS_TIMEOUT_MS',
       'REGESTA_STATISTICS_CACHE_TTL_MS',
     ]) {
       expect(runtimeOptionsSource).toContain(text)
+    }
+  })
+
+  it('keeps Docker Compose runtime configuration aligned with server options', async () => {
+    const compose = await readFile(join(workspaceRoot, 'compose.yaml'), 'utf8')
+
+    for (const text of [
+      'REGESTA_DOMAIN_BINDING_TIMEOUT_MS: ${REGESTA_DOMAIN_BINDING_TIMEOUT_MS:-10000}',
+      'REGESTA_MAX_PUBLISH_ARTIFACT_BYTES: ${REGESTA_MAX_PUBLISH_ARTIFACT_BYTES:-52428800}',
+      'REGESTA_MAX_PUBLISH_SOURCE_BYTES: ${REGESTA_MAX_PUBLISH_SOURCE_BYTES:-10485760}',
+      'REGESTA_MAX_REQUEST_BYTES: ${REGESTA_MAX_REQUEST_BYTES:-73400320}',
+      'REGESTA_NPM_ARTIFACT_PROCESSING: ${REGESTA_NPM_ARTIFACT_PROCESSING:-true}',
+      'REGESTA_NPM_PROJECTION: ${REGESTA_NPM_PROJECTION:-true}',
+      'REGESTA_NPM_UPSTREAM_FALLBACK: ${REGESTA_NPM_UPSTREAM_FALLBACK:-true}',
+      'REGESTA_NPM_UPSTREAM_TIMEOUT_MS: ${REGESTA_NPM_UPSTREAM_TIMEOUT_MS:-10000}',
+      'REGESTA_READINESS_TIMEOUT_MS: ${REGESTA_READINESS_TIMEOUT_MS:-5000}',
+      'REGESTA_STATISTICS_CACHE_TTL_MS: ${REGESTA_STATISTICS_CACHE_TTL_MS:-10000}',
+    ]) {
+      expect(compose).toContain(text)
     }
   })
 
@@ -1223,6 +1249,32 @@ describe('server layer boundaries', () => {
     ])
     await expectNoForbiddenSourcePatterns('runtime-options.ts', [
       { label: 'direct process access', pattern: /\bprocess\./u },
+    ])
+  })
+
+  it('keeps runtime app option composition isolated from the server entrypoint', async () => {
+    const source = await readFile(
+      join(serverSourceRoot, 'runtime-app-options.ts'),
+      'utf8',
+    )
+
+    expect(source).toContain('regestaAppOptionsFromRuntimeOptions')
+    expect(source).toContain('npmArtifactProcessing')
+    expect(source).toContain('createPublishArtifactProcessor([])')
+    expect(source).not.toContain('process.env')
+    await expectNoForbiddenImports('runtime-app-options.ts', [
+      '@regesta/adapters',
+      '@regesta/auth',
+      '@regesta/core',
+      '@regesta/npm',
+      '@regesta/protocol',
+      './core/',
+      './npm/',
+      './transport/',
+      './trust/',
+      'hono',
+      'node:process',
+      'valibot',
     ])
   })
 

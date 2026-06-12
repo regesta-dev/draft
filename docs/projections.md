@@ -140,6 +140,10 @@ The npm projection may serve Regesta packages first and fall back to
 `registry.npmjs.org` when a package is missing. A package manager or client can
 also implement the same policy outside the server by trying Regesta first and
 then resolving missing packages from the ecosystem's default registry.
+Operators can also disable server-side npm fallback. In that mode, missing npm
+metadata and tarball routes return `404 package_not_found` without contacting
+or redirecting to `registry.npmjs.org`, while local Regesta-hosted npm packages
+continue to resolve through the mounted npm projection.
 
 Fallback metadata should not be committed as Regesta package state. When the
 server projection handles fallback, upstream packument, version-manifest, and
