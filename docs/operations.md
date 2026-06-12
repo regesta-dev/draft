@@ -171,17 +171,23 @@ defined separately from protocol compatibility.
 
 ## Operational Logs
 
-The default Node server writes structured JSON logs to stdout:
+The default Node server writes structured request and audit JSON logs to
+stdout:
 
 - `regesta.request` records transport-layer request id, host, method, path,
   response status, and duration. The logged path excludes query strings;
 - `regesta.core-audit` records accepted and rejected core write attempts,
   including publish and channel operations.
 
-Unexpected server errors are logged with `console.error` by the transport error
-boundary while the HTTP response hides internal exception details. Request-log
-and audit-log sinks are scheduled outside the request critical path, so a slow
-operator log sink should not add response latency. Request logs and audit logs
+Recoverable transport refresh failures use structured `console.error` entries
+on stderr. For example, `regesta.deployment-statistics-refresh-failure` means
+root deployment statistics could not be refreshed and the server served a stale
+cached value.
+
+Unexpected server errors are also logged with `console.error` by the transport
+error boundary while the HTTP response hides internal exception details.
+Request-log and audit-log sinks are scheduled outside the request critical path,
+so a slow operator log sink should not add response latency. Operational logs
 are operator telemetry. They are not public protocol objects, do not replace the
 append-only event log, and should follow the operator's private log retention
 policy.

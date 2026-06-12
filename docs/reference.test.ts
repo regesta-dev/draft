@@ -1452,6 +1452,15 @@ describe('documentation references', () => {
     expect(mirroring).toContain(
       'hash the exact manifest object bytes, including the trailing newline',
     )
+    expect(mirroring).toContain(
+      'Mutable event-log and object-inventory pages should include',
+    )
+    expect(mirroring).toMatch(/`Cache-Control:\s+no-cache`/u)
+    expect(mirroring).toContain('a page-cursor `ETag`')
+    expect(mirroring).toContain(
+      'Immutable event and release-envelope reads should include immutable caching',
+    )
+    expect(mirroring).toContain('`Content-Length` for the exact canonical JSON')
     expect(mirroring).toContain('proofs are future protocol work')
   })
 
@@ -1461,6 +1470,10 @@ describe('documentation references', () => {
     expect(operations).toContain('## Operational Logs')
     expect(operations).toContain('`regesta.request`')
     expect(operations).toContain('`regesta.core-audit`')
+    expect(operations).toContain(
+      '`regesta.deployment-statistics-refresh-failure`',
+    )
+    expect(operations).toMatch(/served a stale\s+cached value/u)
     expect(operations).toContain('excludes query strings')
     expect(operations).toContain('outside the request critical path')
     expect(operations).toContain('not public protocol objects')

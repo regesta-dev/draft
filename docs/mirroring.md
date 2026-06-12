@@ -60,6 +60,14 @@ objects during storage can hide bugs. Release manifest descriptor checks must
 hash the exact manifest object bytes, including the trailing newline after the
 canonical JSON text.
 
+Before accepting public JSON, mirrors should also check transport metadata.
+Mutable event-log and object-inventory pages should include `Cache-Control:
+no-cache`, a page-cursor `ETag`, and `Content-Length` for the exact JSON body.
+Immutable event and release-envelope reads should include immutable caching, an
+`ETag` tied to the event id, and `Content-Length` for the exact canonical JSON
+body. Missing or mismatched metadata is a mirror problem because it weakens
+replay, cache validation, and byte-for-byte comparison.
+
 ## Synchronization Profile
 
 V0 synchronization has two cursors:

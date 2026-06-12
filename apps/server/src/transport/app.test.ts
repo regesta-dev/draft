@@ -313,6 +313,42 @@ describe('createDeploymentStatisticsRead', () => {
     }
   })
 
+  it('serves stale cached statistics when an asynchronous refresh read fails', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refreshError = new Error('statistics adapter async failure')
+    const countPackages = vi
+      .fn<() => Promise<number>>()
+      .mockResolvedValueOnce(21)
+      .mockRejectedValueOnce(refreshError)
+    const readStatistics = createDeploymentStatisticsRead(
+      {
+        countPackages,
+      },
+      {
+        cacheTtlMs: 25,
+      },
+    )
+
+    try {
+      await expect(readStatistics()).resolves.toEqual({ packages: 21 })
+      dateNow.mockReturnValue(1_025)
+
+      await expect(readStatistics()).resolves.toEqual({ packages: 21 })
+      expect(countPackages).toHaveBeenCalledTimes(2)
+      expect(consoleError).toHaveBeenCalledWith(
+        'Deployment statistics refresh failed; serving cached value',
+        {
+          error: refreshError,
+          kind: 'regesta.deployment-statistics-refresh-failure',
+        },
+      )
+    } finally {
+      consoleError.mockRestore()
+      dateNow.mockRestore()
+    }
+  })
+
   it('throws synchronous statistics read failures when no cached value exists', () => {
     const readError = new Error('statistics adapter cold failure')
     const readStatistics = createDeploymentStatisticsRead({

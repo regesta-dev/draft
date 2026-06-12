@@ -338,6 +338,28 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects event log pages without ETags', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventPageEtag: null,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror event log response is missing ETag',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects event log pages whose ETag does not match the cursor', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -354,6 +376,28 @@ describe('mirrorRegistry', () => {
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
         'Mirror event log response ETag does not match page cursor',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects event log pages without no-cache Cache-Control', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventPageCacheControl: 'public, max-age=60',
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror event log response Cache-Control must include no-cache',
       ])
     } finally {
       await rm(outputDir, { force: true, recursive: true })
@@ -398,6 +442,52 @@ describe('mirrorRegistry', () => {
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
         'Mirror object inventory response Cache-Control must include no-cache',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects object inventory pages without ETags', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectInventoryEtag: null,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror object inventory response is missing ETag',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects object inventory pages whose ETag does not match the cursor', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectInventoryEtag: `W/"regesta.object-inventory:${sha256(
+            bytes('other'),
+          )}:4"`,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror object inventory response ETag does not match page cursor',
       ])
     } finally {
       await rm(outputDir, { force: true, recursive: true })
@@ -485,6 +575,28 @@ describe('mirrorRegistry', () => {
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
         'Mirror JSON request failed: Missing JSON Content-Length header: https://registry.example/events?limit=999',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects object inventory JSON responses without Content-Length', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          omitObjectInventoryContentLength: true,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror JSON request failed: Missing JSON Content-Length header: https://registry.example/objects?limit=999',
       ])
     } finally {
       await rm(outputDir, { force: true, recursive: true })
@@ -627,6 +739,100 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects immutable event endpoint responses without Content-Length', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          omitEventEndpointContentLength: true,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Missing canonical JSON Content-Length header: https://registry.example${eventRoute(fixture.event.id)}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects immutable release envelope responses without Content-Length', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          omitReleaseEnvelopeContentLength: true,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Missing canonical JSON Content-Length header: https://registry.example/packages/${encodeURIComponent(
+          fixture.manifest.id,
+        )}/releases/${fixture.manifest.version}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects immutable event endpoint responses without immutable Cache-Control', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventEndpointCacheControl: 'public, max-age=60',
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Immutable JSON Cache-Control must include immutable: https://registry.example${eventRoute(
+          fixture.event.id,
+        )}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects immutable release envelope responses without immutable Cache-Control', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          releaseEnvelopeCacheControl: 'public, max-age=60',
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Immutable JSON Cache-Control must include immutable: https://registry.example/packages/${encodeURIComponent(
+          fixture.manifest.id,
+        )}/releases/${fixture.manifest.version}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects immutable event endpoint responses without ETags', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -643,6 +849,30 @@ describe('mirrorRegistry', () => {
       expect(result.ok).toBe(false)
       expect(result.problems).toEqual([
         `Mirror JSON request failed: Mirror event endpoint is missing ETag: https://registry.example${eventRoute(fixture.event.id)}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('rejects immutable release envelope responses without ETags', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          releaseEnvelopeEtag: null,
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Mirror release response is missing ETag: https://registry.example/packages/${encodeURIComponent(
+          fixture.manifest.id,
+        )}/releases/${fixture.manifest.version}`,
       ])
     } finally {
       await rm(outputDir, { force: true, recursive: true })
@@ -1338,8 +1568,10 @@ function mirrorFetch(
     eventPageCacheControl?: string | null
     eventPageEtag?: string | null
     eventPageExtras?: Record<string, unknown>
+    eventEndpointCacheControl?: string | null
     eventEndpointEtag?: string | null
     eventEndpointText?: string
+    omitEventEndpointContentLength?: boolean
     omitEventPageContentLength?: boolean
     objectInventoryCacheControl?: string | null
     objectInventoryEtag?: string | null
@@ -1348,9 +1580,12 @@ function mirrorFetch(
     objectEtags?: ReadonlyMap<string, string | null>
     objectMediaTypes?: ReadonlyMap<string, string>
     objectOverrides?: ReadonlyMap<string, Uint8Array>
+    omitObjectInventoryContentLength?: boolean
+    releaseEnvelopeCacheControl?: string | null
     releaseEnvelopeEtag?: string | null
     releaseEnvelope?: unknown
     releaseEnvelopeText?: string
+    omitReleaseEnvelopeContentLength?: boolean
     reverseObjectInventory?: boolean
   } = {},
 ): typeof fetch {
@@ -1452,8 +1687,14 @@ function mirrorFetch(
 
       return Promise.resolve(
         options.eventEndpointText
-          ? rawCanonicalJsonResponse(options.eventEndpointText, etag)
-          : canonicalJsonResponse(fixture.event, etag),
+          ? rawCanonicalJsonResponse(options.eventEndpointText, etag, {
+              cacheControl: options.eventEndpointCacheControl,
+              omitContentLength: options.omitEventEndpointContentLength,
+            })
+          : canonicalJsonResponse(fixture.event, etag, {
+              cacheControl: options.eventEndpointCacheControl,
+              omitContentLength: options.omitEventEndpointContentLength,
+            }),
       )
     }
 
@@ -1470,10 +1711,17 @@ function mirrorFetch(
 
       return Promise.resolve(
         options.releaseEnvelopeText
-          ? rawCanonicalJsonResponse(options.releaseEnvelopeText, etag)
+          ? rawCanonicalJsonResponse(options.releaseEnvelopeText, etag, {
+              cacheControl: options.releaseEnvelopeCacheControl,
+              omitContentLength: options.omitReleaseEnvelopeContentLength,
+            })
           : canonicalJsonResponse(
               options.releaseEnvelope ?? fixture.releaseEnvelope,
               etag,
+              {
+                cacheControl: options.releaseEnvelopeCacheControl,
+                omitContentLength: options.omitReleaseEnvelopeContentLength,
+              },
             ),
       )
     }
@@ -1508,6 +1756,7 @@ function mirrorFetch(
           {
             cacheControl: options.objectInventoryCacheControl,
             etag: options.objectInventoryEtag,
+            omitContentLength: options.omitObjectInventoryContentLength,
           },
         ),
       )
@@ -1593,19 +1842,32 @@ function eventLogPageResponse(
   })
 }
 
-function canonicalJsonResponse(value: unknown, etag?: string | null): Response {
-  return rawCanonicalJsonResponse(`${canonicalJson(value)}\n`, etag)
+function canonicalJsonResponse(
+  value: unknown,
+  etag?: string | null,
+  options: { cacheControl?: string | null; omitContentLength?: boolean } = {},
+): Response {
+  return rawCanonicalJsonResponse(`${canonicalJson(value)}\n`, etag, options)
 }
 
 function rawCanonicalJsonResponse(
   body: string,
   etag?: string | null,
+  options: { cacheControl?: string | null; omitContentLength?: boolean } = {},
 ): Response {
   const headers = new Headers({
-    'cache-control': 'public, max-age=31536000, immutable',
-    'content-length': String(bytes(body).byteLength),
     'content-type': 'application/json',
   })
+
+  if (options.cacheControl === undefined) {
+    headers.set('cache-control', 'public, max-age=31536000, immutable')
+  } else if (options.cacheControl !== null) {
+    headers.set('cache-control', options.cacheControl)
+  }
+
+  if (!options.omitContentLength) {
+    headers.set('content-length', String(bytes(body).byteLength))
+  }
 
   if (etag !== undefined && etag !== null) {
     headers.set('etag', etag)
@@ -1620,6 +1882,7 @@ function objectInventoryResponse(
   options: {
     cacheControl?: string | null
     etag?: string | null
+    omitContentLength?: boolean
   } = {},
 ): Response {
   const after = url.searchParams.get('after')
@@ -1656,6 +1919,7 @@ function objectInventoryPageResponse(
   options: {
     cacheControl?: string | null
     etag?: string | null
+    omitContentLength?: boolean
   } = {},
 ): Response {
   return jsonResponse(page, {
@@ -1666,6 +1930,7 @@ function objectInventoryPageResponse(
       page.objects.length,
       options,
     ),
+    omitContentLength: options.omitContentLength,
   })
 }
 
