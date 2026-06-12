@@ -1529,7 +1529,7 @@ function parseContentLength(
 }
 
 function etagMatchesDigest(etag: string, digest: Sha256Digest): boolean {
-  return etagMatchesOpaqueValue(etag, digest)
+  return etag.trim() === `"${digest}"`
 }
 
 function etagMatchesOpaqueValue(etag: string, value: string): boolean {

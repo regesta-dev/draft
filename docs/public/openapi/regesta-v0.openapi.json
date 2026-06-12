@@ -216,7 +216,10 @@
       "get": {
         "tags": ["Core Registry"],
         "summary": "Read package state",
-        "parameters": [{ "$ref": "#/components/parameters/PackageId" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
+        ],
         "responses": {
           "200": {
             "description": "Event-derived package state snapshot.",
@@ -239,7 +242,10 @@
       "head": {
         "tags": ["Core Registry"],
         "summary": "Read package state headers",
-        "parameters": [{ "$ref": "#/components/parameters/PackageId" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PackageId" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
+        ],
         "responses": {
           "200": {
             "description": "Package state exists.",
@@ -261,7 +267,8 @@
         "summary": "Read an immutable release envelope",
         "parameters": [
           { "$ref": "#/components/parameters/PackageId" },
-          { "$ref": "#/components/parameters/Version" }
+          { "$ref": "#/components/parameters/Version" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -287,7 +294,8 @@
         "summary": "Read immutable release envelope headers",
         "parameters": [
           { "$ref": "#/components/parameters/PackageId" },
-          { "$ref": "#/components/parameters/Version" }
+          { "$ref": "#/components/parameters/Version" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -338,7 +346,8 @@
         "summary": "Resolve a channel to a release envelope",
         "parameters": [
           { "$ref": "#/components/parameters/PackageId" },
-          { "$ref": "#/components/parameters/Channel" }
+          { "$ref": "#/components/parameters/Channel" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -364,7 +373,8 @@
         "summary": "Resolve channel headers",
         "parameters": [
           { "$ref": "#/components/parameters/PackageId" },
-          { "$ref": "#/components/parameters/Channel" }
+          { "$ref": "#/components/parameters/Channel" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -468,7 +478,8 @@
         "summary": "Read a page of object descriptors",
         "parameters": [
           { "$ref": "#/components/parameters/AfterObjectDigest" },
-          { "$ref": "#/components/parameters/ObjectLimit" }
+          { "$ref": "#/components/parameters/ObjectLimit" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -496,7 +507,8 @@
         "summary": "Read object descriptor inventory page headers",
         "parameters": [
           { "$ref": "#/components/parameters/AfterObjectDigest" },
-          { "$ref": "#/components/parameters/ObjectLimit" }
+          { "$ref": "#/components/parameters/ObjectLimit" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -517,7 +529,11 @@
       "get": {
         "tags": ["Core Registry"],
         "summary": "Read immutable object bytes by digest",
-        "parameters": [{ "$ref": "#/components/parameters/Digest" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/Digest" },
+          { "$ref": "#/components/parameters/IfNoneMatch" },
+          { "$ref": "#/components/parameters/Range" }
+        ],
         "responses": {
           "200": {
             "description": "Object bytes.",
@@ -528,10 +544,13 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/ImmutableCacheControl"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
             },
             "content": {
-              "application/octet-stream": {
+              "*/*": {
                 "schema": { "type": "string", "format": "binary" }
               }
             }
@@ -548,6 +567,9 @@
               "Content-Range": {
                 "$ref": "#/components/headers/ContentRange"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
             }
           },
@@ -559,7 +581,11 @@
       "head": {
         "tags": ["Core Registry"],
         "summary": "Read immutable object headers by digest",
-        "parameters": [{ "$ref": "#/components/parameters/Digest" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/Digest" },
+          { "$ref": "#/components/parameters/IfNoneMatch" },
+          { "$ref": "#/components/parameters/Range" }
+        ],
         "responses": {
           "200": {
             "description": "Object exists.",
@@ -569,6 +595,27 @@
               },
               "Cache-Control": {
                 "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            }
+          },
+          "206": {
+            "description": "Object byte range exists.",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "Content-Range": {
+                "$ref": "#/components/headers/ContentRange"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
             }
@@ -585,7 +632,9 @@
         "summary": "Read immutable object bytes by digest parts",
         "parameters": [
           { "$ref": "#/components/parameters/Algorithm" },
-          { "$ref": "#/components/parameters/HexDigest" }
+          { "$ref": "#/components/parameters/HexDigest" },
+          { "$ref": "#/components/parameters/IfNoneMatch" },
+          { "$ref": "#/components/parameters/Range" }
         ],
         "responses": {
           "200": {
@@ -597,10 +646,13 @@
               "Cache-Control": {
                 "$ref": "#/components/headers/ImmutableCacheControl"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
             },
             "content": {
-              "application/octet-stream": {
+              "*/*": {
                 "schema": { "type": "string", "format": "binary" }
               }
             }
@@ -617,6 +669,9 @@
               "Content-Range": {
                 "$ref": "#/components/headers/ContentRange"
               },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
               "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
             }
           },
@@ -630,7 +685,9 @@
         "summary": "Read immutable object headers by digest parts",
         "parameters": [
           { "$ref": "#/components/parameters/Algorithm" },
-          { "$ref": "#/components/parameters/HexDigest" }
+          { "$ref": "#/components/parameters/HexDigest" },
+          { "$ref": "#/components/parameters/IfNoneMatch" },
+          { "$ref": "#/components/parameters/Range" }
         ],
         "responses": {
           "200": {
@@ -641,6 +698,27 @@
               },
               "Cache-Control": {
                 "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
+              },
+              "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
+            }
+          },
+          "206": {
+            "description": "Object byte range exists.",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRangesBytes"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/ImmutableCacheControl"
+              },
+              "Content-Range": {
+                "$ref": "#/components/headers/ContentRange"
+              },
+              "Content-Length": {
+                "$ref": "#/components/headers/ContentLength"
               },
               "ETag": { "$ref": "#/components/headers/StrongDigestEtag" }
             }
@@ -657,7 +735,8 @@
         "summary": "Read a page of registry events",
         "parameters": [
           { "$ref": "#/components/parameters/AfterEventId" },
-          { "$ref": "#/components/parameters/EventLimit" }
+          { "$ref": "#/components/parameters/EventLimit" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -683,7 +762,8 @@
         "summary": "Read event page headers",
         "parameters": [
           { "$ref": "#/components/parameters/AfterEventId" },
-          { "$ref": "#/components/parameters/EventLimit" }
+          { "$ref": "#/components/parameters/EventLimit" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -706,7 +786,8 @@
         "summary": "Read an immutable registry event by id",
         "parameters": [
           { "$ref": "#/components/parameters/Algorithm" },
-          { "$ref": "#/components/parameters/HexDigest" }
+          { "$ref": "#/components/parameters/HexDigest" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -732,7 +813,8 @@
         "summary": "Read immutable registry event headers",
         "parameters": [
           { "$ref": "#/components/parameters/Algorithm" },
-          { "$ref": "#/components/parameters/HexDigest" }
+          { "$ref": "#/components/parameters/HexDigest" },
+          { "$ref": "#/components/parameters/IfNoneMatch" }
         ],
         "responses": {
           "200": {
@@ -795,7 +877,11 @@
       "get": {
         "tags": ["npm Projection"],
         "summary": "Read npm dist-tags for an encoded package name",
-        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EncodedNpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
+        ],
         "responses": {
           "200": {
             "description": "npm dist-tags object.",
@@ -822,7 +908,11 @@
       "head": {
         "tags": ["npm Projection"],
         "summary": "Read npm dist-tags headers for an encoded package name",
-        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EncodedNpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
+        ],
         "responses": {
           "200": {
             "description": "dist-tags exist.",
@@ -848,7 +938,9 @@
         "summary": "Read npm dist-tags for a scoped package name",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
-          { "$ref": "#/components/parameters/NpmName" }
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
         ],
         "responses": {
           "200": {
@@ -878,7 +970,9 @@
         "summary": "Read npm dist-tags headers for a scoped package name",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
-          { "$ref": "#/components/parameters/NpmName" }
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
         ],
         "responses": {
           "200": {
@@ -903,7 +997,11 @@
       "get": {
         "tags": ["npm Projection"],
         "summary": "Read npm packument for an encoded package name",
-        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EncodedNpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
+        ],
         "responses": {
           "200": {
             "description": "npm packument.",
@@ -930,7 +1028,11 @@
       "head": {
         "tags": ["npm Projection"],
         "summary": "Read npm packument headers for an encoded package name",
-        "parameters": [{ "$ref": "#/components/parameters/EncodedNpmName" }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EncodedNpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
+        ],
         "responses": {
           "200": {
             "description": "packument exists.",
@@ -957,7 +1059,9 @@
         "description": "This physical npm route has two native npm meanings: `@scope/name` reads a scoped packument, while `name/tag` or `name/version` reads an unscoped fallback package version manifest, such as `/tinyexec/latest`.",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
-          { "$ref": "#/components/parameters/NpmName" }
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
         ],
         "responses": {
           "200": {
@@ -988,7 +1092,9 @@
         "description": "This physical npm route has two native npm meanings: `@scope/name` reads scoped packument headers, while `name/tag` or `name/version` reads unscoped fallback package version headers.",
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
-          { "$ref": "#/components/parameters/NpmName" }
+          { "$ref": "#/components/parameters/NpmName" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
         ],
         "responses": {
           "200": {
@@ -1016,7 +1122,9 @@
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
           { "$ref": "#/components/parameters/NpmName" },
-          { "$ref": "#/components/parameters/NpmTagOrVersion" }
+          { "$ref": "#/components/parameters/NpmTagOrVersion" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
         ],
         "responses": {
           "200": {
@@ -1047,7 +1155,9 @@
         "parameters": [
           { "$ref": "#/components/parameters/NpmScope" },
           { "$ref": "#/components/parameters/NpmName" },
-          { "$ref": "#/components/parameters/NpmTagOrVersion" }
+          { "$ref": "#/components/parameters/NpmTagOrVersion" },
+          { "$ref": "#/components/parameters/NpmMetadataIfNoneMatch" },
+          { "$ref": "#/components/parameters/NpmMetadataIfModifiedSince" }
         ],
         "responses": {
           "200": {
@@ -1129,6 +1239,13 @@
         "description": "Byte range selected for a partial response, or unsatisfied range size for 416 responses.",
         "schema": { "type": "string" }
       },
+      "ContentLength": {
+        "description": "Decimal byte length of the response body or selected byte range.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
       "ImmutableCacheControl": {
         "description": "Immutable representation can be cached long-term.",
         "schema": { "const": "public, max-age=31536000, immutable" }
@@ -1199,6 +1316,20 @@
         "required": true,
         "schema": { "$ref": "#/components/schemas/NonEmptyString" }
       },
+      "NpmMetadataIfModifiedSince": {
+        "in": "header",
+        "name": "If-Modified-Since",
+        "required": false,
+        "description": "Client timestamp validator for npm metadata. Local projections can use it when Last-Modified is available and If-None-Match is not present; upstream fallback forwards it to the upstream npm registry.",
+        "schema": { "type": "string" }
+      },
+      "NpmMetadataIfNoneMatch": {
+        "in": "header",
+        "name": "If-None-Match",
+        "required": false,
+        "description": "Client ETag validator for npm metadata. Local projections can return 304 when it matches the current ETag; upstream fallback forwards it to the upstream npm registry.",
+        "schema": { "type": "string" }
+      },
       "EventLimit": {
         "in": "query",
         "name": "limit",
@@ -1223,6 +1354,13 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         }
+      },
+      "IfNoneMatch": {
+        "in": "header",
+        "name": "If-None-Match",
+        "required": false,
+        "description": "Client ETag validator. Routes with an ETag can return 304 when this matches the current representation.",
+        "schema": { "type": "string" }
       },
       "NpmName": {
         "in": "path",
@@ -1256,6 +1394,13 @@
         "required": true,
         "schema": { "$ref": "#/components/schemas/PackageId" },
         "description": "URL-encoded as one path segment, for example npm%3Asome.dev%2Fsdk."
+      },
+      "Range": {
+        "in": "header",
+        "name": "Range",
+        "required": false,
+        "description": "Single byte range for immutable object reads. Current object responses support one `bytes=start-end` range.",
+        "schema": { "type": "string" }
       },
       "Version": {
         "in": "path",

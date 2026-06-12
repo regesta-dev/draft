@@ -791,7 +791,7 @@ function releaseEnvelopeConsistencyProblems(
     )
   }
   if (
-    sha256(canonicalJson(release.manifest)) !==
+    sha256(canonicalJsonBytes(release.manifest)) !==
     release.manifestDescriptor.digest
   ) {
     problems.push(
@@ -1210,7 +1210,7 @@ function validateObjectResponseMetadata(
   if (!etag) {
     throw new Error(`Missing object ETag header: ${descriptor.digest}`)
   }
-  if (stripWeakEtag(etag.trim()) !== `"${descriptor.digest}"`) {
+  if (etag.trim() !== `"${descriptor.digest}"`) {
     throw new Error(`Object ETag does not match digest: ${descriptor.digest}`)
   }
 
@@ -1442,6 +1442,10 @@ async function writeCanonicalJsonFile(
 async function writeBinaryFile(path: string, bytes: Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, bytes)
+}
+
+function canonicalJsonBytes(value: unknown): Uint8Array {
+  return new TextEncoder().encode(`${canonicalJson(value)}\n`)
 }
 
 function eventFilePath(outputDir: string, digest: Sha256Digest): string {

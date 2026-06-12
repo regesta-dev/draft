@@ -547,6 +547,16 @@ describe('documentation references', () => {
     ).resolves.toContain('upstream fallback metadata')
     await expect(
       openapiValueAtPointer(
+        '#/components/parameters/NpmMetadataIfNoneMatch/description',
+      ),
+    ).resolves.toContain('upstream fallback forwards it')
+    await expect(
+      openapiValueAtPointer(
+        '#/components/parameters/NpmMetadataIfModifiedSince/description',
+      ),
+    ).resolves.toContain('If-None-Match is not present')
+    await expect(
+      openapiValueAtPointer(
         '#/components/responses/NotModified/headers/Cache-Control',
       ),
     ).resolves.toEqual({
@@ -614,6 +624,16 @@ describe('documentation references', () => {
         ).resolves.toEqual({
           $ref: '#/components/responses/NotModified',
         })
+
+        const parameters = await openapiValueAtPointer(
+          `#/paths/${escapeJsonPointer(path)}/${method}/parameters`,
+        )
+        expect(parameters).toEqual(
+          expect.arrayContaining([
+            { $ref: '#/components/parameters/NpmMetadataIfNoneMatch' },
+            { $ref: '#/components/parameters/NpmMetadataIfModifiedSince' },
+          ]),
+        )
       }
     }
   })
@@ -835,6 +855,29 @@ describe('documentation references', () => {
       })
     }
 
+    await expect(
+      openapiValueAtPointer('#/components/parameters/IfNoneMatch/description'),
+    ).resolves.toContain('Routes with an ETag can return 304')
+
+    for (const path of [
+      '/events',
+      '/objects',
+      '/packages/{packageId}',
+      '/packages/{packageId}/channels/{channel}',
+    ]) {
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/parameters`,
+          ),
+        ).resolves.toEqual(
+          expect.arrayContaining([
+            { $ref: '#/components/parameters/IfNoneMatch' },
+          ]),
+        )
+      }
+    }
+
     await expect(readText('api.md')).resolves.toContain(
       'Package state responses include `Cache-Control: no-cache`.',
     )
@@ -890,6 +933,23 @@ describe('documentation references', () => {
       })
     }
 
+    for (const path of [
+      '/events/{algorithm}/{hex}',
+      '/packages/{packageId}/releases/{version}',
+    ]) {
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/parameters`,
+          ),
+        ).resolves.toEqual(
+          expect.arrayContaining([
+            { $ref: '#/components/parameters/IfNoneMatch' },
+          ]),
+        )
+      }
+    }
+
     const api = await readText('api.md')
     const normalizedApi = api.replaceAll(/\s+/gu, ' ')
 
@@ -906,6 +966,12 @@ describe('documentation references', () => {
     await expect(
       openapiValueAtPointer('#/components/headers/ContentRange/description'),
     ).resolves.toContain('416')
+    await expect(
+      openapiValueAtPointer('#/components/headers/ContentLength/description'),
+    ).resolves.toContain('Decimal byte length')
+    await expect(
+      openapiValueAtPointer('#/components/parameters/Range/description'),
+    ).resolves.toContain('Single byte range')
     await expect(
       openapiValueAtPointer(
         '#/components/responses/ObjectRangeNotSatisfiable/headers/Accept-Ranges',
@@ -939,27 +1005,63 @@ describe('documentation references', () => {
         })
         await expect(
           openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/headers/Content-Length`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/ContentLength',
+        })
+        if (method === 'get') {
+          await expect(
+            openapiValueAtPointer(
+              `#/paths/${escapeJsonPointer(path)}/${method}/responses/200/content/${escapeJsonPointer('*/*')}/schema`,
+            ),
+          ).resolves.toEqual({
+            format: 'binary',
+            type: 'string',
+          })
+        }
+        await expect(
+          openapiValueAtPointer(
             `#/paths/${escapeJsonPointer(path)}/${method}/responses/304`,
           ),
         ).resolves.toEqual({
           $ref: '#/components/responses/ObjectNotModified',
         })
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/parameters`,
+          ),
+        ).resolves.toEqual(
+          expect.arrayContaining([
+            { $ref: '#/components/parameters/IfNoneMatch' },
+            { $ref: '#/components/parameters/Range' },
+          ]),
+        )
       }
 
-      await expect(
-        openapiValueAtPointer(
-          `#/paths/${escapeJsonPointer(path)}/get/responses/206/headers/Accept-Ranges`,
-        ),
-      ).resolves.toEqual({
-        $ref: '#/components/headers/AcceptRangesBytes',
-      })
-      await expect(
-        openapiValueAtPointer(
-          `#/paths/${escapeJsonPointer(path)}/get/responses/206/headers/Content-Range`,
-        ),
-      ).resolves.toEqual({
-        $ref: '#/components/headers/ContentRange',
-      })
+      for (const method of ['get', 'head']) {
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/206/headers/Accept-Ranges`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/AcceptRangesBytes',
+        })
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/206/headers/Content-Range`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/ContentRange',
+        })
+        await expect(
+          openapiValueAtPointer(
+            `#/paths/${escapeJsonPointer(path)}/${method}/responses/206/headers/Content-Length`,
+          ),
+        ).resolves.toEqual({
+          $ref: '#/components/headers/ContentLength',
+        })
+      }
 
       for (const method of ['get', 'head']) {
         await expect(
@@ -974,6 +1076,8 @@ describe('documentation references', () => {
 
     const api = await readText('api.md')
     expect(api).toContain('Accept-Ranges: bytes')
+    expect(api).toContain('`Content-Type` from the object descriptor')
+    expect(api).toContain('strong digest-based `ETag`')
     expect(api).toContain('Range requests return `206` with `Content-Range`')
     expect(api).toContain('`416` with `Content-Range: bytes */{size}`')
   })
@@ -1032,6 +1136,9 @@ describe('documentation references', () => {
 
     expect(mirroring).toContain(
       '`verify-package` intentionally reads event-log pages until it reaches the tail',
+    )
+    expect(mirroring).toContain(
+      'hash the exact manifest object bytes, including the trailing newline',
     )
     expect(mirroring).toContain('proofs are future protocol work')
   })

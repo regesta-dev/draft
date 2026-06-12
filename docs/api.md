@@ -324,10 +324,10 @@ digest split into path-safe segments.
 
 Object responses include:
 
-- `Content-Type`;
+- `Content-Type` from the object descriptor;
 - `Content-Length`;
 - `Accept-Ranges: bytes`;
-- digest-based `ETag`;
+- strong digest-based `ETag`;
 - `Cache-Control` including `immutable`.
 
 Range requests return `206` with `Content-Range`. Unsatisfiable ranges return

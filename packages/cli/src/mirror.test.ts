@@ -266,6 +266,33 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('rejects object responses whose ETag is weak', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectEtags: new Map([
+            [
+              fixture.manifest.source.digest,
+              `W/"${fixture.manifest.source.digest}"`,
+            ],
+          ]),
+        }),
+        outputDir,
+        registry: 'https://registry.example/',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Object ETag does not match digest: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects event log pages whose ETag does not match the cursor', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -1185,7 +1212,7 @@ function releaseFixture() {
     source,
     version: '1.0.0',
   }
-  const manifestBytes = bytes(canonicalJson(manifest))
+  const manifestBytes = bytes(`${canonicalJson(manifest)}\n`)
   const manifestDescriptor = objectDescriptor(
     manifestBytes,
     'application/vnd.regesta.release-manifest.v0+json',

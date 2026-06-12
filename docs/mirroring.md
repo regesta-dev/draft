@@ -56,7 +56,9 @@ A conservative V0 mirror loop is:
 
 The mirror should preserve raw bytes where possible. Canonical JSON digests and
 object digests are part of verification, so changing formatting or normalizing
-objects during storage can hide bugs.
+objects during storage can hide bugs. Release manifest descriptor checks must
+hash the exact manifest object bytes, including the trailing newline after the
+canonical JSON text.
 
 ## Synchronization Profile
 

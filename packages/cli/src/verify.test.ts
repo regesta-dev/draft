@@ -477,6 +477,51 @@ describe('verifyReleaseFromRegistry', () => {
     )
   })
 
+  it('reports weak public object ETags as verification problems', async () => {
+    const fixture = releaseFixture()
+    const sourceDigest = fixture.release.manifest.source.digest
+    const fetch = publicRegistryFetch(fixture)
+    const weakObjectEtagFetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+        if (url.endsWith(sourceDigest.slice('sha256:'.length))) {
+          fetch.requests.push(url)
+          if (init?.method === 'HEAD') {
+            fetch.headRequests.push(url)
+          }
+          const source = fixture.objects.get(sourceDigest)
+
+          return Promise.resolve(
+            new Response(init?.method === 'HEAD' ? null : source?.bytes, {
+              headers: {
+                'cache-control': 'public, max-age=31536000, immutable',
+                'content-length': String(source?.descriptor.size),
+                'content-type':
+                  source?.descriptor.mediaType ?? 'application/octet-stream',
+                etag: `W/"${sourceDigest}"`,
+              },
+            }),
+          )
+        }
+
+        return fetch(input, init)
+      },
+      { headRequests: fetch.headRequests, requests: fetch.requests },
+    )
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: weakObjectEtagFetch,
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain(
+      `Source object descriptor read failed: Public object ETag does not match digest: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+    )
+  })
+
   it('reports missing public object HEAD ETag headers as verification problems', async () => {
     const fixture = releaseFixture()
     const sourceDigest = fixture.release.manifest.source.digest
