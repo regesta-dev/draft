@@ -93,6 +93,7 @@ export function parseObjectDescriptor(
   label = 'Object descriptor',
 ): ObjectDescriptor {
   const record = readRecord(value, label)
+  assertKnownFields(record, ['digest', 'mediaType', 'size'], label)
 
   return {
     digest: assertSha256Digest(readString(record.digest, `${label} digest`)),
@@ -408,14 +409,19 @@ function parseReleaseMetadata(value: unknown, label: string): ReleaseMetadata {
     ...(record.description === undefined
       ? {}
       : {
-          description: readString(record.description, `${label} description`),
+          description: readJsonString(
+            record.description,
+            `${label} description`,
+          ),
         }),
     ...(record.exports === undefined
       ? {}
       : { exports: parsePackageExport(record.exports, `${label} exports`) }),
     ...(record.repository === undefined
       ? {}
-      : { repository: readString(record.repository, `${label} repository`) }),
+      : {
+          repository: readJsonString(record.repository, `${label} repository`),
+        }),
   }
 }
 
@@ -428,7 +434,7 @@ function parsePackageExport(
   }
 
   if (typeof value === 'string') {
-    return readString(value, label)
+    return readJsonString(value, label)
   }
 
   if (Array.isArray(value)) {
@@ -440,10 +446,7 @@ function parsePackageExport(
   const record = readRecord(value, label)
   const output: Record<string, RegestaPackageExport> = {}
   for (const [key, item] of Object.entries(record)) {
-    output[readString(key, `${label} key`)] = parsePackageExport(
-      item,
-      `${label}.${key}`,
-    )
+    output[key] = parsePackageExport(item, `${label}.${key}`)
   }
 
   return output
@@ -501,6 +504,14 @@ function readStringArray(value: unknown, label: string): string[] {
 
 function readString(value: unknown, label: string): string {
   return assertCompatibilityString(value, label)
+}
+
+function readJsonString(value: unknown, label: string): string {
+  if (typeof value !== 'string') {
+    throw new TypeError(`${label} must be a string`)
+  }
+
+  return value
 }
 
 function readNonNegativeInteger(value: unknown, label: string): number {

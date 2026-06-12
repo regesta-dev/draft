@@ -101,15 +101,31 @@ describe('parseRegistryEvent', () => {
     }
 
     expect(() =>
-      parseRegistryEvent(
-        {
-          ...event,
-          extra: true,
-        },
-        'Registry event',
-        { verifyId: false },
-      ),
+      parseRegistryEvent({
+        ...event,
+        extra: true,
+      }),
     ).toThrow('Registry event must not include unknown field: extra')
+  })
+
+  it('rejects unknown publish event release fields before event id mismatches', () => {
+    const payload = publishReleasePayload()
+    const event: PublishReleaseEvent = {
+      ...payload,
+      id: registryEventDigest(payload),
+    }
+
+    expect(() =>
+      parseRegistryEvent({
+        ...event,
+        release: {
+          ...event.release,
+          operatorHint: 'not verified',
+        },
+      }),
+    ).toThrow(
+      'Registry event release must not include unknown field: operatorHint',
+    )
   })
 })
 

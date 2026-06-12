@@ -61,6 +61,38 @@ describe('verifyReleaseFromRegistry', () => {
     ])
   })
 
+  it('verifies public releases with empty neutral metadata strings', async () => {
+    const fixture = releaseFixture()
+    fixture.release.manifest.metadata = {
+      description: '',
+      exports: {
+        '': '',
+        '.': '',
+      },
+      repository: '',
+    }
+    replaceInstallArtifact(fixture, {
+      bytes: await npmPackageTarball({
+        description: '',
+        name: '@example.com/hello-regesta',
+        version: '1.0.0',
+      }),
+    })
+    refreshReleaseFixtureDerivedObjects(fixture)
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: publicRegistryFetch(fixture),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example/',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      problems: [],
+    })
+  })
+
   it('uses isolated request options while reading public registry data', async () => {
     const fixture = releaseFixture()
     const baseFetch = publicRegistryFetch(fixture)
@@ -830,6 +862,55 @@ describe('verifyReleaseFromRegistry', () => {
     })
   })
 
+  it('reports unknown public release manifest descriptor fields as verification problems', async () => {
+    const fixture = releaseFixture()
+    const result = await verifyReleaseFromRegistry({
+      fetch: jsonFetch({
+        ...fixture.release,
+        manifestDescriptor: {
+          ...fixture.release.manifestDescriptor,
+          operatorHint: 'not verified',
+        },
+      }),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      problems: [
+        'Public release response manifestDescriptor must not include unknown field: operatorHint',
+      ],
+    })
+  })
+
+  it('reports unknown public release source descriptor fields as verification problems', async () => {
+    const fixture = releaseFixture()
+    const result = await verifyReleaseFromRegistry({
+      fetch: jsonFetch({
+        ...fixture.release,
+        manifest: {
+          ...fixture.release.manifest,
+          source: {
+            ...fixture.release.manifest.source,
+            operatorHint: 'not verified',
+          },
+        },
+      }),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      problems: [
+        'Public release response manifest source must not include unknown field: operatorHint',
+      ],
+    })
+  })
+
   it('reports invalid public release JSON Content-Type headers', async () => {
     const fixture = releaseFixture()
     const result = await verifyReleaseFromRegistry({
@@ -1513,7 +1594,7 @@ describe('verifyReleaseFromRegistry', () => {
       manifest: fixture.release.manifest,
       ok: false,
       problems: [
-        `Public event response is invalid: Registry event id does not match canonical event payload: ${fixture.release.event.id}`,
+        'Public event response is invalid: Public event response must not include unknown field: operatorHint',
       ],
     })
   })

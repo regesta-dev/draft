@@ -51,6 +51,17 @@ describe('parseObjectDescriptor', () => {
       }),
     ).toThrow('Invalid sha256 digest')
   })
+
+  it('rejects object descriptors with unknown fields', () => {
+    expect(() =>
+      parseObjectDescriptor({
+        digest: sha256(bytes('object')),
+        mediaType: 'application/octet-stream',
+        operatorHint: 'not verified',
+        size: 6,
+      }),
+    ).toThrow('Object descriptor must not include unknown field: operatorHint')
+  })
 })
 
 describe('parseObjectInventoryPage', () => {
@@ -78,6 +89,24 @@ describe('parseObjectInventoryPage', () => {
         nextAfter: 'sha256:not-valid',
       }),
     ).toThrow('Invalid sha256 digest')
+  })
+
+  it('rejects object inventory descriptors with unknown fields', () => {
+    const page = objectInventoryPage()
+
+    expect(() =>
+      parseObjectInventoryPage({
+        ...page,
+        objects: [
+          {
+            ...page.objects[0],
+            operatorHint: 'not verified',
+          },
+        ],
+      }),
+    ).toThrow(
+      'Object inventory page objects[0] must not include unknown field: operatorHint',
+    )
   })
 })
 
@@ -111,6 +140,42 @@ describe('parseReleaseManifest', () => {
         ],
       }),
     ).toThrow('Release manifest artifacts[0] must not include unknown field')
+  })
+
+  it('rejects release manifests with unknown source descriptor fields', () => {
+    const manifest = releaseManifest()
+
+    expect(() =>
+      parseReleaseManifest({
+        ...manifest,
+        source: {
+          ...manifest.source,
+          operatorHint: 'not verified',
+        },
+      }),
+    ).toThrow(
+      'Release manifest source must not include unknown field: operatorHint',
+    )
+  })
+
+  it('parses neutral release metadata as JSON metadata rather than descriptor strings', () => {
+    const manifest = releaseManifest()
+    const metadata = {
+      description: '',
+      exports: {
+        '': '',
+        '.': '',
+        './feature': ['', null, { default: '' }],
+      },
+      repository: '',
+    }
+
+    expect(
+      parseReleaseManifest({
+        ...manifest,
+        metadata,
+      }).metadata,
+    ).toEqual(metadata)
   })
 
   it('rejects artifact ecosystem metadata outside canonical JSON', () => {

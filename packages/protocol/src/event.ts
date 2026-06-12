@@ -143,10 +143,6 @@ export function parseRegistryEvent(
   const eventType = readString(record.eventType, `${label} eventType`)
   const id = assertSha256Digest(readString(record.id, `${label} id`))
 
-  if (options.verifyId !== false) {
-    assertRawRegistryEventId(record, id)
-  }
-
   switch (eventType) {
     case 'channel.deleted': {
       assertKnownFields(
@@ -286,20 +282,6 @@ export function parseRegistryEvent(
     default: {
       throw new TypeError(`Unsupported registry event type: ${eventType}`)
     }
-  }
-}
-
-function assertRawRegistryEventId(
-  record: Record<string, unknown>,
-  id: Sha256Digest,
-): void {
-  const { id: _id, ...payload } = record
-  const digest = sha256(canonicalJson(payload))
-
-  if (id !== digest) {
-    throw new TypeError(
-      `Registry event id does not match canonical event payload: ${id}`,
-    )
   }
 }
 
