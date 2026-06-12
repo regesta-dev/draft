@@ -214,7 +214,7 @@
                 "type": "object",
                 "properties": {
                   "authorization": {
-                    "description": "Signed release.publish authorization JSON.",
+                    "description": "Signed release.publish authorization JSON. The payload domain must match the owner domain parsed from payload package.",
                     "type": "string",
                     "contentMediaType": "application/json",
                     "contentSchema": {
@@ -252,6 +252,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
           "413": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
@@ -468,7 +469,8 @@
                 "additionalProperties": false,
                 "properties": {
                   "authorization": {
-                    "$ref": "#/components/schemas/WriteAuthorization"
+                    "$ref": "#/components/schemas/WriteAuthorization",
+                    "description": "Signed channel.update authorization JSON. The payload domain must match the owner domain parsed from payload package."
                   },
                   "version": { "$ref": "#/components/schemas/NonEmptyString" }
                 },
@@ -489,6 +491,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
           "413": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" }
@@ -510,7 +513,8 @@
                 "additionalProperties": false,
                 "properties": {
                   "authorization": {
-                    "$ref": "#/components/schemas/WriteAuthorization"
+                    "$ref": "#/components/schemas/WriteAuthorization",
+                    "description": "Signed channel.delete authorization JSON. The payload domain must match the owner domain parsed from payload package."
                   }
                 },
                 "required": ["authorization"]
@@ -530,6 +534,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
           "413": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" }

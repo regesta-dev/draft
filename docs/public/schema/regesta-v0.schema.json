@@ -531,6 +531,7 @@
       ]
     },
     "writeIntentBase": {
+      "description": "Common signed write intent fields. The domain must exactly match the owner domain parsed from package; this semantic check is enforced by the verifier.",
       "properties": {
         "domain": { "$ref": "#/$defs/ownerDomain" },
         "nonce": { "$ref": "#/$defs/tokenString" },

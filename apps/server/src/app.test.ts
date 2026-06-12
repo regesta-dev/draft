@@ -2858,21 +2858,43 @@ describe('createRegestaApp', () => {
 
   it('returns 400 for malformed npm install artifacts', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
+    const auth = createTestDomainAuth()
     const form = new FormData()
     const brokenGzip = new Uint8Array([0x1f, 0x8b, 0x08, 0x00])
+    const config: RegestaConfig = {
+      id: 'npm:example.com/malformed-artifact',
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const source = bytes('source')
+    const artifacts = [
+      {
+        bytes: brokenGzip,
+        format: 'npm-tarball',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ]
 
+    form.set('config', JSON.stringify(config))
     form.set(
-      'config',
-      JSON.stringify({
-        id: 'npm:example.com/malformed-artifact',
-        source: {
-          include: ['regesta.json'],
-        },
-        version: '0.0.1',
-      }),
+      'authorization',
+      JSON.stringify(
+        createSignedPublishAuthorization({
+          artifacts,
+          auth,
+          config,
+          nonce: 'malformed-artifact-nonce',
+          source,
+        }),
+      ),
     )
-    form.set('authorization', JSON.stringify({}))
-    form.set('source', new File(['source'], 'source.tgz'))
+    form.set('source', new File([blobPart(source)], 'source.tgz'))
     form.set(
       'artifacts',
       JSON.stringify([
@@ -3002,20 +3024,43 @@ describe('createRegestaApp', () => {
 
   it('returns 400 for invalid npm package manifests inside install artifacts', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
+    const auth = createTestDomainAuth()
     const form = new FormData()
+    const config: RegestaConfig = {
+      id: 'npm:example.com/invalid-artifact-manifest',
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const source = bytes('source')
+    const artifactBytes = invalidPackageManifestTarball()
+    const artifacts = [
+      {
+        bytes: artifactBytes,
+        format: 'npm-tarball',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ]
 
+    form.set('config', JSON.stringify(config))
     form.set(
-      'config',
-      JSON.stringify({
-        id: 'npm:example.com/invalid-artifact-manifest',
-        source: {
-          include: ['regesta.json'],
-        },
-        version: '0.0.1',
-      }),
+      'authorization',
+      JSON.stringify(
+        createSignedPublishAuthorization({
+          artifacts,
+          auth,
+          config,
+          nonce: 'invalid-artifact-manifest-nonce',
+          source,
+        }),
+      ),
     )
-    form.set('authorization', JSON.stringify({}))
-    form.set('source', new File(['source'], 'source.tgz'))
+    form.set('source', new File([blobPart(source)], 'source.tgz'))
     form.set(
       'artifacts',
       JSON.stringify([
@@ -3029,7 +3074,7 @@ describe('createRegestaApp', () => {
     )
     form.set(
       'artifact.install',
-      new File([blobPart(invalidPackageManifestTarball())], 'package.tgz'),
+      new File([blobPart(artifactBytes)], 'package.tgz'),
     )
 
     const response = await app.request('/releases', {
@@ -3045,20 +3090,49 @@ describe('createRegestaApp', () => {
 
   it('returns 400 for invalid npm resolver metadata inside install artifacts', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
+    const auth = createTestDomainAuth()
     const form = new FormData()
+    const config: RegestaConfig = {
+      id: 'npm:example.com/invalid-resolver-metadata',
+      provenance: {
+        level: 'source-attached',
+      },
+      source: {
+        include: ['regesta.json'],
+      },
+      version: '0.0.1',
+    }
+    const source = bytes('source')
+    const artifactBytes = packageManifestTarball({
+      dependencies: {
+        '@example.com/base': 1,
+      },
+      name: '@example.com/invalid-resolver-metadata',
+      version: '0.0.1',
+    })
+    const artifacts = [
+      {
+        bytes: artifactBytes,
+        format: 'npm-tarball',
+        mediaType: 'application/gzip',
+        role: 'install',
+      },
+    ]
 
+    form.set('config', JSON.stringify(config))
     form.set(
-      'config',
-      JSON.stringify({
-        id: 'npm:example.com/invalid-resolver-metadata',
-        source: {
-          include: ['regesta.json'],
-        },
-        version: '0.0.1',
-      }),
+      'authorization',
+      JSON.stringify(
+        createSignedPublishAuthorization({
+          artifacts,
+          auth,
+          config,
+          nonce: 'invalid-resolver-metadata-nonce',
+          source,
+        }),
+      ),
     )
-    form.set('authorization', JSON.stringify({}))
-    form.set('source', new File(['source'], 'source.tgz'))
+    form.set('source', new File([blobPart(source)], 'source.tgz'))
     form.set(
       'artifacts',
       JSON.stringify([
@@ -3072,20 +3146,7 @@ describe('createRegestaApp', () => {
     )
     form.set(
       'artifact.install',
-      new File(
-        [
-          blobPart(
-            packageManifestTarball({
-              dependencies: {
-                '@example.com/base': 1,
-              },
-              name: '@example.com/invalid-resolver-metadata',
-              version: '0.0.1',
-            }),
-          ),
-        ],
-        'package.tgz',
-      ),
+      new File([blobPart(artifactBytes)], 'package.tgz'),
     )
 
     const response = await app.request('/releases', {
@@ -3687,6 +3748,110 @@ describe('createRegestaApp', () => {
       code: 'request_invalid',
       issues: ['Package version must not include control characters'],
     })
+  })
+
+  it('rejects channel update authorization domains that do not match package owners before domain binding fetch', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const app = createRegestaApp(adapters)
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/channel-update-domain-mismatch'
+    const authorization = auth.sign(
+      createChannelUpdateIntent({
+        channel: 'latest',
+        nonce: 'channel-update-domain-mismatch',
+        packageId,
+        timestamp: new Date().toISOString(),
+        version: '0.0.1',
+      }),
+    )
+    const fetchBinding = vi.fn(() =>
+      Promise.reject(new Error('domain binding fetch should not be called')),
+    )
+    vi.stubGlobal('fetch', fetchBinding)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        {
+          body: JSON.stringify({
+            authorization: {
+              ...authorization,
+              payload: {
+                ...authorization.payload,
+                domain: 'other.example.com',
+              },
+            },
+            version: '0.0.1',
+          }),
+          headers: {
+            'content-type': 'application/json',
+          },
+          method: 'PUT',
+        },
+      )
+
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'write_authorization_invalid',
+        message: 'Write intent domain must match package owner',
+      })
+      expect(fetchBinding).not.toHaveBeenCalled()
+      expect(getPackageChannels).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects channel delete authorization domains that do not match package owners before domain binding fetch', async () => {
+    const adapters = createMemoryRegistryAdapters()
+    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
+    const app = createRegestaApp(adapters)
+    const auth = createTestDomainAuth()
+    const packageId = 'npm:example.com/channel-delete-domain-mismatch'
+    const authorization = auth.sign(
+      createChannelDeleteIntent({
+        channel: 'latest',
+        nonce: 'channel-delete-domain-mismatch',
+        packageId,
+        timestamp: new Date().toISOString(),
+      }),
+    )
+    const fetchBinding = vi.fn(() =>
+      Promise.reject(new Error('domain binding fetch should not be called')),
+    )
+    vi.stubGlobal('fetch', fetchBinding)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}/channels/latest`,
+        {
+          body: JSON.stringify({
+            authorization: {
+              ...authorization,
+              payload: {
+                ...authorization.payload,
+                domain: 'other.example.com',
+              },
+            },
+          }),
+          headers: {
+            'content-type': 'application/json',
+          },
+          method: 'DELETE',
+        },
+      )
+
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'write_authorization_invalid',
+        message: 'Write intent domain must match package owner',
+      })
+      expect(fetchBinding).not.toHaveBeenCalled()
+      expect(getPackageChannels).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('uses the verified previous channel version when committing signed channel updates', async () => {
@@ -4787,7 +4952,7 @@ describe('createRegestaApp', () => {
     }
   })
 
-  it('rejects publish authorization domains that do not match package owners before domain binding fetch', async () => {
+  it('rejects publish authorization domains that do not match package owners before domain binding fetch or artifact processing', async () => {
     const app = createRegestaApp(createMemoryRegistryAdapters())
     const prepared = await prepareFixtureNpmPublish(
       await createFixtureProject(),
@@ -4802,6 +4967,10 @@ describe('createRegestaApp', () => {
     updateSignedPublishAuthorization(form, (_authorization, payload) => {
       payload.domain = 'other.example.com'
     })
+    form.set(
+      'artifact.0',
+      new File([blobPart(new Uint8Array([0x1f, 0x8b, 0x08, 0x00]))], 'bad.tgz'),
+    )
 
     const fetchBinding = vi.fn(() =>
       Promise.reject(new Error('domain binding fetch should not be called')),
@@ -7043,6 +7212,41 @@ function publishArtifactDescriptorDigest(
   )
 }
 
+function createSignedPublishAuthorization(input: {
+  artifacts: Array<{
+    bytes: Uint8Array
+    compatibility?: unknown
+    filename?: string
+    format?: string
+    mediaType: string
+    role: string
+  }>
+  auth: ReturnType<typeof createTestDomainAuth>
+  config: RegestaConfig
+  nonce: string
+  source: Uint8Array
+  timestamp?: string
+}) {
+  const normalizedConfig = normalizeRegestaConfig(input.config)
+
+  return input.auth.sign(
+    createReleasePublishIntent({
+      artifactDescriptorDigest: publishArtifactDescriptorDigest(
+        input.artifacts,
+      ),
+      artifactDigests: input.artifacts.map((artifact) =>
+        sha256(artifact.bytes),
+      ),
+      configDigest: configDigest(normalizedConfig),
+      nonce: input.nonce,
+      packageId: normalizedConfig.id,
+      sourceDigest: sha256(input.source),
+      timestamp: input.timestamp ?? new Date().toISOString(),
+      version: normalizedConfig.version,
+    }),
+  )
+}
+
 function createSignedPublishForm(input: {
   auth: ReturnType<typeof createTestDomainAuth>
   nonce: string
@@ -7062,22 +7266,14 @@ function createSignedPublishForm(input: {
   form.set(
     'authorization',
     JSON.stringify(
-      input.auth.sign(
-        createReleasePublishIntent({
-          artifactDescriptorDigest: publishArtifactDescriptorDigest(
-            input.prepared.artifacts,
-          ),
-          artifactDigests: input.prepared.artifacts.map((artifact) =>
-            sha256(artifact.bytes),
-          ),
-          configDigest: configDigest(input.prepared.config),
-          nonce: input.nonce,
-          packageId: input.prepared.config.id,
-          sourceDigest: sha256(input.prepared.source),
-          timestamp: input.timestamp,
-          version: input.prepared.config.version,
-        }),
-      ),
+      createSignedPublishAuthorization({
+        artifacts: input.prepared.artifacts,
+        auth: input.auth,
+        config: input.prepared.config,
+        nonce: input.nonce,
+        source: input.prepared.source,
+        timestamp: input.timestamp,
+      }),
     ),
   )
   form.set('createdAt', input.timestamp)

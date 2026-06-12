@@ -149,9 +149,10 @@ Ed25519 JWK:
 }
 ```
 
-The signature is over the canonical JSON form of `payload`. The owner domain
-comes from the package id, and the server verifies the signature against the
-current domain binding at write time.
+The signature is over the canonical JSON form of `payload`. The payload
+`domain` must exactly match the owner domain parsed from payload `package`.
+The server verifies the signature against that owner domain's current domain
+binding at write time.
 
 V0 also accepts `ssh-ed25519` authorization using OpenSSH `SSHSIG` signatures:
 

@@ -22,6 +22,8 @@ import {
   ownerDomainFromPackageId,
   regestaSshSignatureNamespace,
   releasePublishArtifactDescriptorDigest,
+  verifyChannelDeleteAuthorization,
+  verifyChannelUpdateAuthorization,
   verifyPublishAuthorization,
   verifyWriteAuthorization,
   WriteAuthorizationError,
@@ -712,6 +714,60 @@ describe('verifyWriteAuthorization', () => {
       message: 'Write intent domain must match package owner',
       now: fixture.now,
     })
+  })
+
+  it('rejects channel write intent domains that do not match package owners before fetching domain bindings', () => {
+    const fixture = createAuthorizationFixture()
+    const packageId = 'npm:example.com/auth-test'
+    const updateIntent = createChannelUpdateIntent({
+      channel: 'beta',
+      nonce: 'channel-update-domain-mismatch',
+      packageId,
+      previousVersion: '0.0.1',
+      timestamp: fixture.now.toISOString(),
+      version: '0.0.2',
+    })
+    const deleteIntent = createChannelDeleteIntent({
+      channel: 'beta',
+      nonce: 'channel-delete-domain-mismatch',
+      packageId,
+      previousVersion: '0.0.2',
+      timestamp: fixture.now.toISOString(),
+    })
+    const fetchBinding = vi.fn(() => Promise.resolve(new Response(null)))
+
+    expect(() =>
+      verifyChannelUpdateAuthorization({
+        authorization: {
+          ...fixture.authorization,
+          payload: {
+            ...updateIntent,
+            domain: 'other.example.com',
+          },
+        },
+        channel: 'beta',
+        fetchBinding,
+        packageId,
+        previousVersion: '0.0.1',
+        version: '0.0.2',
+      }),
+    ).toThrow('Write intent domain must match package owner')
+    expect(() =>
+      verifyChannelDeleteAuthorization({
+        authorization: {
+          ...fixture.authorization,
+          payload: {
+            ...deleteIntent,
+            domain: 'other.example.com',
+          },
+        },
+        channel: 'beta',
+        fetchBinding,
+        packageId,
+        previousVersion: '0.0.2',
+      }),
+    ).toThrow('Write intent domain must match package owner')
+    expect(fetchBinding).not.toHaveBeenCalled()
   })
 
   it('rejects unknown write authorization fields before fetching domain bindings', async () => {

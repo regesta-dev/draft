@@ -55,6 +55,7 @@ import {
 export interface CoreRegistryServices {
   domainBindingFetchForRequest?: DomainBindingFetchForRequest
   processPublishArtifacts?: PublishArtifactProcessor
+  readWriteAuthorization: ReadWriteAuthorization
   verifyChannelDeleteAuthorization: VerifyChannelDeleteAuthorization
   verifyChannelUpdateAuthorization: VerifyChannelUpdateAuthorization
   verifyPublishAuthorization: VerifyPublishAuthorization
@@ -130,6 +131,7 @@ export type PublishArtifactProcessor = (
 ) => Promise<ProcessPublishArtifactsOutput> | ProcessPublishArtifactsOutput
 
 export type DomainBindingFetchForRequest = (requestUrl: string) => typeof fetch
+export type ReadWriteAuthorization = (authorization: unknown) => unknown
 
 export interface VerifyPublishAuthorizationInput {
   artifacts: Array<{
@@ -441,14 +443,16 @@ export function createCoreRegistryApp(
       'Invalid channel request body',
     )
     const version = parseRequestVersion(body.version)
-    const previousVersion = await getPackageChannelVersion(
-      adapters,
-      packageId,
-      channel,
-    )
+    let previousVersion: string | undefined
     let result: Awaited<ReturnType<typeof updatePackageChannel>>
 
     try {
+      services.readWriteAuthorization(body.authorization)
+      previousVersion = await getPackageChannelVersion(
+        adapters,
+        packageId,
+        channel,
+      )
       const authorization = await services.verifyChannelUpdateAuthorization({
         authorization: body.authorization,
         channel,
@@ -516,14 +520,16 @@ export function createCoreRegistryApp(
       await readJsonBody(context.req.json()),
       'Invalid channel request body',
     )
-    const previousVersion = await getPackageChannelVersion(
-      adapters,
-      packageId,
-      channel,
-    )
+    let previousVersion: string | undefined
     let result: Awaited<ReturnType<typeof deletePackageChannel>>
 
     try {
+      services.readWriteAuthorization(body.authorization)
+      previousVersion = await getPackageChannelVersion(
+        adapters,
+        packageId,
+        channel,
+      )
       const authorization = await services.verifyChannelDeleteAuthorization({
         authorization: body.authorization,
         channel,
@@ -1111,6 +1117,7 @@ async function publishFromRequest(
   services: CoreRegistryServices,
 ) {
   try {
+    services.readWriteAuthorization(input.authorization)
     const processed = await processPublishArtifacts(services, {
       artifacts: input.artifacts,
       config: input.config,

@@ -334,6 +334,12 @@ describe('documentation references', () => {
     expect(channelDeleteProperties.operation).toEqual({
       const: 'channel.delete',
     })
+
+    await expect(
+      schemaValueAtPointer('#/$defs/writeIntentBase/description'),
+    ).resolves.toContain(
+      'The domain must exactly match the owner domain parsed from package',
+    )
   })
 
   it('documents signed write authorization trust boundaries', async () => {
@@ -344,7 +350,10 @@ describe('documentation references', () => {
       'The signature is over the canonical JSON form of `payload`.',
     )
     expect(normalizedProtocol).toContain(
-      'the server verifies the signature against the current domain binding at write time',
+      'The payload `domain` must exactly match the owner domain parsed from payload `package`.',
+    )
+    expect(normalizedProtocol).toContain(
+      "The server verifies the signature against that owner domain's current domain binding at write time.",
     )
     expect(normalizedProtocol).toContain(
       'SSH signatures use the `regesta` namespace',
@@ -358,6 +367,42 @@ describe('documentation references', () => {
     expect(normalizedProtocol).toContain('well-known binding digest')
     expect(normalizedProtocol).toContain(
       'V0 events do not publish the full signed intent payload.',
+    )
+  })
+
+  it('documents signed write authorization trust boundaries in OpenAPI', async () => {
+    for (const pointer of [
+      '#/paths/~1releases/post/requestBody/content/multipart~1form-data/schema/properties/authorization/description',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/put/requestBody/content/application~1json/schema/properties/authorization/description',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/delete/requestBody/content/application~1json/schema/properties/authorization/description',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toContain(
+        'The payload domain must match the owner domain parsed from payload package.',
+      )
+    }
+  })
+
+  it('documents write authorization failures in OpenAPI', async () => {
+    for (const pointer of [
+      '#/paths/~1releases/post/responses/401',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/put/responses/401',
+      '#/paths/~1packages~1{packageId}~1channels~1{channel}/delete/responses/401',
+    ]) {
+      await expect(openapiValueAtPointer(pointer), pointer).resolves.toEqual({
+        $ref: '#/components/responses/Error',
+      })
+    }
+  })
+
+  it('documents write authorization failure status codes in the API guide', async () => {
+    const api = await readText('api.md')
+    const normalizedApi = api.replaceAll(/\s+/gu, ' ')
+
+    expect(normalizedApi).toContain(
+      'Write authorization failures return `401` with code `write_authorization_invalid`.',
+    )
+    expect(normalizedApi).toContain(
+      'Replayed write authorizations return `409` with code `write_authorization_replayed`.',
     )
   })
 

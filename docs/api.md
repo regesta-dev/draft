@@ -128,10 +128,11 @@ The binary part named `artifact.install` contains the package-manager-produced
 install artifact.
 
 The request also includes a signed write authorization. V0 accepts Ed25519 JWK
-authorization and `ssh-ed25519` OpenSSH `SSHSIG` authorization. The server
-verifies the domain binding, checks the signed intent against the request body,
-processes artifacts, stores objects, writes the release manifest, appends a
-publish event, and assigns the default `latest` channel.
+authorization and `ssh-ed25519` OpenSSH `SSHSIG` authorization. The signed
+payload `domain` must match the owner domain parsed from payload `package`.
+The server verifies that owner domain binding, checks the signed intent against
+the request body, processes artifacts, stores objects, writes the release
+manifest, appends a publish event, and assigns the default `latest` channel.
 
 Response shape:
 
@@ -297,9 +298,10 @@ Deleting a channel removes the mutable pointer:
 
 The signed intent binds the package id, channel, target version for updates,
 current `previousVersion` when one exists, timestamp, nonce, and owner domain.
-The server verifies the signed intent against the owner domain binding, rejects
-replayed authorization digests, and stores an `authorization` proof on the
-accepted event. The accepted event records the proof material and
+The payload `domain` must match the owner domain parsed from payload `package`.
+The server verifies the signed intent against that owner domain binding,
+rejects replayed authorization digests, and stores an `authorization` proof on
+the accepted event. The accepted event records the proof material and
 `payloadDigest`; it does not currently publish the full signed intent payload.
 Accepted writes append `channel.updated` or `channel.deleted` events. They do
 not modify release manifests.
@@ -513,6 +515,9 @@ Public API errors are structured JSON:
 ```
 
 Validation failures should return client errors, not internal server errors.
+Write authorization failures return `401` with code
+`write_authorization_invalid`. Replayed write authorizations return `409` with
+code `write_authorization_replayed`.
 Unexpected 500 responses are handled by the transport error boundary and logged
 with `console.error`.
 

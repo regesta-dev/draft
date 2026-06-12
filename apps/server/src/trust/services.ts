@@ -1,4 +1,5 @@
 import {
+  readWriteAuthorization,
   verifyChannelDeleteAuthorization,
   verifyChannelUpdateAuthorization,
   verifyPublishAuthorization,
@@ -8,6 +9,7 @@ export type DomainBindingFetchForRequest = (requestUrl: string) => typeof fetch
 
 export interface TrustServices {
   domainBindingFetchForRequest?: DomainBindingFetchForRequest
+  readWriteAuthorization: typeof readWriteAuthorization
   verifyChannelDeleteAuthorization: typeof verifyChannelDeleteAuthorization
   verifyChannelUpdateAuthorization: typeof verifyChannelUpdateAuthorization
   verifyPublishAuthorization: typeof verifyPublishAuthorization
@@ -21,6 +23,7 @@ export function createTrustServices(
   options: TrustServicesOptions = {},
 ): TrustServices {
   const services = {
+    readWriteAuthorization,
     verifyChannelDeleteAuthorization,
     verifyChannelUpdateAuthorization,
     verifyPublishAuthorization,

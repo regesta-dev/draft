@@ -320,6 +320,9 @@ SSH signing uses the same payload but stores an OpenSSH `SSHSIG` signature:
 | `channel.update`  | `channel`, `version`, optional `previousVersion`                                                    |
 | `channel.delete`  | `channel`, optional `previousVersion`                                                               |
 
+For every write intent, payload `domain` must exactly match the owner domain
+parsed from payload `package`.
+
 The server verifies the authorization against the owner domain binding and
 stores only the accepted `authorizationProof` on events. The original signed
 payload is not stored as event state in V0.
