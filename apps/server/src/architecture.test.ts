@@ -92,13 +92,19 @@ describe('server layer boundaries', () => {
       join(serverSourceRoot, 'transport/app.ts'),
       'utf8',
     )
-    const transportJsonStart = source.indexOf('function transportJson')
+    const responsesSource = await readFile(
+      join(serverSourceRoot, 'responses.ts'),
+      'utf8',
+    )
 
-    expect(transportJsonStart).toBeGreaterThanOrEqual(0)
+    expect(source).toContain('jsonResponse(method, body, init)')
 
-    const transportJsonSource = source.slice(transportJsonStart)
-    const headIndex = transportJsonSource.indexOf("method === 'HEAD'")
-    const serializeIndex = transportJsonSource.indexOf('JSON.stringify')
+    const jsonResponseStart = responsesSource.indexOf('function jsonResponse')
+    expect(jsonResponseStart).toBeGreaterThanOrEqual(0)
+
+    const jsonResponseSource = responsesSource.slice(jsonResponseStart)
+    const headIndex = jsonResponseSource.indexOf("method === 'HEAD'")
+    const serializeIndex = jsonResponseSource.indexOf('JSON.stringify')
 
     expect(headIndex).toBeGreaterThanOrEqual(0)
     expect(serializeIndex).toBeGreaterThan(headIndex)
@@ -109,16 +115,9 @@ describe('server layer boundaries', () => {
       join(serverSourceRoot, 'transport/errors.ts'),
       'utf8',
     )
-    const errorJsonStart = source.indexOf('function transportErrorJson')
 
-    expect(errorJsonStart).toBeGreaterThanOrEqual(0)
-
-    const errorJsonSource = source.slice(errorJsonStart)
-    const headIndex = errorJsonSource.indexOf("context.req.method === 'HEAD'")
-    const serializeIndex = errorJsonSource.indexOf('JSON.stringify')
-
-    expect(headIndex).toBeGreaterThanOrEqual(0)
-    expect(serializeIndex).toBeGreaterThan(headIndex)
+    expect(source).toContain('jsonResponse(')
+    expect(source).not.toContain('JSON.stringify')
   })
 
   it('keeps shared HTTP response helpers independent from business layers', async () => {
@@ -135,6 +134,21 @@ describe('server layer boundaries', () => {
       '../npm/',
       '../trust/',
     ])
+  })
+
+  it('keeps production server JSON responses on shared helpers', async () => {
+    for (const file of [
+      'core/app.ts',
+      'npm/app.ts',
+      'npm/upstream.ts',
+      'transport/app.ts',
+      'transport/errors.ts',
+      'transport/request-size.ts',
+    ]) {
+      const source = await readFile(join(serverSourceRoot, file), 'utf8')
+
+      expect(source).not.toContain('context.json(')
+    }
   })
 
   it('keeps conditional request validators on quote-aware entity-tag parsing', async () => {
@@ -290,8 +304,9 @@ describe('server layer boundaries', () => {
     const projectionJsonConditionalIndex = projectionJsonSource.indexOf(
       'serveConditionalNpmProjectionJson',
     )
-    const projectionJsonSerializeIndex =
-      projectionJsonSource.indexOf('JSON.stringify')
+    const projectionJsonResponseIndex = projectionJsonSource.indexOf(
+      'jsonResponse(context.req.method',
+    )
 
     expect(routeSource).toContain('readLocalNpmPackageProjection')
     expect(routeSource).not.toContain('replayPackageState')
@@ -356,7 +371,7 @@ describe('server layer boundaries', () => {
     expect(packumentHeadSource).not.toContain('listPackageReleases')
     expect(packumentHeadSource).not.toContain('getPackageEventState')
     expect(projectionJsonConditionalIndex).toBeGreaterThanOrEqual(0)
-    expect(projectionJsonSerializeIndex).toBeGreaterThan(
+    expect(projectionJsonResponseIndex).toBeGreaterThan(
       projectionJsonConditionalIndex,
     )
   })
@@ -371,11 +386,9 @@ describe('server layer boundaries', () => {
       'function serveNpmUtilityJson',
       'async function serveNpmTarball',
     )
-    const headIndex = utilityJsonSource.indexOf("context.req.method === 'HEAD'")
-    const serializeIndex = utilityJsonSource.indexOf('JSON.stringify')
 
-    expect(headIndex).toBeGreaterThanOrEqual(0)
-    expect(serializeIndex).toBeGreaterThan(headIndex)
+    expect(utilityJsonSource).toContain('jsonResponse(context.req.method')
+    expect(utilityJsonSource).not.toContain('JSON.stringify')
   })
 
   it('keeps npm tarball routes redirect-only and byte-storage-free', async () => {
@@ -477,11 +490,8 @@ describe('server layer boundaries', () => {
     expect(serveJsonStart).toBeGreaterThanOrEqual(0)
 
     const serveJsonSource = coreSource.slice(serveJsonStart)
-    const headIndex = serveJsonSource.indexOf("context.req.method === 'HEAD'")
-    const serializeIndex = serveJsonSource.indexOf('JSON.stringify')
 
-    expect(headIndex).toBeGreaterThanOrEqual(0)
-    expect(serializeIndex).toBeGreaterThan(headIndex)
+    expect(serveJsonSource).toContain('jsonResponse(context.req.method')
   })
 
   it('keeps core release envelope responses on core-owned release integrity parsing', async () => {

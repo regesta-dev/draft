@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { devLocalhostDomainBindingText, jsonResponse } from './keys.ts'
+import { devJsonFileResponse, devLocalhostDomainBindingText } from './keys.ts'
 
 export function domainBindingFetchForRequest(): typeof fetch {
   if (!import.meta.dev && process.env.NODE_ENV !== 'development') {
@@ -10,7 +10,7 @@ export function domainBindingFetchForRequest(): typeof fetch {
     const url = fetchInputUrl(input)
 
     if (url === 'https://dev.localhost/.well-known/regesta.json') {
-      return Promise.resolve(jsonResponse(devLocalhostDomainBindingText))
+      return Promise.resolve(devJsonFileResponse(devLocalhostDomainBindingText))
     }
 
     return fetch(input, init)

@@ -25,6 +25,25 @@ export interface ImmutableDescriptorResponseInput extends ImmutableDescriptorHea
   rangeHeader?: string
 }
 
+export function jsonResponse(
+  method: string,
+  body: unknown,
+  init: ResponseInit = {},
+): Response {
+  const headers = new Headers(init.headers)
+  headers.set('content-type', 'application/json; charset=UTF-8')
+
+  if (method === 'HEAD') {
+    headers.delete('content-length')
+    return new Response(null, { ...init, headers })
+  }
+
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  headers.set('content-length', String(bytes.byteLength))
+
+  return new Response(bytes, { ...init, headers })
+}
+
 export function errorResponse(
   code: string,
   message: string,

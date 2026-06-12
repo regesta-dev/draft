@@ -55,6 +55,7 @@ import {
   immutableBytesResponse,
   immutableDescriptorHeaders,
   immutableDescriptorResponse,
+  jsonResponse,
   matchesIfModifiedSince,
   matchesIfNoneMatch,
   parseSingleByteRange,
@@ -317,7 +318,7 @@ export function createCoreRegistryApp(
       version: result.manifest.version,
     })
 
-    return context.json(result, 201)
+    return jsonResponse(context.req.method, result, { status: 201 })
   })
 
   app.get('/events', (context) => {
@@ -513,7 +514,7 @@ export function createCoreRegistryApp(
       version,
     })
 
-    return context.json({
+    return jsonResponse(context.req.method, {
       channel,
       event: result.event,
       package: packageId,
@@ -588,7 +589,7 @@ export function createCoreRegistryApp(
       timestamp: result.event.timestamp,
     })
 
-    return context.json({
+    return jsonResponse(context.req.method, {
       channel,
       event: result.event,
       package: packageId,
@@ -655,9 +656,10 @@ async function serveEventRequest(
   const event = await adapters.database.getEvent(digest)
 
   if (!event) {
-    return context.json(
+    return jsonResponse(
+      context.req.method,
       errorResponse('event_not_found', 'Event not found'),
-      404,
+      { status: 404 },
     )
   }
 
@@ -740,9 +742,10 @@ async function servePackageStateRequest(
     await adapters.database.getPackageEventState(packageId)
   const parsedState = parseAdapterPackageState(state, packageId)
   if (parsedState.releases.length === 0) {
-    return context.json(
+    return jsonResponse(
+      context.req.method,
       errorResponse('package_not_found', 'Package not found'),
-      404,
+      { status: 404 },
     )
   }
 
@@ -852,9 +855,10 @@ async function serveReleaseEnvelopeRequest(
   const release = await adapters.database.getRelease(packageId, version)
 
   if (!release) {
-    return context.json(
+    return jsonResponse(
+      context.req.method,
       errorResponse('release_not_found', 'Release not found'),
-      404,
+      { status: 404 },
     )
   }
 
@@ -878,18 +882,20 @@ async function servePackageChannelRequest(
   )
 
   if (!version) {
-    return context.json(
+    return jsonResponse(
+      context.req.method,
       errorResponse('channel_not_found', 'Channel not found'),
-      404,
+      { status: 404 },
     )
   }
 
   const release = await adapters.database.getRelease(packageId, version)
 
   if (!release) {
-    return context.json(
+    return jsonResponse(
+      context.req.method,
       errorResponse('release_not_found', 'Release not found'),
-      404,
+      { status: 404 },
     )
   }
 
@@ -1197,17 +1203,7 @@ function serveJson(
   headers: Record<string, string>,
   init: { status?: number; statusText?: string } = {},
 ): Response {
-  if (context.req.method === 'HEAD') {
-    return new Response(null, { ...init, headers })
-  }
-
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
-  const responseHeaders = {
-    ...headers,
-    'content-length': String(bytes.byteLength),
-  }
-
-  return new Response(bytes, { ...init, headers: responseHeaders })
+  return jsonResponse(context.req.method, body, { ...init, headers })
 }
 
 async function serveObject(
@@ -1219,9 +1215,10 @@ async function serveObject(
   const storedDescriptor = await adapters.objects.getDescriptor(digest)
 
   if (!storedDescriptor) {
-    return context.json(
+    return jsonResponse(
+      context.req.method,
       errorResponse('object_not_found', 'Object not found'),
-      404,
+      { status: 404 },
     )
   }
 
@@ -1260,9 +1257,10 @@ async function serveObject(
   const object = await adapters.objects.get(digest)
 
   if (!object) {
-    return context.json(
+    return jsonResponse(
+      context.req.method,
       errorResponse('object_not_found', 'Object not found'),
-      404,
+      { status: 404 },
     )
   }
 

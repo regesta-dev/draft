@@ -1,9 +1,47 @@
 import { describe, expect, it } from 'vitest'
 import {
   httpDate,
+  jsonResponse,
   matchesIfModifiedSince,
   matchesIfNoneMatch,
 } from './responses.ts'
+
+describe('jsonResponse', () => {
+  it('serializes GET responses with content length', async () => {
+    const response = jsonResponse('GET', { ok: true }, { status: 201 })
+
+    expect(response.status).toBe(201)
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBe('11')
+    await expect(response.json()).resolves.toEqual({ ok: true })
+  })
+
+  it('does not serialize HEAD responses', async () => {
+    const response = jsonResponse(
+      'HEAD',
+      {
+        toJSON() {
+          throw new Error('must not serialize')
+        },
+      },
+      {
+        headers: {
+          'content-length': '999',
+        },
+        status: 404,
+      },
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    await expect(response.text()).resolves.toBe('')
+  })
+})
 
 describe('matchesIfNoneMatch', () => {
   it('matches strong, weak, wildcard, and list validators', () => {

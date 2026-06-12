@@ -8,6 +8,7 @@ import {
 import {
   errorResponse,
   httpDate,
+  jsonResponse,
   matchesIfModifiedSince,
   matchesIfNoneMatch,
 } from '../responses.ts'
@@ -328,9 +329,10 @@ async function serveNpmPackageManifest(
     }
 
     if (releaseHead.releaseCount > 0) {
-      return context.json(
+      return jsonResponse(
+        context.req.method,
         errorResponse('package_version_not_found', 'Package version not found'),
-        404,
+        { status: 404 },
       )
     }
   }
@@ -503,12 +505,9 @@ function serveNpmProjectionJson(
     return conditionalResponse
   }
 
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
-  const headers = npmProjectionJsonHeaders(etag, options, bytes.byteLength)
-
-  return context.req.method === 'HEAD'
-    ? new Response(null, { headers })
-    : new Response(bytes, { headers })
+  return jsonResponse(context.req.method, body, {
+    headers: npmProjectionJsonHeaders(etag, options),
+  })
 }
 
 function serveConditionalNpmProjectionJson(
@@ -579,19 +578,11 @@ interface NpmProjectionJsonOptions {
 }
 
 function serveNpmUtilityJson(context: Context, body: unknown): Response {
-  const headers: Record<string, string> = {
-    'cache-control': 'no-cache',
-    'content-type': 'application/json; charset=UTF-8',
-  }
-
-  if (context.req.method === 'HEAD') {
-    return new Response(null, { headers })
-  }
-
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
-  headers['content-length'] = String(bytes.byteLength)
-
-  return new Response(bytes, { headers })
+  return jsonResponse(context.req.method, body, {
+    headers: {
+      'cache-control': 'no-cache',
+    },
+  })
 }
 
 async function serveNpmTarball(

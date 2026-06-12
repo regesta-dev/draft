@@ -317,9 +317,9 @@ inventories. Immutable object probes such as `HEAD /events/:digest` and
 after the addressed object is found. Mutable channel release probes such as
 `HEAD /packages/:id/channels/:channel` also skip JSON body serialization after
 resolving the target release. Core JSON `HEAD` responses, including not-found
-probes, return headers without serializing their JSON body. Transport error
-boundary `HEAD` responses keep status codes and unexpected-error logging, but
-also skip JSON body serialization.
+probes, request-size rejections, and error-boundary responses return headers
+without serializing their JSON body. Unexpected transport errors still keep
+status codes and `console.error` logging.
 
 The npm projection bounds upstream npm metadata fallback requests with
 `REGESTA_NPM_UPSTREAM_TIMEOUT_MS`, falling back to a 10s timeout when the
@@ -329,8 +329,9 @@ use indexed package heads when package state is stable, so metadata probes do
 not need to build full packuments. Local npm version manifest `HEAD` requests
 also skip npm body projection after the addressed release is found. Local npm
 dist-tags `HEAD` requests skip JSON body serialization after reading indexed
-channel state. npm utility `HEAD` requests such as `/` and `/-/ping` also avoid
-serializing their small JSON bodies.
+channel state. npm utility `HEAD` requests such as `/` and `/-/ping`, local
+not-found errors, and upstream fallback failures also avoid serializing JSON
+bodies.
 
 The backend can be Postgres, DynamoDB, S3, R2, GCS, a platform queue, KMS, or
 another service. The registry core should continue to see only adapters.

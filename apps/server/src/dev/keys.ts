@@ -40,7 +40,7 @@ export const devLocalhostPrivateKeyFileText = jsonText(
 )
 export const devLocalhostPublicKeyFileText = jsonText(devLocalhostPublicKeyFile)
 
-export function jsonResponse(body: string): Response {
+export function devJsonFileResponse(body: string): Response {
   return new Response(body, {
     headers: {
       'cache-control': 'no-store',

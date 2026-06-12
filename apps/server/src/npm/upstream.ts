@@ -1,4 +1,4 @@
-import { errorResponse } from '../responses.ts'
+import { errorResponse, jsonResponse } from '../responses.ts'
 import type { Context } from 'hono'
 
 export interface NpmUpstreamFallbackOptions {
@@ -266,12 +266,13 @@ function upstreamNpmFetchFailureResponse(
     ...(id ? { requestId: id } : {}),
     url,
   })
-  return context.json(
+  return jsonResponse(
+    context.req.method,
     errorResponse(
       'upstream_npm_registry_unavailable',
       'Upstream npm registry unavailable',
     ),
-    502,
+    { status: 502 },
   )
 }
 
@@ -289,12 +290,13 @@ function invalidUpstreamNpmJsonResponse(
     url,
   })
 
-  return context.json(
+  return jsonResponse(
+    context.req.method,
     errorResponse(
       'upstream_npm_registry_unavailable',
       'Upstream npm registry unavailable',
     ),
-    502,
+    { status: 502 },
   )
 }
 
@@ -313,12 +315,13 @@ function unavailableUpstreamNpmResponse(
     url,
   })
 
-  return context.json(
+  return jsonResponse(
+    context.req.method,
     errorResponse(
       'upstream_npm_registry_unavailable',
       'Upstream npm registry unavailable',
     ),
-    502,
+    { status: 502 },
   )
 }
 
@@ -337,12 +340,13 @@ function invalidUpstreamNpmMetadataResponse(
     },
   )
 
-  return context.json(
+  return jsonResponse(
+    context.req.method,
     errorResponse(
       'upstream_npm_registry_unavailable',
       'Upstream npm registry unavailable',
     ),
-    502,
+    { status: 502 },
   )
 }
 

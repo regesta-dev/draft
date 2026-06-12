@@ -343,6 +343,49 @@ describe('createNpmUpstreamFallback', () => {
     expect(requestHeaders.get('if-none-match')).toBe('"client-etag"')
   })
 
+  it('serves upstream npm HEAD failures without JSON bodies', async () => {
+    const upstreamError = new Error('upstream unavailable')
+    const upstreamFetch = vi.fn<typeof fetch>((_, init) => {
+      expect(init?.method).toBe('HEAD')
+
+      return Promise.reject(upstreamError)
+    })
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined)
+    const upstream = createNpmUpstreamFallback({
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+    const app = new Hono()
+    app.get('/packument', (context) => {
+      return upstream.packument(context, '@upstream/pkg')
+    })
+
+    try {
+      const response = await app.request('/packument', {
+        method: 'HEAD',
+      })
+
+      expect(response.status).toBe(502)
+      expect(response.headers.get('content-type')).toBe(
+        'application/json; charset=UTF-8',
+      )
+      expect(response.headers.get('content-length')).toBeNull()
+      await expect(response.text()).resolves.toBe('')
+      expect(consoleError).toHaveBeenCalledWith(
+        'Upstream npm registry request failed',
+        expect.objectContaining({
+          error: upstreamError,
+          kind: 'regesta.npm-upstream-failure',
+          url: 'https://registry.npmjs.org/%40upstream%2Fpkg',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('builds npm tarball redirect URLs without fetching tarball bytes', () => {
     const upstreamFetch = vi.fn<typeof fetch>()
     const upstream = createNpmUpstreamFallback({

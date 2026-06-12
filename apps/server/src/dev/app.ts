@@ -1,13 +1,13 @@
 import { Hono } from 'hono'
 import { errorResponse } from '../responses.ts'
 import {
+  devJsonFileResponse,
   devLocalhostDomain,
   devLocalhostDomainBinding,
   devLocalhostDomainBindingText,
   devLocalhostKeyId,
   devLocalhostPrivateKeyFileText,
   devLocalhostPublicKeyFileText,
-  jsonResponse,
 } from './keys.ts'
 
 export function createDevLocalhostRoutes(): Hono {
@@ -28,15 +28,15 @@ export function createDevLocalhostRoutes(): Hono {
   })
 
   app.get('/.well-known/regesta.json', () => {
-    return jsonResponse(devLocalhostDomainBindingText)
+    return devJsonFileResponse(devLocalhostDomainBindingText)
   })
 
   app.get('/regesta.public-key.json', () => {
-    return jsonResponse(devLocalhostPublicKeyFileText)
+    return devJsonFileResponse(devLocalhostPublicKeyFileText)
   })
 
   app.get('/regesta.private-key.json', () => {
-    return jsonResponse(devLocalhostPrivateKeyFileText)
+    return devJsonFileResponse(devLocalhostPrivateKeyFileText)
   })
 
   app.get('/keys/:kid', (context) => {

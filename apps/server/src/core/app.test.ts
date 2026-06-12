@@ -199,6 +199,36 @@ describe('createCoreRegistryApp', () => {
     expect(await objects.text()).toBe('')
   })
 
+  it('serves HEAD error responses without JSON bodies', async () => {
+    const app = createCoreRegistryApp(
+      createMemoryRegistryAdapters(),
+      coreRegistryServices('2026-06-01T00:00:00.000Z'),
+    )
+    const digest = sha256(Buffer.from('missing object'))
+
+    const event = await app.request(`/events/${digest.replace(':', '/')}`, {
+      method: 'HEAD',
+    })
+    const object = await app.request(`/objects/${digest}`, {
+      method: 'HEAD',
+    })
+    const release = await app.request(
+      `/packages/${encodeURIComponent('npm:example.com/missing')}/releases/0.0.1`,
+      {
+        method: 'HEAD',
+      },
+    )
+
+    for (const response of [event, object, release]) {
+      expect(response.status).toBe(404)
+      expect(response.headers.get('content-type')).toBe(
+        'application/json; charset=UTF-8',
+      )
+      expect(response.headers.get('content-length')).toBeNull()
+      expect(await response.text()).toBe('')
+    }
+  })
+
   it('uses single-channel adapter reads for package channel routes', async () => {
     const adapters = createMemoryRegistryAdapters()
     const signedAt = '2026-06-01T00:00:00.000Z'

@@ -63,6 +63,46 @@ describe('createRequestSizeLimitMiddleware', () => {
     })
   })
 
+  it('rejects oversized HEAD requests without JSON bodies', async () => {
+    const app = new Hono()
+    app.use(createRequestSizeLimitMiddleware({ maxBytes: 5 }))
+    app.get('/probe', (context) => context.text('ok'))
+
+    const response = await app.request('/probe', {
+      headers: {
+        'content-length': '6',
+      },
+      method: 'HEAD',
+    })
+
+    expect(response.status).toBe(413)
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    await expect(response.text()).resolves.toBe('')
+  })
+
+  it('rejects malformed HEAD content length headers without JSON bodies', async () => {
+    const app = new Hono()
+    app.use(createRequestSizeLimitMiddleware({ maxBytes: 5 }))
+    app.get('/probe', (context) => context.text('ok'))
+
+    const response = await app.request('/probe', {
+      headers: {
+        'content-length': 'unknown',
+      },
+      method: 'HEAD',
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    await expect(response.text()).resolves.toBe('')
+  })
+
   it('rejects invalid configured limits at startup', () => {
     expect(() => createRequestSizeLimitMiddleware({ maxBytes: -1 })).toThrow(
       'Request byte limit must be a non-negative safe integer',

@@ -1,4 +1,4 @@
-import { errorResponse } from '../responses.ts'
+import { errorResponse, jsonResponse } from '../responses.ts'
 import type { MiddlewareHandler } from 'hono'
 
 export interface RequestSizeLimitOptions {
@@ -26,21 +26,23 @@ export function createRequestSizeLimitMiddleware(
 
     const requestBytes = parseContentLength(contentLength)
     if (requestBytes === undefined) {
-      return context.json(
+      return jsonResponse(
+        context.req.method,
         errorResponse(
           'request_content_length_invalid',
           'Invalid Content-Length header',
         ),
-        400,
+        { status: 400 },
       )
     }
 
     if (requestBytes > options.maxBytes) {
-      return context.json(
+      return jsonResponse(
+        context.req.method,
         errorResponse('request_too_large', 'Request body too large', [
           `content-length: Must be at most ${options.maxBytes} bytes`,
         ]),
-        413,
+        { status: 413 },
       )
     }
 

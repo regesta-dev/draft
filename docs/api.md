@@ -542,7 +542,11 @@ with `console.error`.
 - For local npm metadata with `Last-Modified`, `If-Modified-Since` can produce
   a `304` response when no `If-None-Match` header is present. `If-None-Match`
   takes precedence when both validators are sent.
-- `HEAD` responses return the same validators as `GET` without the body.
+- `HEAD` responses return no body. Addressed resources return the same
+  validators as `GET` when those validators can be computed without
+  materializing the response body. Lightweight collection probes such as
+  `HEAD /events` and `HEAD /objects` may omit page validators so they do not
+  scan or paginate inventories.
 
 ## Verification Notes
 

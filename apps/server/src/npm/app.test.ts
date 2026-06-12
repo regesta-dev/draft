@@ -693,6 +693,58 @@ describe('createNpmRegistryRoutes', () => {
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
+  it('serves local npm version HEAD errors without JSON bodies', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('local package version errors should not use upstream')
+    })
+    const reader = {
+      database: {
+        getPackageChannelVersion: vi.fn(() => Promise.resolve(undefined)),
+        getPackageChannels: vi.fn(() => Promise.resolve({})),
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('version errors should not read package event head')
+        }),
+        getPackageEventState: vi.fn(() =>
+          Promise.reject(
+            new Error('version errors should not read package event state'),
+          ),
+        ),
+        getPackageReleaseHead: vi.fn(() =>
+          Promise.resolve({
+            releaseCount: 1,
+          }),
+        ),
+        getRelease: vi.fn(() => Promise.resolve(undefined)),
+        listPackageReleases: vi.fn(() => Promise.resolve([])),
+      },
+    } satisfies NpmRegistryReader
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const response = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta/9.9.9',
+      {
+        method: 'HEAD',
+      },
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('content-type')).toBe(
+      'application/json; charset=UTF-8',
+    )
+    expect(response.headers.get('content-length')).toBeNull()
+    await expect(response.text()).resolves.toBe('')
+    expect(reader.database.getPackageReleaseHead).toHaveBeenCalledWith(
+      packageId,
+    )
+    expect(reader.database.getRelease).toHaveBeenCalledWith(packageId, '9.9.9')
+    expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
+    expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
   it('serves local npm direct version manifests as immutable timestamped metadata', async () => {
     const manifest = releaseManifest()
     const event = publishEvent(manifest)

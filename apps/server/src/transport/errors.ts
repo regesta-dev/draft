@@ -1,4 +1,4 @@
-import { errorResponse } from '../responses.ts'
+import { errorResponse, jsonResponse } from '../responses.ts'
 import type { Context } from 'hono'
 
 export interface KnownTransportError {
@@ -22,10 +22,10 @@ export function createTransportErrorBoundary(
     if (knownError) {
       const message = knownError.message ?? error.message
 
-      return transportErrorJson(
-        context,
+      return jsonResponse(
+        context.req.method,
         errorResponse(knownError.code, message, errorIssues(error)),
-        knownError.status,
+        { status: knownError.status },
       )
     }
 
@@ -37,39 +37,12 @@ export function createTransportErrorBoundary(
       ...(id ? { requestId: id } : {}),
     })
 
-    return transportErrorJson(
-      context,
+    return jsonResponse(
+      context.req.method,
       errorResponse('internal_server_error', 'Internal Server Error'),
-      500,
+      { status: 500 },
     )
   }
-}
-
-function transportErrorJson(
-  context: Context,
-  body: unknown,
-  status: number,
-): Response {
-  const headers = {
-    'content-type': 'application/json; charset=UTF-8',
-  }
-
-  if (context.req.method === 'HEAD') {
-    return new Response(null, {
-      headers,
-      status,
-    })
-  }
-
-  const bytes = new TextEncoder().encode(JSON.stringify(body))
-
-  return new Response(bytes, {
-    headers: {
-      ...headers,
-      'content-length': String(bytes.byteLength),
-    },
-    status,
-  })
 }
 
 function errorIssues(error: Error): string[] {

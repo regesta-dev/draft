@@ -7562,7 +7562,9 @@ describe('createRegestaApp', () => {
 
       for (const response of [packument, manifest, distTags]) {
         expect(response.status).toBe(502)
-        expect(response.headers.get('content-type')).toBe('application/json')
+        expect(response.headers.get('content-type')).toBe(
+          'application/json; charset=UTF-8',
+        )
         await expect(response.json()).resolves.toMatchObject({
           code: 'upstream_npm_registry_unavailable',
           error: 'Upstream npm registry unavailable',
@@ -7644,7 +7646,9 @@ describe('createRegestaApp', () => {
       )
 
       expect(packument.status).toBe(502)
-      expect(packument.headers.get('content-type')).toBe('application/json')
+      expect(packument.headers.get('content-type')).toBe(
+        'application/json; charset=UTF-8',
+      )
       await expect(packument.json()).resolves.toMatchObject({
         code: 'upstream_npm_registry_unavailable',
         error: 'Upstream npm registry unavailable',
