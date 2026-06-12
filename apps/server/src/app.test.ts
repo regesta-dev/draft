@@ -2374,11 +2374,6 @@ describe('createRegestaApp', () => {
       },
       adapters,
     )
-    adapters.database.getEventLog = () => {
-      throw new Error(
-        'paginated event reads should not scan the full event log',
-      )
-    }
     const getEvent = vi.fn(() => {
       throw new Error('event log pages should not preflight cursors')
     })
@@ -2537,7 +2532,7 @@ describe('createRegestaApp', () => {
   it('bounds event log reads when clients omit page limits', async () => {
     const adapters = createMemoryRegistryAdapters()
     let listOptions: unknown
-    adapters.database.listEvents = (options = {}) => {
+    adapters.database.listEvents = (options) => {
       listOptions = options
       return Promise.resolve([])
     }
@@ -3631,9 +3626,6 @@ describe('createRegestaApp', () => {
       timestamp: '2026-06-01T00:01:00.000Z',
       version: '0.0.1',
     })
-    adapters.database.listPackageEvents = () =>
-      Promise.reject(new Error('package state reads should not replay events'))
-
     const response = await app.request(
       `/packages/${encodeURIComponent(packageId)}`,
     )
@@ -3697,11 +3689,6 @@ describe('createRegestaApp', () => {
       },
       adapters,
     )
-    adapters.database.listPackageEvents = () =>
-      Promise.reject(
-        new Error('package channel reads should not replay events'),
-      )
-
     const response = await app.request(
       `/packages/${encodeURIComponent(packageId)}/channels/latest`,
     )
@@ -4501,7 +4488,7 @@ describe('createRegestaApp', () => {
         error: expect.stringContaining('Release already exists'),
       })
       await expect(
-        adapters.database.listPackageEvents(packageId),
+        adapters.database.listEvents({ limit: 1 }),
       ).resolves.toHaveLength(1)
       await expect(
         adapters.database.getPackageChannels(packageId),
@@ -6230,10 +6217,10 @@ describe('createRegestaApp', () => {
       adapters.database,
     )
     let releaseListCalls = 0
-    adapters.database.listPackageReleases = (packageId) => {
+    adapters.database.listPackageReleases = (packageId, options) => {
       releaseListCalls += 1
 
-      return listPackageReleases(packageId)
+      return listPackageReleases(packageId, options)
     }
     const upstreamFetch = vi.fn<typeof fetch>()
 
@@ -7343,8 +7330,6 @@ describe('createRegestaApp', () => {
       },
       adapters,
     )
-    adapters.database.listPackageEvents = () =>
-      Promise.reject(new Error('npm tag endpoints should not replay events'))
     adapters.database.listPackageReleases = () =>
       Promise.reject(new Error('npm tag endpoints should not list releases'))
 

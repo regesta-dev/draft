@@ -877,7 +877,6 @@ function publicRegistryDatabase(input: {
     countPackages: unsupportedRead('count packages'),
     getEvent: (id) =>
       Promise.resolve(id === input.release.event.id ? input.event : undefined),
-    getEventLog: unsupportedRead('read full event log'),
     getPackageChannelVersion: unsupportedRead('read package channel version'),
     getPackageChannels: unsupportedRead('read package channels'),
     getPackageEventHead: unsupportedRead('read package event head'),
@@ -890,12 +889,10 @@ function publicRegistryDatabase(input: {
           : undefined,
       )
     },
-    hasPackage: (packageId) => Promise.resolve(packageId === input.packageId),
     hasAuthorizationPayloadDigest: unsupportedRead(
       'read authorization payload digest',
     ),
     listEvents: unsupportedRead('list events'),
-    listPackageEvents: unsupportedRead('list package events'),
     listPackageReleases: unsupportedRead('list package releases'),
   }
 }

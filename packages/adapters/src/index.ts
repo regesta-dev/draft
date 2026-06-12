@@ -19,6 +19,7 @@ export type {
   CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
+  PackageReleaseListOptions,
   QueueAdapter,
   RegistryAdapters,
   RegistryDatabase,

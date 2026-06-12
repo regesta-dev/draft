@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import {
   PackageChannelConflictError,
+  PackageReleaseCursorNotFoundError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
   ReleaseAlreadyExistsError,
@@ -112,9 +113,7 @@ export function describeRegistryDatabaseConformance<
         expect(rejected[0]).toMatchObject({
           reason: expect.any(ReleaseAlreadyExistsError),
         })
-        await expect(
-          database.listPackageEvents(firstRelease.manifest.id),
-        ).resolves.toHaveLength(1)
+        await expect(database.listEvents({ limit: 1 })).resolves.toHaveLength(1)
         await expect(
           database.getPackageChannels(firstRelease.manifest.id),
         ).resolves.toEqual({ latest: firstRelease.manifest.version })
@@ -150,13 +149,16 @@ export function describeRegistryDatabaseConformance<
 
         await expect(database.countPackages()).resolves.toBe(0)
         await expect(
-          database.hasPackage(firstRelease.manifest.id),
-        ).resolves.toBe(false)
+          database.getPackageReleaseHead(firstRelease.manifest.id),
+        ).resolves.toEqual({ releaseCount: 0 })
         await database.commitPublishedRelease(firstRelease, 'latest')
         await expect(database.countPackages()).resolves.toBe(1)
         await expect(
-          database.hasPackage(firstRelease.manifest.id),
-        ).resolves.toBe(true)
+          database.getPackageReleaseHead(firstRelease.manifest.id),
+        ).resolves.toEqual({
+          modifiedAt: firstRelease.manifest.createdAt,
+          releaseCount: 1,
+        })
         await database.commitPublishedRelease(secondRelease, 'latest')
         await expect(database.countPackages()).resolves.toBe(1)
         await database.commitPublishedRelease(otherPackageRelease, 'latest')
@@ -197,6 +199,35 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('lists package releases with bounded cursor pagination', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/release-pages'
+        const firstRelease = storedRelease(packageId, '0.0.1')
+        const secondRelease = storedRelease(packageId, '0.0.2')
+        const thirdRelease = storedRelease(packageId, '0.0.3')
+
+        await database.commitPublishedRelease(firstRelease, 'latest')
+        await database.commitPublishedRelease(secondRelease, 'latest')
+        await database.commitPublishedRelease(thirdRelease, 'latest')
+
+        await expect(
+          database.listPackageReleases(packageId, { limit: 2 }),
+        ).resolves.toEqual([firstRelease, secondRelease])
+        await expect(
+          database.listPackageReleases(packageId, {
+            after: secondRelease.manifest.version,
+            limit: 1,
+          }),
+        ).resolves.toEqual([thirdRelease])
+        await expect(
+          database.listPackageReleases(packageId, {
+            after: '9.9.9',
+            limit: 1,
+          }),
+        ).rejects.toThrow(PackageReleaseCursorNotFoundError)
+      })
+    })
+
     it('stores package state for future ecosystem keys without adapter-specific assumptions', async () => {
       await withDatabase(target, async (database) => {
         const release = storedRelease(
@@ -206,9 +237,12 @@ export function describeRegistryDatabaseConformance<
 
         await database.commitPublishedRelease(release, 'latest')
 
-        await expect(database.hasPackage(release.manifest.id)).resolves.toBe(
-          true,
-        )
+        await expect(
+          database.getPackageReleaseHead(release.manifest.id),
+        ).resolves.toEqual({
+          modifiedAt: release.manifest.createdAt,
+          releaseCount: 1,
+        })
         await expect(database.countPackages()).resolves.toBe(1)
         await expect(
           database.getPackageChannels(release.manifest.id),
@@ -223,37 +257,8 @@ export function describeRegistryDatabaseConformance<
           },
         })
         await expect(
-          database.listPackageReleases(release.manifest.id),
+          database.listPackageReleases(release.manifest.id, { limit: 1 }),
         ).resolves.toEqual([release])
-      })
-    })
-
-    it('lists package-scoped events in sequence order', async () => {
-      await withDatabase(target, async (database) => {
-        const packageId: PackageId = 'npm:example.com/events'
-        const firstEvent = publishEventForPackage(
-          packageId,
-          '0.0.1',
-          '2026-06-01T00:00:00.000Z',
-        )
-        const unrelatedEvent = publishEventForPackage(
-          'npm:example.com/other-events',
-          '0.0.1',
-          '2026-06-01T00:01:00.000Z',
-        )
-        const secondEvent = publishEventForPackage(
-          packageId,
-          '0.0.2',
-          '2026-06-01T00:02:00.000Z',
-        )
-
-        await database.appendEvent(firstEvent)
-        await database.appendEvent(unrelatedEvent)
-        await database.appendEvent(secondEvent)
-        await expect(database.listPackageEvents(packageId)).resolves.toEqual([
-          firstEvent,
-          secondEvent,
-        ])
       })
     })
 
@@ -401,10 +406,10 @@ export function describeRegistryDatabaseConformance<
           database.listEvents({ after: firstEvent.id, limit: 1 }),
         ).resolves.toEqual([secondEvent])
         await expect(
-          database.listEvents({ after: secondEvent.id }),
+          database.listEvents({ after: secondEvent.id, limit: 1 }),
         ).resolves.toEqual([thirdEvent])
         await expect(
-          database.listEvents({ after: missingCursor }),
+          database.listEvents({ after: missingCursor, limit: 1 }),
         ).rejects.toThrow(RegistryEventCursorNotFoundError)
       })
     })
@@ -420,32 +425,22 @@ export function describeRegistryDatabaseConformance<
         await database.appendEvent(event)
 
         const byId = await database.getEvent(event.id)
-        const fullLog = await database.getEventLog()
-        const page = await database.listEvents()
-        const packageEvents = await database.listPackageEvents(event.release.id)
-        const byLog = fullLog[0]
+        const page = await database.listEvents({ limit: 1 })
         const byPage = page[0]
-        const byPackage = packageEvents[0]
 
         if (
           byId?.eventType !== 'release.published' ||
-          byLog?.eventType !== 'release.published' ||
-          byPage?.eventType !== 'release.published' ||
-          byPackage?.eventType !== 'release.published'
+          byPage?.eventType !== 'release.published'
         ) {
           throw new Error('Expected release.published event reads')
         }
         byId.release.version = '9.9.9'
-        byLog.release.version = '6.6.6'
         byPage.release.version = '8.8.8'
-        byPackage.release.version = '7.7.7'
 
         await expect(database.getEvent(event.id)).resolves.toEqual(event)
-        await expect(database.getEventLog()).resolves.toEqual([event])
-        await expect(database.listEvents()).resolves.toEqual([event])
-        await expect(
-          database.listPackageEvents(event.release.id),
-        ).resolves.toEqual([event])
+        await expect(database.listEvents({ limit: 1 })).resolves.toEqual([
+          event,
+        ])
       })
     })
 
@@ -462,7 +457,9 @@ export function describeRegistryDatabaseConformance<
         release.manifest.artifacts[0]!.role = 'mutated-input'
 
         const byKey = await database.getRelease(packageId, '0.0.1')
-        const byList = (await database.listPackageReleases(packageId))[0]
+        const byList = (
+          await database.listPackageReleases(packageId, { limit: 1 })
+        )[0]
 
         if (!byKey || !byList) {
           throw new Error('Expected release reads')
@@ -478,9 +475,9 @@ export function describeRegistryDatabaseConformance<
         await expect(database.getRelease(packageId, '0.0.1')).resolves.toEqual(
           expected,
         )
-        await expect(database.listPackageReleases(packageId)).resolves.toEqual([
-          expected,
-        ])
+        await expect(
+          database.listPackageReleases(packageId, { limit: 1 }),
+        ).resolves.toEqual([expected])
       })
     })
 
@@ -536,6 +533,18 @@ export function describeRegistryDatabaseConformance<
         for (const limit of [0, 1000, 1.5]) {
           await expectEventPageLimitRejection(() =>
             database.listEvents({ limit }),
+          )
+        }
+      })
+    })
+
+    it('rejects invalid package release page limits', async () => {
+      await withDatabase(target, async (database) => {
+        for (const limit of [0, 1000, 1.5]) {
+          await expectPackageReleasePageLimitRejection(() =>
+            database.listPackageReleases('npm:example.com/releases', {
+              limit,
+            }),
           )
         }
       })
@@ -652,7 +661,7 @@ export function describeRegistryDatabaseConformance<
           return result.status === 'rejected'
         })
         const channels = await database.getPackageChannels(packageId)
-        const events = await database.listPackageEvents(packageId)
+        const events = await database.listEvents({ limit: 4 })
 
         expect(fulfilled).toHaveLength(1)
         expect(rejected).toHaveLength(1)
@@ -739,7 +748,7 @@ export function describeRegistryDatabaseConformance<
         const rejected = results.filter((result) => {
           return result.status === 'rejected'
         })
-        const events = await database.listPackageEvents(release.manifest.id)
+        const events = await database.listEvents({ limit: 2 })
 
         expect(fulfilled).toHaveLength(1)
         expect(rejected).toHaveLength(1)
@@ -825,10 +834,30 @@ async function expectEventPageLimitRejection(
   throw new Error('Expected event page limit rejection')
 }
 
+async function expectPackageReleasePageLimitRejection(
+  read: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await read()
+  } catch (error) {
+    expectPackageReleasePageLimitError(error)
+    return
+  }
+
+  throw new Error('Expected package release page limit rejection')
+}
+
 function expectEventPageLimitError(error: unknown): void {
   expect(error).toBeInstanceOf(TypeError)
   expect(error).toMatchObject({
     message: 'Registry event page limit must be an integer from 1 to 999',
+  })
+}
+
+function expectPackageReleasePageLimitError(error: unknown): void {
+  expect(error).toBeInstanceOf(TypeError)
+  expect(error).toMatchObject({
+    message: 'Package release page limit must be an integer from 1 to 999',
   })
 }
 

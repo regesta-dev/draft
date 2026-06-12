@@ -24,6 +24,11 @@ export interface NpmPackageReleaseHead {
   releaseCount: number
 }
 
+export interface NpmPackageReleaseListOptions {
+  after?: string
+  limit: number
+}
+
 export interface NpmRegistryReader {
   database: {
     getPackageChannelVersion: (
@@ -48,6 +53,7 @@ export interface NpmRegistryReader {
     >
     listPackageReleases: (
       packageId: PackageId,
+      options: NpmPackageReleaseListOptions,
     ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
   }
 }
@@ -79,8 +85,8 @@ export function createNpmRegistryReader(
       getRelease: (packageId, version) => {
         return adapters.database.getRelease(packageId, version)
       },
-      listPackageReleases: (packageId) => {
-        return adapters.database.listPackageReleases(packageId)
+      listPackageReleases: (packageId, options) => {
+        return adapters.database.listPackageReleases(packageId, options)
       },
     },
   }

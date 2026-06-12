@@ -43,6 +43,18 @@ export class ObjectCursorNotFoundError extends Error {
   }
 }
 
+export class PackageReleaseCursorNotFoundError extends Error {
+  readonly cursor: string
+  readonly packageId: PackageId
+
+  constructor(packageId: PackageId, cursor: string) {
+    super(`Package release cursor not found: ${packageId}@${cursor}`)
+    this.name = 'PackageReleaseCursorNotFoundError'
+    this.cursor = cursor
+    this.packageId = packageId
+  }
+}
+
 export class ReleaseAlreadyExistsError extends Error {
   constructor(packageId: PackageId, version: string) {
     super(`Release already exists: ${packageId}@${version}`)
@@ -109,12 +121,17 @@ export interface PackageReleaseHead {
 
 export interface RegistryEventListOptions {
   after?: Sha256Digest
-  limit?: number
+  limit: number
 }
 
 export interface ObjectDescriptorListOptions {
   after?: Sha256Digest
-  limit?: number
+  limit: number
+}
+
+export interface PackageReleaseListOptions {
+  after?: string
+  limit: number
 }
 
 export interface ObjectStore {
@@ -122,7 +139,7 @@ export interface ObjectStore {
   get: (digest: Sha256Digest) => Promise<StoredObject | undefined>
   getDescriptor: (digest: Sha256Digest) => Promise<ObjectDescriptor | undefined>
   listDescriptors: (
-    options?: ObjectDescriptorListOptions,
+    options: ObjectDescriptorListOptions,
   ) => Promise<ObjectDescriptor[]>
   put: (bytes: Uint8Array, mediaType: string) => Promise<ObjectDescriptor>
 }
@@ -140,7 +157,6 @@ export interface RegistryDatabase {
   ) => Promise<void>
   countPackages: () => Promise<number>
   getEvent: (id: Sha256Digest) => Promise<RegistryEvent | undefined>
-  getEventLog: () => Promise<RegistryEvent[]>
   getPackageChannelVersion: (
     packageId: PackageId,
     channel: string,
@@ -153,13 +169,14 @@ export interface RegistryDatabase {
     packageId: PackageId,
     version: string,
   ) => Promise<StoredRelease | undefined>
-  hasPackage: (packageId: PackageId) => Promise<boolean>
   hasAuthorizationPayloadDigest: (
     payloadDigest: Sha256Digest,
   ) => Promise<boolean>
-  listEvents: (options?: RegistryEventListOptions) => Promise<RegistryEvent[]>
-  listPackageEvents: (packageId: PackageId) => Promise<RegistryEvent[]>
-  listPackageReleases: (packageId: PackageId) => Promise<StoredRelease[]>
+  listEvents: (options: RegistryEventListOptions) => Promise<RegistryEvent[]>
+  listPackageReleases: (
+    packageId: PackageId,
+    options: PackageReleaseListOptions,
+  ) => Promise<StoredRelease[]>
 }
 
 export interface QueueAdapter {

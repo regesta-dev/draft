@@ -1,6 +1,7 @@
 import {
   ObjectCursorNotFoundError,
   PackageChannelConflictError,
+  PackageReleaseCursorNotFoundError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
   RegistryEventIntegrityError,
@@ -24,13 +25,18 @@ import {
   assertPersistableRegistryEvent,
   assertPersistableStoredRelease,
 } from './events.ts'
-import { assertEventListOptions } from './pagination.ts'
+import {
+  assertEventListOptions,
+  assertObjectDescriptorListOptions,
+  assertPackageReleaseListOptions,
+} from './pagination.ts'
 import type {
   CheckpointStore,
   ObjectDescriptorListOptions,
   ObjectStore,
   PackageEventHead,
   PackageReleaseHead,
+  PackageReleaseListOptions,
   PackageStateSnapshot,
   QueueAdapter,
   RegistryAdapters,
@@ -97,8 +103,10 @@ export class MemoryObjectStore implements ObjectStore {
   }
 
   listDescriptors(
-    options: ObjectDescriptorListOptions = {},
+    options: ObjectDescriptorListOptions,
   ): Promise<StoredObject['descriptor'][]> {
+    assertObjectDescriptorListOptions(options)
+
     const descriptors = [...this.objects.values()]
       .map((object) => {
         if (object.descriptor.size !== object.bytes.byteLength) {
@@ -123,9 +131,8 @@ export class MemoryObjectStore implements ObjectStore {
       })
 
     const start = objectPageStartIndex(descriptors, options.after)
-    const limit = options.limit ?? descriptors.length
 
-    return Promise.resolve(descriptors.slice(start, start + limit))
+    return Promise.resolve(descriptors.slice(start, start + options.limit))
   }
 
   put(
@@ -211,6 +218,31 @@ function copyRegistryEvent<TEvent extends RegistryEvent>(
 
 function copyStoredRelease(release: StoredRelease): StoredRelease {
   return structuredClone(release)
+}
+
+function compareStoredReleaseByCreatedAtAndVersion(
+  left: StoredRelease,
+  right: StoredRelease,
+): number {
+  return (
+    left.manifest.createdAt.localeCompare(right.manifest.createdAt) ||
+    left.manifest.version.localeCompare(right.manifest.version)
+  )
+}
+
+function packageReleasePageStartIndex(
+  releases: StoredRelease[],
+  after: string | undefined,
+): number | undefined {
+  if (!after) {
+    return 0
+  }
+
+  const index = releases.findIndex((release) => {
+    return release.manifest.version === after
+  })
+
+  return index === -1 ? undefined : index + 1
 }
 
 export class MemoryRegistryDatabase implements RegistryDatabase {
@@ -308,11 +340,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     return Promise.resolve(this.releaseHeads.size)
   }
 
-  getEventLog(): Promise<RegistryEvent[]> {
-    return Promise.resolve(this.events.map((event) => copyRegistryEvent(event)))
-  }
-
-  listEvents(options: RegistryEventListOptions = {}): Promise<RegistryEvent[]> {
+  listEvents(options: RegistryEventListOptions): Promise<RegistryEvent[]> {
     assertEventListOptions(options)
 
     const afterIndex = options.after
@@ -324,8 +352,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     }
 
     const startIndex = afterIndex + 1
-    const endIndex =
-      options.limit === undefined ? undefined : startIndex + options.limit
+    const endIndex = startIndex + options.limit
 
     return Promise.resolve(
       this.events
@@ -418,30 +445,33 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     return Promise.resolve(release ? copyStoredRelease(release) : undefined)
   }
 
-  hasPackage(packageId: PackageId): Promise<boolean> {
-    return Promise.resolve(this.releaseHeads.has(packageId))
-  }
-
   hasAuthorizationPayloadDigest(payloadDigest: Sha256Digest): Promise<boolean> {
     return Promise.resolve(this.authorizationPayloadDigests.has(payloadDigest))
   }
 
-  listPackageEvents(packageId: PackageId): Promise<RegistryEvent[]> {
-    return Promise.resolve(
-      this.events
-        .filter((event) => {
-          return eventPackageId(event) === packageId
-        })
-        .map((event) => copyRegistryEvent(event)),
-    )
-  }
+  listPackageReleases(
+    packageId: PackageId,
+    options: PackageReleaseListOptions,
+  ): Promise<StoredRelease[]> {
+    assertPackageReleaseListOptions(options)
 
-  listPackageReleases(packageId: PackageId): Promise<StoredRelease[]> {
-    return Promise.resolve(
-      [...(this.releases.get(packageId)?.values() ?? [])].map((release) =>
-        copyStoredRelease(release),
-      ),
-    )
+    const releases = [...(this.releases.get(packageId)?.values() ?? [])]
+      .map((release) => copyStoredRelease(release))
+      .toSorted(compareStoredReleaseByCreatedAtAndVersion)
+    const start = packageReleasePageStartIndex(releases, options.after)
+
+    if (start === undefined) {
+      const cursor = options.after
+      if (!cursor) {
+        throw new TypeError('Package release cursor must be defined')
+      }
+
+      return Promise.reject(
+        new PackageReleaseCursorNotFoundError(packageId, cursor),
+      )
+    }
+
+    return Promise.resolve(releases.slice(start, start + options.limit))
   }
 
   putRelease(release: StoredRelease): Promise<void> {

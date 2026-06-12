@@ -375,7 +375,10 @@ describe('createNpmRegistryRoutes', () => {
     await expect(nonMatchingEtagTakesPrecedence.json()).resolves.toMatchObject({
       name: '@example.com/hello-regesta',
     })
-    expect(reader.database.listPackageReleases).toHaveBeenCalledWith(packageId)
+    expect(reader.database.listPackageReleases).toHaveBeenCalledWith(
+      packageId,
+      { limit: 999 },
+    )
     expect(reader.database.getPackageEventState).toHaveBeenCalledWith(packageId)
     expect(upstreamFetch).not.toHaveBeenCalled()
   })

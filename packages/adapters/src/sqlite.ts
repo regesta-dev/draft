@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
   PackageChannelConflictError,
+  PackageReleaseCursorNotFoundError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
   RegistryEventIntegrityError,
@@ -25,10 +26,14 @@ import {
   assertPersistableRegistryEvent,
   assertPersistableStoredRelease,
 } from './events.ts'
-import { assertEventListOptions } from './pagination.ts'
+import {
+  assertEventListOptions,
+  assertPackageReleaseListOptions,
+} from './pagination.ts'
 import type {
   PackageEventHead,
   PackageReleaseHead,
+  PackageReleaseListOptions,
   PackageStateSnapshot,
   RegistryDatabase,
   RegistryEventListOptions,
@@ -370,21 +375,7 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     return Promise.resolve(previousVersion)
   }
 
-  getEventLog(): Promise<RegistryEvent[]> {
-    const rows = this.db
-      .prepare(
-        `SELECT event_json
-          FROM registry_events
-          ORDER BY sequence ASC`,
-      )
-      .all()
-
-    return Promise.resolve(
-      rows.map((row) => decodeRegistryEvent(requiredText(row, 'event_json'))),
-    )
-  }
-
-  listEvents(options: RegistryEventListOptions = {}): Promise<RegistryEvent[]> {
+  listEvents(options: RegistryEventListOptions): Promise<RegistryEvent[]> {
     assertEventListOptions(options)
 
     const afterSequence = options.after
@@ -395,25 +386,15 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       return Promise.reject(new RegistryEventCursorNotFoundError(options.after))
     }
 
-    const rows =
-      options.limit === undefined
-        ? this.db
-            .prepare(
-              `SELECT event_json
-                FROM registry_events
-                WHERE sequence > ?
-                ORDER BY sequence ASC`,
-            )
-            .all(afterSequence ?? 0)
-        : this.db
-            .prepare(
-              `SELECT event_json
-                FROM registry_events
-                WHERE sequence > ?
-                ORDER BY sequence ASC
-                LIMIT ?`,
-            )
-            .all(afterSequence ?? 0, options.limit)
+    const rows = this.db
+      .prepare(
+        `SELECT event_json
+          FROM registry_events
+          WHERE sequence > ?
+          ORDER BY sequence ASC
+          LIMIT ?`,
+      )
+      .all(afterSequence ?? 0, options.limit)
 
     return Promise.resolve(
       rows.map((row) => decodeRegistryEvent(requiredText(row, 'event_json'))),
@@ -572,10 +553,6 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     return Promise.resolve(row ? decodeStoredRelease(row) : undefined)
   }
 
-  hasPackage(packageId: PackageId): Promise<boolean> {
-    return Promise.resolve(this.packageHasReleases(packageId))
-  }
-
   hasAuthorizationPayloadDigest(payloadDigest: Sha256Digest): Promise<boolean> {
     const row = this.db
       .prepare(
@@ -589,30 +566,51 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     return Promise.resolve(Boolean(row))
   }
 
-  listPackageEvents(packageId: PackageId): Promise<RegistryEvent[]> {
-    const rows = this.db
-      .prepare(
-        `SELECT event_json
-          FROM registry_events
-          WHERE package_id = ?
-          ORDER BY sequence ASC`,
-      )
-      .all(packageId)
+  listPackageReleases(
+    packageId: PackageId,
+    options: PackageReleaseListOptions,
+  ): Promise<StoredRelease[]> {
+    assertPackageReleaseListOptions(options)
 
-    return Promise.resolve(
-      rows.map((row) => decodeRegistryEvent(requiredText(row, 'event_json'))),
-    )
-  }
+    const afterCursor = options.after
+      ? this.releaseCursor(packageId, options.after)
+      : undefined
 
-  listPackageReleases(packageId: PackageId): Promise<StoredRelease[]> {
-    const rows = this.db
-      .prepare(
-        `SELECT manifest_json, manifest_descriptor_json, event_json
-          FROM releases
-          WHERE package_id = ?
-          ORDER BY created_at ASC, version ASC`,
+    if (options.after && !afterCursor) {
+      return Promise.reject(
+        new PackageReleaseCursorNotFoundError(packageId, options.after),
       )
-      .all(packageId)
+    }
+
+    const rows = afterCursor
+      ? this.db
+          .prepare(
+            `SELECT manifest_json, manifest_descriptor_json, event_json
+              FROM releases
+              WHERE package_id = ?
+                AND (
+                  created_at > ?
+                  OR (created_at = ? AND version > ?)
+                )
+              ORDER BY created_at ASC, version ASC
+              LIMIT ?`,
+          )
+          .all(
+            packageId,
+            afterCursor.createdAt,
+            afterCursor.createdAt,
+            afterCursor.version,
+            options.limit,
+          )
+      : this.db
+          .prepare(
+            `SELECT manifest_json, manifest_descriptor_json, event_json
+              FROM releases
+              WHERE package_id = ?
+              ORDER BY created_at ASC, version ASC
+              LIMIT ?`,
+          )
+          .all(packageId, options.limit)
 
     return Promise.resolve(rows.map((row) => decodeStoredRelease(row)))
   }
@@ -712,6 +710,26 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
       .get(id)
 
     return row ? requiredNumber(row, 'sequence') : undefined
+  }
+
+  private releaseCursor(
+    packageId: PackageId,
+    version: string,
+  ): { createdAt: string; version: string } | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT created_at, version
+          FROM releases
+          WHERE package_id = ? AND version = ?`,
+      )
+      .get(packageId, version)
+
+    return row
+      ? {
+          createdAt: requiredText(row, 'created_at'),
+          version: requiredText(row, 'version'),
+        }
+      : undefined
   }
 
   private eventExists(id: Sha256Digest): boolean {

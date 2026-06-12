@@ -17,6 +17,7 @@ import {
   sha256,
   type Sha256Digest,
 } from '@regesta/protocol'
+import { assertObjectDescriptorListOptions } from './pagination.ts'
 import { SQLiteRegistryDatabase } from './sqlite.ts'
 import type {
   CheckpointStore,
@@ -116,8 +117,10 @@ export class LocalObjectStore implements ObjectStore {
   }
 
   async listDescriptors(
-    options: ObjectDescriptorListOptions = {},
+    options: ObjectDescriptorListOptions,
   ): Promise<StoredObject['descriptor'][]> {
+    assertObjectDescriptorListOptions(options)
+
     const page = await listLocalObjectPageDigests(this.root, options)
     const descriptors: StoredObject['descriptor'][] = []
 
@@ -231,13 +234,9 @@ async function listLocalObjectPageDigests(
   options: ObjectDescriptorListOptions,
 ): Promise<Sha256Digest[]> {
   const objectRoot = join(root, 'objects')
-  const limit = options.limit ?? Number.POSITIVE_INFINITY
+  const limit = options.limit
   const page: Sha256Digest[] = []
   let afterSeen = options.after === undefined
-
-  if (afterSeen && limit === 0) {
-    return page
-  }
 
   let prefixes: DirectoryEntry[]
 
@@ -585,7 +584,7 @@ export class LocalCheckpointStore implements CheckpointStore {
   }
 
   listDescriptors(
-    options: ObjectDescriptorListOptions = {},
+    options: ObjectDescriptorListOptions,
   ): Promise<StoredObject['descriptor'][]> {
     return this.store.listDescriptors(options)
   }

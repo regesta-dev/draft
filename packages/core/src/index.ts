@@ -25,6 +25,7 @@ export { publishRelease } from './publish.ts'
 export {
   ObjectCursorNotFoundError,
   PackageChannelConflictError,
+  PackageReleaseCursorNotFoundError,
   RegistryEventAlreadyExistsError,
   RegistryEventCursorNotFoundError,
   RegistryEventIntegrityError,
@@ -48,6 +49,7 @@ export type {
   ObjectStore,
   PackageEventHead,
   PackageReleaseHead,
+  PackageReleaseListOptions,
   PackageStateSnapshot,
   QueueAdapter,
   RegistryAdapters,

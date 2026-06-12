@@ -4,6 +4,7 @@ export type {
   ObjectStore,
   PackageEventHead,
   PackageReleaseHead,
+  PackageReleaseListOptions,
   PackageStateSnapshot,
   QueueAdapter,
   RegistryAdapters,

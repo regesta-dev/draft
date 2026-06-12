@@ -179,9 +179,9 @@ describe('createLocalRegistryAdapters', () => {
       await expect(
         secondAdapters.database.getPackageChannels('npm:example.com/persisted'),
       ).resolves.toEqual({ latest: '0.0.1' })
-      await expect(secondAdapters.database.getEventLog()).resolves.toEqual([
-        release.event,
-      ])
+      await expect(
+        secondAdapters.database.listEvents({ limit: 1 }),
+      ).resolves.toEqual([release.event])
       await expect(secondAdapters.database.countPackages()).resolves.toBe(1)
       await expect(
         secondAdapters.database.getEvent(release.event.id),
@@ -803,7 +803,9 @@ describe('createLocalRegistryAdapters', () => {
         return left.digest.localeCompare(right.digest)
       })
 
-      await expect(adapters.objects.listDescriptors()).resolves.toEqual(sorted)
+      await expect(
+        adapters.objects.listDescriptors({ limit: 3 }),
+      ).resolves.toEqual(sorted)
       await expect(
         adapters.objects.listDescriptors({ limit: 2 }),
       ).resolves.toEqual(sorted.slice(0, 2))
@@ -821,7 +823,10 @@ describe('createLocalRegistryAdapters', () => {
         adapters.objects.getDescriptor(read[0]!.digest),
       ).resolves.toEqual(sorted[0])
       await expect(
-        adapters.objects.listDescriptors({ after: sha256(bytes('missing')) }),
+        adapters.objects.listDescriptors({
+          after: sha256(bytes('missing')),
+          limit: 1,
+        }),
       ).rejects.toThrow(ObjectCursorNotFoundError)
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -1002,7 +1007,7 @@ describe('MemoryObjectStore', () => {
       return left.digest.localeCompare(right.digest)
     })
 
-    await expect(store.listDescriptors()).resolves.toEqual(sorted)
+    await expect(store.listDescriptors({ limit: 3 })).resolves.toEqual(sorted)
     await expect(store.listDescriptors({ limit: 2 })).resolves.toEqual(
       sorted.slice(0, 2),
     )
@@ -1017,7 +1022,7 @@ describe('MemoryObjectStore', () => {
       sorted[0],
     )
     expect(() =>
-      store.listDescriptors({ after: sha256(bytes('missing')) }),
+      store.listDescriptors({ after: sha256(bytes('missing')), limit: 1 }),
     ).toThrow(ObjectCursorNotFoundError)
   })
 })
@@ -1034,7 +1039,7 @@ describe('MemoryRegistryDatabase', () => {
 
     event.release.version = '9.9.9'
 
-    const logEvent = publishEvent(await only(database.getEventLog()))
+    const logEvent = publishEvent(await only(database.listEvents({ limit: 1 })))
     logEvent.release.version = '9.9.9'
 
     const storedEvent = publishEvent(await database.getEvent(event.id))

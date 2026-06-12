@@ -905,8 +905,6 @@ describe('publishRelease', () => {
       Promise.reject(new Error('package state should not read channel views'))
     adapters.database.listPackageReleases = () =>
       Promise.reject(new Error('package state should not read release views'))
-    adapters.database.listPackageEvents = () =>
-      Promise.reject(new Error('package state should not replay events'))
 
     await expect(
       getPackageState(adapters, 'npm:example.com/hello-regesta'),
@@ -934,9 +932,6 @@ describe('publishRelease', () => {
       },
       adapters,
     )
-    adapters.database.listPackageEvents = () =>
-      Promise.reject(new Error('channel mutations should not replay events'))
-
     await expect(
       updatePackageChannel(adapters, {
         channel: 'latest',
@@ -1364,9 +1359,6 @@ describe('publishRelease', () => {
     )
     adapters.database.commitPackageChannelUpdate = commitUpdate
     adapters.database.commitPackageChannelDelete = commitDelete
-    adapters.database.getEventLog = () => {
-      throw new Error('replay guard should not scan the event log')
-    }
 
     await expect(
       updatePackageChannel(adapters, {
@@ -1484,9 +1476,6 @@ describe('publishRelease', () => {
       },
       adapters,
     )
-    adapters.database.getEventLog = () => {
-      throw new Error('verification should not scan the event log')
-    }
 
     const verification = await verifyRelease(
       adapters,
@@ -2293,7 +2282,6 @@ function createTestRegistryAdapters(): RegistryAdapters {
             return event.id === id
           }),
         ),
-      getEventLog: () => Promise.resolve([...events]),
       getPackageChannelVersion: (packageId, channel) => {
         return Promise.resolve(channels.get(packageId)?.[channel])
       },
@@ -2358,14 +2346,13 @@ function createTestRegistryAdapters(): RegistryAdapters {
       },
       getRelease: (packageId, version) =>
         Promise.resolve(releases.get(packageId)?.get(version)),
-      hasPackage: (packageId) => Promise.resolve(releases.has(packageId)),
       hasAuthorizationPayloadDigest: (payloadDigest) =>
         Promise.resolve(
           events.some((event) => {
             return event.authorization?.payloadDigest === payloadDigest
           }),
         ),
-      listEvents: (options = {}) => {
+      listEvents: (options) => {
         const afterIndex = options.after
           ? events.findIndex((event) => event.id === options.after)
           : -1
@@ -2375,17 +2362,10 @@ function createTestRegistryAdapters(): RegistryAdapters {
         }
 
         const startIndex = afterIndex + 1
-        const endIndex =
-          options.limit === undefined ? undefined : startIndex + options.limit
+        const endIndex = startIndex + options.limit
 
         return Promise.resolve(events.slice(startIndex, endIndex))
       },
-      listPackageEvents: (packageId) =>
-        Promise.resolve(
-          events.filter((event) => {
-            return eventPackageId(event) === packageId
-          }),
-        ),
       listPackageReleases: (packageId) =>
         Promise.resolve([...(releases.get(packageId)?.values() ?? [])]),
     },

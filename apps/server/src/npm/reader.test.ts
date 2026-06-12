@@ -47,7 +47,7 @@ describe('createNpmRegistryReader', () => {
       reader.database.getRelease(packageId, '1.0.0'),
     ).resolves.toBeUndefined()
     await expect(
-      reader.database.listPackageReleases(packageId),
+      reader.database.listPackageReleases(packageId, { limit: 1 }),
     ).resolves.toEqual([])
 
     expect(Object.keys(reader)).toEqual(['database'])
@@ -66,6 +66,6 @@ describe('createNpmRegistryReader', () => {
     expect(getPackageEventState).toHaveBeenCalledWith(packageId)
     expect(getPackageReleaseHead).toHaveBeenCalledWith(packageId)
     expect(getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
-    expect(listPackageReleases).toHaveBeenCalledWith(packageId)
+    expect(listPackageReleases).toHaveBeenCalledWith(packageId, { limit: 1 })
   })
 })

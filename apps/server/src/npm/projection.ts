@@ -34,6 +34,11 @@ export interface NpmPackageReleaseHead {
   releaseCount: number
 }
 
+export interface NpmPackageReleaseListOptions {
+  after?: string
+  limit: number
+}
+
 export interface NpmProjectionStateReader {
   database: {
     getPackageEventHead: (packageId: PackageId) => Promise<NpmPackageEventHead>
@@ -45,6 +50,7 @@ export interface NpmProjectionStateReader {
     ) => Promise<NpmPackageReleaseHead>
     listPackageReleases: (
       packageId: PackageId,
+      options: NpmPackageReleaseListOptions,
     ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
   }
 }
@@ -70,6 +76,7 @@ export interface LocalNpmPackageProjectionCacheEntry {
 
 const defaultLocalNpmPackageProjectionCacheEntries = 128
 const maxLocalNpmProjectionReadAttempts = 3
+const localNpmPackageReleasePageLimit = 999
 
 export function localNpmPackageId(packageName: string): PackageId | undefined {
   try {
@@ -181,7 +188,7 @@ async function readFreshLocalNpmPackageProjectionInput(
     attempt < maxLocalNpmProjectionReadAttempts;
     attempt++
   ) {
-    const releases = await reader.database.listPackageReleases(packageId)
+    const releases = await listLocalNpmPackageReleases(reader, packageId)
 
     if (releases.length === 0) {
       return undefined
@@ -202,6 +209,34 @@ async function readFreshLocalNpmPackageProjectionInput(
   return latest && latest.releases.length > 0
     ? { ...latest, cacheable: false }
     : undefined
+}
+
+async function listLocalNpmPackageReleases(
+  reader: NpmProjectionStateReader,
+  packageId: PackageId,
+): Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>> {
+  const releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }> =
+    []
+  let after: string | undefined
+
+  while (true) {
+    const page = await reader.database.listPackageReleases(packageId, {
+      ...(after === undefined ? {} : { after }),
+      limit: localNpmPackageReleasePageLimit,
+    })
+
+    if (page.length === 0) {
+      return releases
+    }
+
+    releases.push(...page)
+
+    if (page.length < localNpmPackageReleasePageLimit) {
+      return releases
+    }
+
+    after = page.at(-1)!.manifest.version
+  }
 }
 
 function localNpmProjectionReadIsDirectProjectionOnly(

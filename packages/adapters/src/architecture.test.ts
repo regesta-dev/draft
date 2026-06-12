@@ -230,6 +230,39 @@ describe('adapters package architecture', () => {
     expect(sqliteSource).not.toContain('MAX(')
   })
 
+  it('keeps package release listings bounded by release cursor pagination', async () => {
+    const sources = {
+      coreStorage: await readFile(
+        join(adaptersSourceRoot, '../../core/src/storage.ts'),
+        'utf8',
+      ),
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
+    const memorySource = methodSource(
+      sources.memory,
+      'listPackageReleases',
+      'putRelease',
+    )
+    const sqliteSource = methodSource(
+      sources.sqlite,
+      'listPackageReleases',
+      'async putRelease',
+    )
+
+    expect(sources.coreStorage).toContain('options: PackageReleaseListOptions')
+    expect(memorySource).toContain('assertPackageReleaseListOptions')
+    expect(memorySource).toContain('start + options.limit')
+    expect(sqliteSource).toContain('assertPackageReleaseListOptions')
+    expect(sqliteSource).toContain('LIMIT ?')
+    expect(sqliteSource).toContain('created_at > ?')
+    expect(sqliteSource).toContain('version > ?')
+    for (const source of [memorySource, sqliteSource]) {
+      expect(source).not.toContain('options.limit === undefined')
+      expect(source).not.toContain('Number.POSITIVE_INFINITY')
+    }
+  })
+
   it('keeps package counts on indexed adapter statistics', async () => {
     const sources = {
       memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
@@ -238,7 +271,7 @@ describe('adapters package architecture', () => {
     const memorySource = methodSource(
       sources.memory,
       'countPackages',
-      'getEventLog',
+      'listEvents',
     )
     const sqliteSource = methodSource(
       sources.sqlite,
@@ -255,41 +288,76 @@ describe('adapters package architecture', () => {
     expect(sqliteSource).not.toContain('releases')
   })
 
-  it('keeps package existence reads on indexed release heads', async () => {
+  it('keeps event log reads bounded by required adapter page limits', async () => {
     const sources = {
+      coreStorage: await readFile(
+        join(adaptersSourceRoot, '../../core/src/storage.ts'),
+        'utf8',
+      ),
       memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
       sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
     }
-    const memorySource = methodSource(
-      sources.memory,
-      'hasPackage',
-      'hasAuthorizationPayloadDigest',
+    const memorySource = methodSource(sources.memory, 'listEvents', 'getEvent')
+    const sqliteSource = methodSource(sources.sqlite, 'listEvents', 'getEvent')
+
+    expect(sources.coreStorage).toContain('limit: number')
+    expect(sources.coreStorage).toContain(
+      'listEvents: (options: RegistryEventListOptions)',
     )
-    const sqliteSource = methodSource(
-      sources.sqlite,
-      'hasPackage',
-      'hasAuthorizationPayloadDigest',
-    )
+    expect(memorySource).toContain('startIndex + options.limit')
+    expect(memorySource).not.toContain('options.limit === undefined')
+    expect(sqliteSource).toContain('LIMIT ?')
+    expect(sqliteSource).not.toContain('options.limit === undefined')
+  })
+
+  it('keeps unbounded package and event-log reads out of the public adapter interface', async () => {
+    const sources = {
+      coreStorage: await readFile(
+        join(adaptersSourceRoot, '../../core/src/storage.ts'),
+        'utf8',
+      ),
+      memory: await readFile(join(adaptersSourceRoot, 'memory.ts'), 'utf8'),
+      sqlite: await readFile(join(adaptersSourceRoot, 'sqlite.ts'), 'utf8'),
+    }
     const sqliteHelperSource = methodSource(
       sources.sqlite,
       'private packageHasReleases',
       'private ensureRegistryEventColumns',
     )
 
-    expect(memorySource).toContain('releaseHeads.has')
-    expect(memorySource).not.toContain('releases.has')
-    expect(sqliteSource).toContain('packageHasReleases')
+    expect(sources.coreStorage).not.toContain('hasPackage')
+    expect(sources.coreStorage).not.toContain('getEventLog')
+    expect(sources.coreStorage).not.toContain('listPackageEvents')
+    expect(sources.memory).not.toContain('hasPackage(')
+    expect(sources.memory).not.toContain('getEventLog(')
+    expect(sources.memory).not.toContain('listPackageEvents(')
+    expect(sources.sqlite).not.toContain('hasPackage(')
+    expect(sources.sqlite).not.toContain('getEventLog(')
+    expect(sources.sqlite).not.toContain('listPackageEvents(')
     expect(sqliteHelperSource).toContain('registry_package_release_heads')
     expect(sqliteHelperSource).not.toContain('FROM releases')
     expect(sqliteHelperSource).not.toContain('COUNT(')
   })
 
   it('keeps local object inventory pagination bounded by cursor and limit', async () => {
+    const coreStorageSource = await readFile(
+      join(adaptersSourceRoot, '../../core/src/storage.ts'),
+      'utf8',
+    )
+    const memorySource = await readFile(
+      join(adaptersSourceRoot, 'memory.ts'),
+      'utf8',
+    )
     const source = await readFile(join(adaptersSourceRoot, 'local.ts'), 'utf8')
     const listSource = methodSource(
       source,
       'async listDescriptors',
       'async put',
+    )
+    const memoryListSource = methodSource(
+      memorySource,
+      'listDescriptors',
+      'put',
     )
     const pageSource = sourceBetween(
       source,
@@ -297,13 +365,21 @@ describe('adapters package architecture', () => {
       'async function statLocalObjectFile',
     )
 
+    expect(coreStorageSource).toContain('limit: number')
+    expect(coreStorageSource).toContain('options: ObjectDescriptorListOptions')
+    expect(memoryListSource).toContain('assertObjectDescriptorListOptions')
+    expect(memoryListSource).toContain('start + options.limit')
+    expect(memoryListSource).not.toContain('options.limit ??')
     expect(listSource).toContain(
       'listLocalObjectPageDigests(this.root, options)',
     )
+    expect(listSource).toContain('assertObjectDescriptorListOptions')
     expect(listSource).not.toContain('.slice(')
+    expect(pageSource).toContain('const limit = options.limit')
     expect(pageSource).toContain('page.length >= limit')
     expect(pageSource).toContain('ObjectCursorNotFoundError')
     expect(pageSource).toContain('sortDirectoryEntries')
+    expect(pageSource).not.toContain('Number.POSITIVE_INFINITY')
     expect(pageSource).not.toContain('toSorted()')
   })
 

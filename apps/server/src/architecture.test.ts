@@ -190,6 +190,11 @@ describe('server layer boundaries', () => {
       'async function readFreshLocalNpmPackageProjectionInput',
       'function localNpmProjectionReadIsDirectProjectionOnly',
     )
+    const releaseListSource = sourceBetween(
+      projectionSource,
+      'async function listLocalNpmPackageReleases',
+      'function localNpmProjectionReadIsDirectProjectionOnly',
+    )
     const distTagsSource = sourceBetween(
       routeSource,
       'async function serveNpmDistTags',
@@ -244,6 +249,12 @@ describe('server layer boundaries', () => {
     expect(projectionSource).toContain('getPackageEventState')
     expect(projectionSource).toContain('getPackageReleaseHead')
     expect(projectionSource).not.toContain('getPackageChannels')
+    expect(releaseListSource).toContain('localNpmPackageReleasePageLimit')
+    expect(releaseListSource).toContain('listPackageReleases(packageId, {')
+    expect(releaseListSource).toContain('after')
+    expect(releaseListSource).toContain(
+      'limit: localNpmPackageReleasePageLimit',
+    )
     expect(releaseHeadIndex).toBeGreaterThanOrEqual(0)
     expect(freshProjectionSource).toContain('releaseHead.releaseCount === 0')
     expect(listReleasesIndex).toBeGreaterThan(releaseHeadIndex)
