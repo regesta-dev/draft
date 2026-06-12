@@ -34,6 +34,7 @@ import * as v from 'valibot'
 import { assertObjectResponseIntegrity } from '../object-integrity.ts'
 import {
   nonEmptyStringSchema,
+  publicRequestUrl,
   readBinaryField,
   readFormBody,
   readJsonBody,
@@ -273,7 +274,10 @@ export function createCoreRegistryApp(
           authorization,
           config: normalizedConfig,
           createdAt,
-          requestUrl: context.req.url,
+          requestUrl: publicRequestUrl(
+            context.req.url,
+            context.req.header('host'),
+          ).href,
           source,
         },
         adapters,
@@ -456,7 +460,10 @@ export function createCoreRegistryApp(
         channel,
         packageId,
         ...(previousVersion === undefined ? {} : { previousVersion }),
-        requestUrl: context.req.url,
+        requestUrl: publicRequestUrl(
+          context.req.url,
+          context.req.header('host'),
+        ).href,
         version,
       })
 
@@ -533,7 +540,10 @@ export function createCoreRegistryApp(
         channel,
         packageId,
         ...(previousVersion === undefined ? {} : { previousVersion }),
-        requestUrl: context.req.url,
+        requestUrl: publicRequestUrl(
+          context.req.url,
+          context.req.header('host'),
+        ).href,
       })
       result = await deletePackageChannel(adapters, {
         authorization,

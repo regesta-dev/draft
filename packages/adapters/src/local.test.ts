@@ -1548,6 +1548,47 @@ describe('SQLiteRegistryDatabase', () => {
     }
   })
 
+  it('exposes lightweight package event heads from event-derived indexes', async () => {
+    const release = storedRelease('npm:example.com/package-head', '0.0.1')
+    const missingPackageId = parsePackageId('npm:example.com/missing-head').id
+    const memory = new MemoryRegistryDatabase()
+    const sqlite = new SQLiteRegistryDatabase(':memory:')
+
+    try {
+      await expect(
+        memory.getPackageEventHead(missingPackageId),
+      ).resolves.toEqual({
+        releaseCount: 0,
+      })
+      await memory.commitPublishedRelease(release, 'latest')
+      await expect(
+        memory.getPackageEventHead(release.manifest.id),
+      ).resolves.toEqual({
+        lastEventId: release.event.id,
+        lastEventTimestamp: release.event.timestamp,
+        modifiedAt: release.event.timestamp,
+        releaseCount: 1,
+      })
+
+      await expect(
+        sqlite.getPackageEventHead(missingPackageId),
+      ).resolves.toEqual({
+        releaseCount: 0,
+      })
+      await sqlite.commitPublishedRelease(release, 'latest')
+      await expect(
+        sqlite.getPackageEventHead(release.manifest.id),
+      ).resolves.toEqual({
+        lastEventId: release.event.id,
+        lastEventTimestamp: release.event.timestamp,
+        modifiedAt: release.event.timestamp,
+        releaseCount: 1,
+      })
+    } finally {
+      sqlite.close()
+    }
+  })
+
   it('does not commit publish events when release projection write fails', async () => {
     const release = storedRelease('npm:example.com/atomic-release', '0.0.1')
     const memory = new MemoryRegistryDatabase()

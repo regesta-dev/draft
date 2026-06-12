@@ -1,4 +1,4 @@
-import { createMemoryRegistryAdapters } from '@regesta/adapters'
+import { MemoryRegistryDatabase } from '@regesta/adapters'
 import { parsePackageId } from '@regesta/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { createNpmRegistryReader } from './reader.ts'
@@ -6,19 +6,14 @@ import { createNpmRegistryReader } from './reader.ts'
 describe('createNpmRegistryReader', () => {
   it('exposes only the package reads needed by npm projection routes', async () => {
     const packageId = parsePackageId('npm:example.com/hello-regesta').id
-    const adapters = createMemoryRegistryAdapters()
-    const getPackageChannels = vi.spyOn(adapters.database, 'getPackageChannels')
-    const getPackageEventState = vi.spyOn(
-      adapters.database,
-      'getPackageEventState',
-    )
-    const getRelease = vi.spyOn(adapters.database, 'getRelease')
-    const hasPackage = vi.spyOn(adapters.database, 'hasPackage')
-    const listPackageReleases = vi.spyOn(
-      adapters.database,
-      'listPackageReleases',
-    )
-    const reader = createNpmRegistryReader(adapters)
+    const database = new MemoryRegistryDatabase()
+    const getPackageChannels = vi.spyOn(database, 'getPackageChannels')
+    const getPackageEventHead = vi.spyOn(database, 'getPackageEventHead')
+    const getPackageEventState = vi.spyOn(database, 'getPackageEventState')
+    const getRelease = vi.spyOn(database, 'getRelease')
+    const hasPackage = vi.spyOn(database, 'hasPackage')
+    const listPackageReleases = vi.spyOn(database, 'listPackageReleases')
+    const reader = createNpmRegistryReader({ database })
 
     await expect(
       reader.database.getPackageChannels(packageId),
@@ -32,6 +27,11 @@ describe('createNpmRegistryReader', () => {
       },
     })
     await expect(
+      reader.database.getPackageEventHead?.(packageId),
+    ).resolves.toEqual({
+      releaseCount: 0,
+    })
+    await expect(
       reader.database.getRelease(packageId, '1.0.0'),
     ).resolves.toBeUndefined()
     await expect(reader.database.hasPackage(packageId)).resolves.toBe(false)
@@ -42,12 +42,14 @@ describe('createNpmRegistryReader', () => {
     expect(Object.keys(reader)).toEqual(['database'])
     expect(Object.keys(reader.database).toSorted()).toEqual([
       'getPackageChannels',
+      'getPackageEventHead',
       'getPackageEventState',
       'getRelease',
       'hasPackage',
       'listPackageReleases',
     ])
     expect(getPackageChannels).toHaveBeenCalledWith(packageId)
+    expect(getPackageEventHead).toHaveBeenCalledWith(packageId)
     expect(getPackageEventState).toHaveBeenCalledWith(packageId)
     expect(getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(hasPackage).toHaveBeenCalledWith(packageId)

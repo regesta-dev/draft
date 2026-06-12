@@ -22,11 +22,22 @@ export interface NpmPackageStateSnapshot {
   state: PackageState
 }
 
+export interface NpmPackageEventHead {
+  lastEventId?: Sha256Digest
+  lastEventTimestamp?: string
+  modifiedAt?: string
+  releaseCount: number
+}
+
 export interface NpmProjectionStateReader {
   database: {
+    getPackageEventHead?: (packageId: PackageId) => Promise<NpmPackageEventHead>
     getPackageEventState: (
       packageId: PackageId,
     ) => Promise<NpmPackageStateSnapshot>
+    listPackageReleases: (
+      packageId: PackageId,
+    ) => Promise<Array<{ event: RegistryEvent; manifest: ReleaseManifest }>>
   }
 }
 
@@ -36,6 +47,20 @@ export interface LocalNpmPackageProjection {
   modifiedAt: string
   packument: NpmPackument
 }
+
+export interface LocalNpmPackageProjectionCache {
+  delete: (key: string) => void
+  get: (key: string) => LocalNpmPackageProjectionCacheEntry | undefined
+  set: (key: string, entry: LocalNpmPackageProjectionCacheEntry) => void
+}
+
+export interface LocalNpmPackageProjectionCacheEntry {
+  lastEventId: string
+  projection: LocalNpmPackageProjection
+}
+
+const defaultLocalNpmPackageProjectionCacheEntries = 128
+const maxLocalNpmProjectionReadAttempts = 3
 
 export function localNpmPackageId(packageName: string): PackageId | undefined {
   try {
@@ -48,10 +73,200 @@ export function localNpmPackageId(packageName: string): PackageId | undefined {
 export async function readLocalNpmPackageProjection(
   reader: NpmProjectionStateReader,
   packageId: PackageId,
+  requestUrl: URL,
+  cache?: LocalNpmPackageProjectionCache,
+): Promise<LocalNpmPackageProjection | undefined> {
+  const cacheKey = localNpmPackageProjectionCacheKey(packageId, requestUrl)
+  const cached = cache?.get(cacheKey)
+  let snapshot: NpmPackageStateSnapshot | undefined
+
+  if (cached) {
+    const head = await reader.database.getPackageEventHead?.(packageId)
+
+    if (head) {
+      if (head.releaseCount > 0 && head.lastEventId === cached.lastEventId) {
+        return cached.projection
+      }
+
+      if (head.releaseCount === 0) {
+        cache?.delete(cacheKey)
+        return undefined
+      }
+    } else {
+      snapshot = await reader.database.getPackageEventState(packageId)
+
+      if (
+        snapshot.state.releases.length > 0 &&
+        snapshot.lastEventId === cached.lastEventId
+      ) {
+        return cached.projection
+      }
+
+      if (snapshot.state.releases.length === 0) {
+        cache?.delete(cacheKey)
+        return undefined
+      }
+    }
+  }
+
+  const read = await readFreshLocalNpmPackageProjectionInput(reader, packageId)
+
+  if (!read) {
+    cache?.delete(cacheKey)
+    return undefined
+  }
+  const projection = createLocalNpmPackageProjection(
+    packageId,
+    read.releases,
+    requestUrl,
+    read.snapshot,
+  )
+
+  if (read.cacheable) {
+    cache?.set(cacheKey, {
+      lastEventId: read.snapshot.lastEventId ?? 'empty',
+      projection,
+    })
+  }
+
+  return projection
+}
+
+export async function readLocalNpmPackageProjectionHead(
+  reader: NpmProjectionStateReader,
+  packageId: PackageId,
+): Promise<NpmPackageEventHead | undefined> {
+  const head = await reader.database.getPackageEventHead?.(packageId)
+
+  if (!head || head.releaseCount === 0 || !head.lastEventId) {
+    return undefined
+  }
+
+  return head
+}
+
+async function readFreshLocalNpmPackageProjectionInput(
+  reader: NpmProjectionStateReader,
+  packageId: PackageId,
+): Promise<
+  | {
+      cacheable: boolean
+      releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }>
+      snapshot: NpmPackageStateSnapshot
+    }
+  | undefined
+> {
+  let latest:
+    | {
+        releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }>
+        snapshot: NpmPackageStateSnapshot
+      }
+    | undefined
+
+  for (
+    let attempt = 0;
+    attempt < maxLocalNpmProjectionReadAttempts;
+    attempt++
+  ) {
+    const releases = await reader.database.listPackageReleases(packageId)
+
+    if (releases.length === 0) {
+      return undefined
+    }
+
+    const snapshot = await reader.database.getPackageEventState(packageId)
+    latest = { releases, snapshot }
+
+    if (localNpmProjectionReadIsConsistent(releases, snapshot)) {
+      return { ...latest, cacheable: true }
+    }
+  }
+
+  return latest && latest.releases.length > 0
+    ? { ...latest, cacheable: false }
+    : undefined
+}
+
+function localNpmProjectionReadIsConsistent(
+  releases: Array<{ event: RegistryEvent }>,
+  snapshot: NpmPackageStateSnapshot,
+): boolean {
+  if (releases.length !== snapshot.state.releases.length) {
+    return false
+  }
+
+  const releaseDigests = new Map<string, string>()
+
+  for (const release of releases) {
+    if (release.event.eventType !== 'release.published') {
+      return false
+    }
+
+    releaseDigests.set(
+      release.event.release.version,
+      release.event.release.manifestDigest,
+    )
+  }
+
+  return snapshot.state.releases.every((release) => {
+    return releaseDigests.get(release.version) === release.manifestDigest
+  })
+}
+
+export function createLocalNpmPackageProjectionCache(
+  maxEntries = defaultLocalNpmPackageProjectionCacheEntries,
+): LocalNpmPackageProjectionCache {
+  if (!Number.isSafeInteger(maxEntries) || maxEntries < 0) {
+    throw new TypeError(
+      'Local npm package projection cache size must be a non-negative safe integer',
+    )
+  }
+
+  const entries = new Map<string, LocalNpmPackageProjectionCacheEntry>()
+
+  return {
+    delete: (key) => {
+      entries.delete(key)
+    },
+    get: (key) => {
+      const entry = entries.get(key)
+
+      if (!entry) {
+        return
+      }
+
+      entries.delete(key)
+      entries.set(key, entry)
+
+      return entry
+    },
+    set: (key, entry) => {
+      if (maxEntries === 0) {
+        return
+      }
+
+      entries.delete(key)
+      entries.set(key, entry)
+
+      while (entries.size > maxEntries) {
+        const oldestKey = entries.keys().next().value
+
+        if (oldestKey === undefined) {
+          return
+        }
+
+        entries.delete(oldestKey)
+      }
+    },
+  }
+}
+
+export function createLocalNpmPackageProjection(
+  packageId: PackageId,
   releases: Array<{ event: RegistryEvent; manifest: ReleaseManifest }>,
   requestUrl: URL,
-): Promise<LocalNpmPackageProjection> {
-  const snapshot = await reader.database.getPackageEventState(packageId)
+  snapshot: NpmPackageStateSnapshot,
+): LocalNpmPackageProjection {
   const releaseTimestamps = releases.map(
     (release) => release.manifest.createdAt,
   )
@@ -66,7 +281,7 @@ export async function readLocalNpmPackageProjection(
 
   return {
     channels,
-    etag: `W/"regesta.npm-projection:${snapshot.lastEventId ?? 'empty'}"`,
+    etag: npmPackumentEtag(snapshot.lastEventId ?? 'empty'),
     modifiedAt,
     packument: createLocalNpmPackument(
       requestUrl,
@@ -76,6 +291,17 @@ export async function readLocalNpmPackageProjection(
       modifiedAt,
     ),
   }
+}
+
+export function npmPackumentEtag(lastEventId: string): string {
+  return `W/"regesta.npm-projection:${lastEventId}"`
+}
+
+function localNpmPackageProjectionCacheKey(
+  packageId: PackageId,
+  requestUrl: URL,
+): string {
+  return `${packageId}\0${requestUrl.origin}`
 }
 
 export function npmVersionManifestEtag(releaseEventId: string): string {

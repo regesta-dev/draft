@@ -370,6 +370,69 @@ describe('createNpmRegistryRoutes', () => {
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
+  it('serves conditional local npm packument hits from package event head', async () => {
+    const manifest = releaseManifest()
+    const event = publishEvent(manifest)
+    const upstreamFetch = vi.fn<typeof fetch>(() => {
+      throw new Error('upstream fallback should not be used for local packages')
+    })
+    const reader = {
+      database: {
+        getPackageChannels: vi.fn(() => {
+          throw new Error('conditional packuments should not read channels')
+        }),
+        getPackageEventHead: vi.fn(() =>
+          Promise.resolve({
+            lastEventId: event.id,
+            lastEventTimestamp: event.timestamp,
+            modifiedAt: event.timestamp,
+            releaseCount: 1,
+          }),
+        ),
+        getPackageEventState: vi.fn(() => {
+          throw new Error(
+            'conditional packuments should not read package event state',
+          )
+        }),
+        getRelease: vi.fn(() => {
+          throw new Error('conditional packuments should not read releases')
+        }),
+        hasPackage: vi.fn(() => {
+          throw new Error(
+            'conditional packuments should not check package existence',
+          )
+        }),
+        listPackageReleases: vi.fn(() => {
+          throw new Error('conditional packuments should not list releases')
+        }),
+      },
+    } satisfies NpmRegistryReader
+    const app = createNpmRegistryRoutes(reader, {
+      upstreamFetch,
+      upstreamTimeoutMs: 0,
+    })
+
+    const response = await app.request(
+      'https://npm.registry.test/@example.com/hello-regesta',
+      {
+        headers: {
+          'if-none-match': `W/"regesta.npm-projection:${event.id}"`,
+        },
+      },
+    )
+
+    expect(response.status).toBe(304)
+    expect(response.headers.get('etag')).toBe(
+      `W/"regesta.npm-projection:${event.id}"`,
+    )
+    expect(response.headers.get('last-modified')).toBe(
+      'Wed, 01 Jan 2025 00:00:00 GMT',
+    )
+    expect(await response.text()).toBe('')
+    expect(reader.database.getPackageEventHead).toHaveBeenCalledOnce()
+    expect(upstreamFetch).not.toHaveBeenCalled()
+  })
+
   it('serves local npm dist-tags from indexed channel state', async () => {
     const upstreamFetch = vi.fn<typeof fetch>(() => {
       throw new Error('upstream fallback should not be used for local packages')

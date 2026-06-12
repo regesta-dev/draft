@@ -135,6 +135,19 @@ export function decodeRequestComponent(value: string): string {
   }
 }
 
+export function publicRequestUrl(
+  requestUrl: string,
+  host: string | null | undefined,
+): URL {
+  const url = new URL(requestUrl)
+
+  if (host) {
+    url.host = host
+  }
+
+  return url
+}
+
 export function validateRequest<TSchema extends v.GenericSchema>(
   schema: TSchema,
   input: unknown,

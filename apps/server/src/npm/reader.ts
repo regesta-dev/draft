@@ -12,11 +12,19 @@ export interface NpmPackageStateSnapshot {
   state: PackageState
 }
 
+export interface NpmPackageEventHead {
+  lastEventId?: Sha256Digest
+  lastEventTimestamp?: string
+  modifiedAt?: string
+  releaseCount: number
+}
+
 export interface NpmRegistryReader {
   database: {
     getPackageChannels: (
       packageId: PackageId,
     ) => Promise<Record<string, string>>
+    getPackageEventHead?: (packageId: PackageId) => Promise<NpmPackageEventHead>
     getPackageEventState: (
       packageId: PackageId,
     ) => Promise<NpmPackageStateSnapshot>
@@ -40,8 +48,15 @@ export interface NpmRegistryReaderSource {
 export function createNpmRegistryReader(
   adapters: NpmRegistryReaderSource,
 ): NpmRegistryReader {
+  const getPackageEventHead = packageEventHeadReader(adapters.database)
+
   return {
     database: {
+      ...(getPackageEventHead
+        ? {
+            getPackageEventHead,
+          }
+        : {}),
       getPackageChannels: (packageId) => {
         return adapters.database.getPackageChannels(packageId)
       },
@@ -59,4 +74,16 @@ export function createNpmRegistryReader(
       },
     },
   }
+}
+
+function packageEventHeadReader(
+  database: NpmRegistryReaderSource['database'],
+): ((packageId: PackageId) => Promise<NpmPackageEventHead>) | undefined {
+  const method = database.getPackageEventHead
+
+  return method
+    ? (packageId) => {
+        return method.call(database, packageId)
+      }
+    : undefined
 }

@@ -435,6 +435,45 @@ export class SQLiteRegistryDatabase implements RegistryDatabase {
     )
   }
 
+  getPackageEventHead(packageId: PackageId): Promise<{
+    lastEventId?: Sha256Digest
+    lastEventTimestamp?: string
+    modifiedAt?: string
+    releaseCount: number
+  }> {
+    const releaseCountRow = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count, MAX(created_at) AS modified_at
+          FROM registry_event_releases
+          WHERE package_id = ?`,
+      )
+      .get(packageId)
+    const lastEventRow = this.db
+      .prepare(
+        `SELECT id, timestamp
+          FROM registry_events
+          WHERE package_id = ?
+          ORDER BY sequence DESC
+          LIMIT 1`,
+      )
+      .get(packageId)
+
+    if (!releaseCountRow) {
+      throw new TypeError('Package release count query did not return a row')
+    }
+
+    return Promise.resolve({
+      ...(lastEventRow
+        ? {
+            lastEventId: requiredSha256Digest(lastEventRow, 'id'),
+            lastEventTimestamp: requiredText(lastEventRow, 'timestamp'),
+          }
+        : {}),
+      ...optionalModifiedAt(releaseCountRow, lastEventRow),
+      releaseCount: requiredNonNegativeInteger(releaseCountRow, 'count'),
+    })
+  }
+
   getPackageEventState(packageId: PackageId): Promise<PackageStateSnapshot> {
     const parsed = parsePackageId(packageId)
     const releaseRows = this.db
@@ -1166,6 +1205,41 @@ function requiredNonNegativeInteger(row: SqliteRow, column: string): number {
   }
 
   return value
+}
+
+function optionalModifiedAt(
+  releaseCountRow: SqliteRow,
+  lastEventRow: SqliteRow | undefined,
+): { modifiedAt?: string } {
+  const releaseModifiedAt = optionalText(releaseCountRow, 'modified_at')
+  const lastEventTimestamp = lastEventRow
+    ? requiredText(lastEventRow, 'timestamp')
+    : undefined
+  const modifiedAt = latestTimestamp(
+    [releaseModifiedAt, lastEventTimestamp].filter(
+      (value) => value !== undefined,
+    ),
+  )
+
+  return modifiedAt ? { modifiedAt } : {}
+}
+
+function optionalText(row: SqliteRow, column: string): string | undefined {
+  const value = row[column]
+
+  if (value === null || value === undefined) {
+    return undefined
+  }
+
+  if (typeof value !== 'string') {
+    throw new TypeError(`SQLite column ${column} must be text`)
+  }
+
+  return value
+}
+
+function latestTimestamp(timestamps: string[]): string | undefined {
+  return timestamps.toSorted().at(-1)
 }
 
 function isSqliteUniqueAuthorizationPayloadDigestError(

@@ -357,6 +357,33 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     )
   }
 
+  getPackageEventHead(packageId: PackageId): Promise<{
+    lastEventId?: Sha256Digest
+    lastEventTimestamp?: string
+    modifiedAt?: string
+    releaseCount: number
+  }> {
+    const lastEvent = this.eventLast.get(packageId)
+    const releaseTimestamps = [
+      ...(this.eventReleases.get(packageId)?.values() ?? []),
+    ].map((release) => release.createdAt)
+    const modifiedAt = latestTimestamp([
+      ...releaseTimestamps,
+      ...(lastEvent ? [lastEvent.timestamp] : []),
+    ])
+
+    return Promise.resolve({
+      ...(lastEvent
+        ? {
+            lastEventId: lastEvent.id,
+            lastEventTimestamp: lastEvent.timestamp,
+          }
+        : {}),
+      ...(modifiedAt ? { modifiedAt } : {}),
+      releaseCount: this.eventReleases.get(packageId)?.size ?? 0,
+    })
+  }
+
   getPackageEventState(packageId: PackageId): Promise<PackageStateSnapshot> {
     const parsed = parsePackageId(packageId)
     const releases = [...(this.eventReleases.get(packageId)?.values() ?? [])]
@@ -654,4 +681,8 @@ function eventPackageId(event: RegistryEvent): PackageId {
   return event.eventType === 'release.published'
     ? event.release.id
     : event.package
+}
+
+function latestTimestamp(timestamps: string[]): string | undefined {
+  return timestamps.toSorted().at(-1)
 }

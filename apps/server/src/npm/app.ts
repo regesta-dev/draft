@@ -1,13 +1,20 @@
 import { Hono, type Context } from 'hono'
-import { decodeRequestComponent, requiredParam } from '../request.ts'
+import {
+  decodeRequestComponent,
+  publicRequestUrl,
+  requiredParam,
+} from '../request.ts'
 import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
 import {
+  createLocalNpmPackageProjectionCache,
   createLocalNpmVersionManifest,
   localNpmPackageId,
   localNpmTarballObjectUrl,
   npmDistTagsEtag,
+  npmPackumentEtag,
   npmVersionManifestEtag,
   readLocalNpmPackageProjection,
+  readLocalNpmPackageProjectionHead,
 } from './projection.ts'
 import {
   createNpmUpstreamFallback,
@@ -15,6 +22,7 @@ import {
   type NpmUpstreamFallbackOptions,
 } from './upstream.ts'
 import type { NpmRegistryReader } from './reader.ts'
+import type { PackageId } from '@regesta/protocol'
 
 export type NpmRegistryRouteOptions = NpmUpstreamFallbackOptions
 
@@ -24,6 +32,7 @@ export function createNpmRegistryRoutes(
 ): Hono {
   const app = new Hono()
   const upstream = createNpmUpstreamFallback(options)
+  const projectionCache = createLocalNpmPackageProjectionCache()
 
   app.get('/-/ping', (context) => {
     return serveNpmUtilityJson(context, { ping: 'pong' })
@@ -162,6 +171,7 @@ export function createNpmRegistryRoutes(
       adapters,
       upstream,
       scopedNpmPackageName(scope, name),
+      projectionCache,
     )
   })
 
@@ -184,6 +194,7 @@ export function createNpmRegistryRoutes(
       adapters,
       upstream,
       scopedNpmPackageName(scope, name),
+      projectionCache,
     )
   })
 
@@ -193,6 +204,7 @@ export function createNpmRegistryRoutes(
       adapters,
       upstream,
       encodedNpmPackageName(context.req.param('encoded')),
+      projectionCache,
     )
   })
 
@@ -202,6 +214,7 @@ export function createNpmRegistryRoutes(
       adapters,
       upstream,
       encodedNpmPackageName(context.req.param('encoded')),
+      projectionCache,
     )
   })
 
@@ -265,9 +278,13 @@ async function serveNpmPackageManifest(
           : 'no-cache'
       return serveNpmProjectionJson(
         context,
-        createLocalNpmVersionManifest(publicRequestUrl(context), packageId, {
-          manifest: release.manifest,
-        }),
+        createLocalNpmVersionManifest(
+          publicRequestUrl(context.req.url, context.req.header('host')),
+          packageId,
+          {
+            manifest: release.manifest,
+          },
+        ),
         npmVersionManifestEtag(release.event.id),
         {
           cacheControl,
@@ -297,30 +314,73 @@ async function serveNpmPackument(
   adapters: NpmRegistryReader,
   upstream: NpmUpstreamFallback,
   packageName: string,
+  projectionCache: ReturnType<typeof createLocalNpmPackageProjectionCache>,
 ): Promise<Response> {
   const packageId = localNpmPackageId(packageName)
-  const releases = packageId
-    ? await adapters.database.listPackageReleases(packageId)
-    : []
 
-  if (packageId && releases.length > 0) {
+  if (packageId) {
+    const conditionalResponse = await serveConditionalNpmPackument(
+      context,
+      adapters,
+      packageId,
+    )
+
+    if (conditionalResponse) {
+      return conditionalResponse
+    }
+
     const projection = await readLocalNpmPackageProjection(
       adapters,
       packageId,
-      releases,
-      publicRequestUrl(context),
+      publicRequestUrl(context.req.url, context.req.header('host')),
+      projectionCache,
     )
-    return serveNpmProjectionJson(
-      context,
-      projection.packument,
-      projection.etag,
-      {
-        lastModified: projection.modifiedAt,
-      },
-    )
+
+    if (projection) {
+      return serveNpmProjectionJson(
+        context,
+        projection.packument,
+        projection.etag,
+        {
+          lastModified: projection.modifiedAt,
+        },
+      )
+    }
   }
 
   return upstream.packument(context, packageName)
+}
+
+async function serveConditionalNpmPackument(
+  context: Context,
+  adapters: NpmRegistryReader,
+  packageId: PackageId,
+): Promise<Response | undefined> {
+  const ifNoneMatch = context.req.header('if-none-match')
+
+  if (!ifNoneMatch) {
+    return undefined
+  }
+
+  const head = await readLocalNpmPackageProjectionHead(adapters, packageId)
+
+  if (!head) {
+    return undefined
+  }
+
+  if (!head.lastEventId) {
+    return undefined
+  }
+
+  const etag = npmPackumentEtag(head.lastEventId)
+
+  if (!matchesIfNoneMatch(ifNoneMatch, etag)) {
+    return undefined
+  }
+
+  return npmProjectionNotModified(etag, {
+    lastModified: head.modifiedAt,
+  })
 }
 
 function serveNpmProjectionJson(
@@ -352,15 +412,43 @@ function serveNpmProjectionJson(
     const conditionalHeaders = new Headers(headers)
     conditionalHeaders.delete('content-length')
 
-    return new Response(null, {
-      headers: conditionalHeaders,
-      status: 304,
-    })
+    return npmProjectionNotModified(conditionalHeaders)
   }
 
   return context.req.method === 'HEAD'
     ? new Response(null, { headers })
     : new Response(bytes, { headers })
+}
+
+function npmProjectionNotModified(
+  etagOrHeaders: Headers | string,
+  options: NpmProjectionJsonOptions = {},
+): Response {
+  const headers =
+    etagOrHeaders instanceof Headers
+      ? etagOrHeaders
+      : npmProjectionNotModifiedHeaders(etagOrHeaders, options)
+
+  return new Response(null, {
+    headers,
+    status: 304,
+  })
+}
+
+function npmProjectionNotModifiedHeaders(
+  etag: string,
+  options: NpmProjectionJsonOptions,
+): Headers {
+  const headers = new Headers({
+    'cache-control': options.cacheControl ?? 'no-cache',
+    etag,
+  })
+
+  if (options.lastModified) {
+    headers.set('last-modified', httpDate(options.lastModified))
+  }
+
+  return headers
 }
 
 interface NpmProjectionJsonOptions {
@@ -409,17 +497,6 @@ function serveNpmUtilityJson(context: Context, body: unknown): Response {
     : new Response(bytes, { headers })
 }
 
-function publicRequestUrl(context: Context): URL {
-  const url = new URL(context.req.url)
-  const host = context.req.header('host')
-
-  if (host) {
-    url.host = host
-  }
-
-  return url
-}
-
 async function serveNpmTarball(
   context: Context,
   adapters: NpmRegistryReader,
@@ -436,7 +513,7 @@ async function serveNpmTarball(
       : undefined
     const objectUrl = release
       ? localNpmTarballObjectUrl(
-          publicRequestUrl(context),
+          publicRequestUrl(context.req.url, context.req.header('host')),
           packageId,
           { manifest: release.manifest },
           file,
