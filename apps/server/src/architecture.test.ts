@@ -120,6 +120,22 @@ describe('server layer boundaries', () => {
     expect(source).not.toContain('JSON.stringify')
   })
 
+  it('keeps request id validation centralized in transport logging helpers', async () => {
+    const errorsSource = await readFile(
+      join(serverSourceRoot, 'transport/errors.ts'),
+      'utf8',
+    )
+    const loggingSource = await readFile(
+      join(serverSourceRoot, 'transport/logging.ts'),
+      'utf8',
+    )
+
+    expect(loggingSource).toContain('export function isValidRequestId')
+    expect(loggingSource).toContain('const requestIdPattern')
+    expect(errorsSource).toContain('import { isValidRequestId }')
+    expect(errorsSource).not.toContain('requestIdPattern')
+  })
+
   it('keeps shared HTTP response helpers independent from business layers', async () => {
     await expectNoForbiddenImports('responses.ts', [
       '@regesta/adapters',

@@ -16,6 +16,10 @@ export type RequestLogSink = (entry: RequestLogEntry) => Promise<void> | void
 const requestIdHeader = 'x-request-id'
 const requestIdPattern = /^[\w.-]{1,128}$/u
 
+export function isValidRequestId(value: string): boolean {
+  return requestIdPattern.test(value)
+}
+
 export function createRequestIdMiddleware(): MiddlewareHandler {
   return async (context, next) => {
     const requestId = ensureRequestId(context)
@@ -74,7 +78,7 @@ function elapsedMilliseconds(startedAt: number): number {
 
 function ensureRequestId(context: Context): string {
   const responseRequestId = context.res.headers.get(requestIdHeader)
-  if (responseRequestId && requestIdPattern.test(responseRequestId)) {
+  if (responseRequestId && isValidRequestId(responseRequestId)) {
     return responseRequestId
   }
 
@@ -84,5 +88,5 @@ function ensureRequestId(context: Context): string {
 }
 
 function requestIdForRequest(value: string | undefined): string {
-  return value && requestIdPattern.test(value) ? value : randomUUID()
+  return value && isValidRequestId(value) ? value : randomUUID()
 }

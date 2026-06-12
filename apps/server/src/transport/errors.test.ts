@@ -131,6 +131,34 @@ describe('createTransportErrorBoundary', () => {
     )
   })
 
+  it('does not log invalid raw request ids for unknown errors', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const app = new Hono()
+    app.onError(createTransportErrorBoundary())
+    app.get('/unknown-invalid-request-id', () => {
+      throw new Error('database password leaked in exception')
+    })
+
+    const response = await app.request('/unknown-invalid-request-id', {
+      headers: {
+        'x-request-id': 'invalid request id',
+      },
+    })
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      code: 'internal_server_error',
+      error: 'Internal Server Error',
+      message: 'Internal Server Error',
+    })
+    expect(consoleError).toHaveBeenCalledWith(
+      'Unexpected transport error',
+      expect.not.objectContaining({
+        requestId: 'invalid request id',
+      }),
+    )
+  })
+
   it('logs unknown HEAD errors without serializing response bodies', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const app = new Hono()

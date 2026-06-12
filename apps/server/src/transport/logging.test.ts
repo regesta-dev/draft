@@ -4,6 +4,7 @@ import { createTransportErrorBoundary } from './errors.ts'
 import {
   createRequestIdMiddleware,
   createRequestLogger,
+  isValidRequestId,
   type RequestLogEntry,
 } from './logging.ts'
 
@@ -76,6 +77,37 @@ describe('createRequestLogger', () => {
         kind: 'regesta.request',
         path: '/ok',
         requestId: 'publish-01HZX2V4Q5R6',
+        status: 200,
+      },
+    ])
+  })
+
+  it('replaces invalid client request ids in responses and logs', async () => {
+    const entries: RequestLogEntry[] = []
+    const app = new Hono()
+    app.use(
+      createRequestLogger((entry) => {
+        entries.push(entry)
+      }),
+    )
+    app.get('/ok', (context) => context.text('ok'))
+
+    const response = await app.request('http://registry.test/ok', {
+      headers: {
+        'x-request-id': 'invalid request id',
+      },
+    })
+
+    const requestId = response.headers.get('x-request-id')
+
+    expect(response.status).toBe(200)
+    expect(requestId).toMatch(/^[0-9a-f-]{36}$/u)
+    expect(requestId).not.toBe('invalid request id')
+    expect(entries).toMatchObject([
+      {
+        kind: 'regesta.request',
+        path: '/ok',
+        requestId,
         status: 200,
       },
     ])
@@ -208,6 +240,20 @@ describe('createRequestLogger', () => {
         }),
       )
     })
+  })
+})
+
+describe('isValidRequestId', () => {
+  it('accepts bounded portable request ids', () => {
+    expect(isValidRequestId('request-01HZX2V4Q5R6')).toBe(true)
+    expect(isValidRequestId('a'.repeat(128))).toBe(true)
+  })
+
+  it('rejects empty, oversized, and whitespace request ids', () => {
+    expect(isValidRequestId('')).toBe(false)
+    expect(isValidRequestId('a'.repeat(129))).toBe(false)
+    expect(isValidRequestId('invalid request id')).toBe(false)
+    expect(isValidRequestId('invalid\nrequest-id')).toBe(false)
   })
 })
 

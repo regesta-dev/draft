@@ -183,6 +183,10 @@ stdout:
 - `regesta.core-audit` records accepted and rejected core write attempts,
   including publish and channel operations.
 
+The transport layer accepts bounded request ids for correlation. Invalid client
+request ids are replaced before they are written to response headers or
+operational logs.
+
 Recoverable transport refresh failures use structured `console.error` entries
 on stderr. For example, `regesta.deployment-statistics-refresh-failure` means
 root deployment statistics could not be refreshed and the server served a stale

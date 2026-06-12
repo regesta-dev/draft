@@ -1828,10 +1828,14 @@ describe('documentation references', () => {
 
   it('documents operational request and audit logging boundaries', async () => {
     const operations = await readText('operations.md')
+    const normalizedOperations = operations.replaceAll(/\s+/gu, ' ')
 
     expect(operations).toContain('## Operational Logs')
     expect(operations).toContain('`regesta.request`')
     expect(operations).toContain('`regesta.core-audit`')
+    expect(normalizedOperations).toContain(
+      'Invalid client request ids are replaced',
+    )
     expect(operations).toContain(
       '`regesta.deployment-statistics-refresh-failure`',
     )

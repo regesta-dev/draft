@@ -1040,6 +1040,65 @@ describe('createRegestaApp', () => {
     }
   })
 
+  it('replaces invalid request ids before app responses and error logs', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const requestLogs: Array<{
+      kind: 'regesta.request'
+      requestId: string
+      status: number
+    }> = []
+    const adapters = createMemoryRegistryAdapters()
+    adapters.database.listEvents = () => {
+      throw new Error('database credentials leaked in exception')
+    }
+    const app = createRegestaApp(adapters, {
+      requestLog: (entry) => {
+        requestLogs.push(entry)
+      },
+    })
+
+    try {
+      const response = await app.request('http://registry.test/events', {
+        headers: {
+          'x-request-id': 'invalid request id',
+        },
+      })
+      const requestId = response.headers.get('x-request-id')
+
+      expect(response.status).toBe(500)
+      expect(requestId).toMatch(/^[0-9a-f-]{36}$/u)
+      expect(requestId).not.toBe('invalid request id')
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(requestLogs).toMatchObject([
+        {
+          kind: 'regesta.request',
+          requestId,
+          status: 500,
+        },
+      ])
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.any(Error),
+          kind: 'regesta.unexpected-error',
+          requestId,
+        }),
+      )
+      expect(consoleError).not.toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          requestId: 'invalid request id',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('logs accepted publish events to the operator audit sink when configured', async () => {
     const entries: CoreRegistryAuditEntry[] = []
     const app = createRegestaApp(createMemoryRegistryAdapters(), {
