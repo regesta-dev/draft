@@ -621,6 +621,10 @@ describe('documentation references', () => {
       'scripts/docker-smoke.mjs',
     )
     const loadSmokeScript = await readWorkspaceText('scripts/load-smoke.mjs')
+    const loadSmokeOptions = await readWorkspaceText(
+      'scripts/load-smoke-options.mjs',
+    )
+    const loadSmokeSources = `${loadSmokeScript}\n${loadSmokeOptions}`
     const gettingStarted = await readText('getting-started.md')
     const normalizedGettingStarted = gettingStarted.replaceAll(/\s+/gu, ' ')
     const operations = await readText('operations.md')
@@ -646,6 +650,41 @@ describe('documentation references', () => {
     expect(dockerSmokeScript).toContain('packages: 1')
     expect(loadSmokeScript).toContain("object: 'regesta.deployment-info'")
     expect(loadSmokeScript).toContain('packages: published.length')
+    expect(loadSmokeSources).toContain('REGESTA_LOAD_PUBLISH_CONCURRENCY')
+    expect(loadSmokeSources).toContain('publishConcurrency')
+    expect(loadSmokeSources).toContain('REGESTA_LOAD_MAX_PUBLISH_P95_MS')
+    expect(loadSmokeSources).toContain('maxPublishP95Ms')
+    expect(loadSmokeSources).toContain('REGESTA_LOAD_CONCURRENCY')
+    expect(loadSmokeSources).toContain('readConcurrency')
+    expect(loadSmokeSources).toContain('REGESTA_LOAD_MAX_READ_P95_MS')
+    expect(loadSmokeSources).toContain('maxReadP95Ms')
+    expect(loadSmokeSources).toContain('readRequestsPerIteration')
+    expect(loadSmokeSources).toContain('maxReadRequestConcurrency')
+    expect(loadSmokeSources).toContain('publishPackagesPerSecond')
+    expect(loadSmokeSources).toContain('publishLatencyMs')
+    expect(loadSmokeSources).toContain('readRequestsPerSecond')
+    expect(loadSmokeSources).toContain('readCategories')
+    expect(loadSmokeSources).toContain('sortedUniqueCategories')
+    expect(loadSmokeSources).toContain('readLatencyMs')
+    expect(loadSmokeSources).toContain('readLatencyByCategoryMs')
+    expect(loadSmokeSources).toContain('summarizeSamplesByCategory')
+    expect(loadSmokeSources).toContain("category: 'npm-packument'")
+    expect(loadSmokeSources).toContain("category: 'npm-tarball-redirect'")
+    expect(loadSmokeSources).toContain('summarizeDurations')
+    expect(loadSmokeSources).toContain('startedAt')
+    expect(loadSmokeSources).toContain('completedAt')
+    expect(loadSmokeSources).toContain('totalDurationMs')
+    expect(loadSmokeSources).toContain('REGESTA_LOAD_RESULT_FILE')
+    expect(loadSmokeSources).toContain('resultFile')
+    expect(loadSmokeSources).toContain("deploymentTarget: 'local-in-process'")
+    expect(loadSmokeSources).toContain("database: 'sqlite'")
+    expect(loadSmokeSources).toContain("objects: 'filesystem'")
+    expect(loadSmokeSources).toContain("queue: 'filesystem-ndjson'")
+    expect(loadSmokeSources).toContain("root: 'temporary-filesystem'")
+    expect(loadSmokeSources).toContain("state: 'warm-after-publish'")
+    expect(loadSmokeSources).toContain("name: 'node'")
+    expect(loadSmokeSources).toContain('process.versions.node')
+    expect(loadSmokeSources).toContain('positive safe integer')
 
     for (const text of [
       'pnpm smoke:docker',
@@ -674,6 +713,14 @@ describe('documentation references', () => {
       'falling back to a 5s timeout',
       'REGESTA_NPM_UPSTREAM_TIMEOUT_MS',
       'falling back to a 10s timeout',
+      'REGESTA_LOAD_PUBLISH_CONCURRENCY',
+      'REGESTA_LOAD_CONCURRENCY',
+      'REGESTA_LOAD_MAX_PUBLISH_P95_MS',
+      'REGESTA_LOAD_MAX_READ_P95_MS',
+      'REGESTA_LOAD_RESULT_FILE',
+      'Publish concurrency defaults to the package',
+      'Read concurrency defaults to `1`',
+      'read requests per iteration',
       'domain well-known binding discovery',
       'tarball routes, which remain redirect-only',
       'REGESTA_STATISTICS_CACHE_TTL_MS',
@@ -685,6 +732,37 @@ describe('documentation references', () => {
       'CORS preflight requests are answered before this guard',
       'Numeric runtime values must be decimal safe integers',
       'without whitespace',
+      'Load smoke override values must be positive safe integers',
+      'capped to the effective concurrency reported in the smoke result',
+      'p95 latency budget overrides are optional',
+      'set them in CI or deployment profiles',
+      'throughput rates',
+      'publish and read latency summaries',
+      'read latency grouped by request category',
+      '`readCategories`',
+      '`channel-release`, `event`, `event-page`, `npm-packument`',
+      '`npm-tarball-redirect`, `npm-version`, `object`, `object-inventory`',
+      '`package-state`, `readiness`, `release`, and `root`',
+      'publish latency samples, average, p50, p95, min, and max',
+      'read latency samples, average, p50, p95, min, and max',
+      'read category names',
+      'publish p95 latency budget',
+      'read p95 latency budget',
+      'publish packages per second',
+      'read requests per second',
+      'run start and completion timestamps',
+      'total duration',
+      'runtime version',
+      'deployment target',
+      'storage backend labels',
+      '`local-in-process`',
+      'SQLite plus filesystem',
+      'temporary filesystem root',
+      'warmed in-process caches',
+      'Read concurrency is the number of concurrent read loops',
+      '`maxReadRequestConcurrency`',
+      'effective maximum read request fanout',
+      'write the same JSON result to a file',
     ]) {
       expect(normalizedOperations).toContain(text)
     }

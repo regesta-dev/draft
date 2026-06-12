@@ -104,26 +104,59 @@ adapter path. It publishes packages, reads root deployment statistics, checks
 readiness, reads core package state, reads events, lists object inventory,
 reads objects, and reads the npm projection.
 
-The script supports two profiles:
+The script supports two profiles. Publish concurrency defaults to the package
+count, matching the current all-at-once publish behavior. Read concurrency
+defaults to `1` unless `REGESTA_LOAD_CONCURRENCY` is set.
 
-| Profile | Packages | Read loops | Publish max | Read max |
-| ------- | -------- | ---------- | ----------- | -------- |
-| `smoke` | 3        | 25         | 30s         | 30s      |
-| `local` | 10       | 100        | 120s        | 120s     |
+| Profile | Packages | Publish concurrency | Read loops | Read concurrency | Publish max | Read max |
+| ------- | -------- | ------------------- | ---------- | ---------------- | ----------- | -------- |
+| `smoke` | 3        | 3                   | 25         | 1                | 30s         | 30s      |
+| `local` | 10       | 10                  | 100        | 1                | 120s        | 120s     |
 
 Use `REGESTA_LOAD_PROFILE=local pnpm smoke:load` for a heavier local run.
 
 The profile defaults can be overridden with:
 
 - `REGESTA_LOAD_PACKAGES`
+- `REGESTA_LOAD_PUBLISH_CONCURRENCY`
 - `REGESTA_LOAD_READS`
+- `REGESTA_LOAD_CONCURRENCY`
 - `REGESTA_LOAD_MAX_PUBLISH_MS`
+- `REGESTA_LOAD_MAX_PUBLISH_P95_MS`
 - `REGESTA_LOAD_MAX_READ_MS`
+- `REGESTA_LOAD_MAX_READ_P95_MS`
+- `REGESTA_LOAD_RESULT_FILE`
 
 These thresholds are not production SLOs. They are regression gates for the
 current local adapter implementation. Production deployments should define
 their own profiles against their database, object storage, queue, signer,
 checkpoint store, and deployment platform.
+
+Load smoke override values must be positive safe integers.
+Configured concurrency values above the package count or read loop count are
+capped to the effective concurrency reported in the smoke result.
+The p95 latency budget overrides are optional. Leave them unset for exploratory
+local runs, and set them in CI or deployment profiles when a specific adapter
+and machine class has an agreed baseline.
+
+The local smoke result reports the effective concurrency, request counts,
+throughput rates, publish and read latency summaries, read latency grouped by
+request category, run start and completion timestamps, total duration, runtime
+version, deployment target, storage backend labels, durability mode, and cache
+state used for the run. For the default local adapter path, the deployment
+target is `local-in-process`, storage is SQLite plus filesystem objects, queue,
+signer, and checkpoint adapters, durability is a temporary filesystem root, and
+reads happen after the publish phase has warmed in-process caches.
+Read concurrency is the number of concurrent read loops. The result also
+reports `readRequestsPerIteration` and `maxReadRequestConcurrency` so operators
+can see the effective maximum read request fanout for the run.
+Set `REGESTA_LOAD_RESULT_FILE` to write the same JSON result to a file for CI
+artifacts or deployment baseline records.
+
+The result also includes `readCategories`, which currently lists:
+`channel-release`, `event`, `event-page`, `npm-packument`,
+`npm-tarball-redirect`, `npm-version`, `object`, `object-inventory`,
+`package-state`, `readiness`, `release`, and `root`.
 
 ## Production Load Gates
 
@@ -144,8 +177,20 @@ The production adapter gate should publish its parameters with the result:
 
 - package count;
 - read iterations;
+- read requests per iteration;
 - publish duration budget;
 - read duration budget;
+- publish p95 latency budget;
+- read p95 latency budget;
+- publish packages per second;
+- read requests per second;
+- publish latency samples, average, p50, p95, min, and max;
+- read latency samples, average, p50, p95, min, and max;
+- read latency grouped by request category;
+- read category names;
+- run start timestamp;
+- run completion timestamp;
+- total duration;
 - concurrency level;
 - runtime version;
 - deployment target;

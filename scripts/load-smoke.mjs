@@ -15,42 +15,32 @@ import { prepareNpmPublish } from '../packages/cli/src/npm-publish.ts'
 import { releasePublishArtifactDescriptors } from '../packages/cli/src/publish-intent.ts'
 import { configDigest } from '../packages/core/src/index.ts'
 import { sha256 } from '../packages/protocol/src/index.ts'
+import {
+  assertDurationBudget,
+  assertOptionalDurationBudget,
+  mapConcurrent,
+  resolveLoadSmokeOptions,
+  sortedUniqueCategories,
+  summarizeDurations,
+  summarizeSamplesByCategory,
+} from './load-smoke-options.mjs'
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'development'
 
-const loadProfiles = {
-  local: {
-    maxPublishDurationMs: 120_000,
-    maxReadDurationMs: 120_000,
-    packageCount: 10,
-    readIterations: 100,
-  },
-  smoke: {
-    maxPublishDurationMs: 30_000,
-    maxReadDurationMs: 30_000,
-    packageCount: 3,
-    readIterations: 25,
-  },
-}
-
-const profileName = readLoadProfileEnv()
-const profile = loadProfiles[profileName]
-const packageCount = readPositiveIntegerEnv(
-  'REGESTA_LOAD_PACKAGES',
-  profile.packageCount,
-)
-const readIterations = readPositiveIntegerEnv(
-  'REGESTA_LOAD_READS',
-  profile.readIterations,
-)
-const maxPublishDurationMs = readPositiveIntegerEnv(
-  'REGESTA_LOAD_MAX_PUBLISH_MS',
-  profile.maxPublishDurationMs,
-)
-const maxReadDurationMs = readPositiveIntegerEnv(
-  'REGESTA_LOAD_MAX_READ_MS',
-  profile.maxReadDurationMs,
-)
+const {
+  maxPublishDurationMs,
+  maxPublishP95Ms,
+  maxReadDurationMs,
+  maxReadP95Ms,
+  packageCount,
+  profileName,
+  publishConcurrency,
+  readConcurrency,
+  readIterations,
+  resultFile,
+} = resolveLoadSmokeOptions(process.env)
+const runStartedAt = performance.now()
+const startedAt = new Date().toISOString()
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'regesta-load-smoke-'))
 const dataDir = join(temporaryRoot, 'data')
 const keyFile = new URL(
@@ -72,59 +62,99 @@ try {
   }
 
   const publishStartedAt = performance.now()
-  const published = await Promise.all(
-    preparedPublishes.map(async (prepared) => {
-      const response = await app.request('/releases', {
-        body: createSignedPublishForm(prepared, key),
-        method: 'POST',
-      })
-
-      if (response.status !== 201) {
-        throw new Error(
-          `Publish returned ${response.status}: ${await response.text()}`,
-        )
-      }
-
-      return {
-        body: await response.json(),
-        prepared,
-      }
-    }),
+  const published = await mapConcurrent(
+    preparedPublishes,
+    publishConcurrency,
+    (prepared) => publishPreparedRelease(app, prepared, key),
   )
   const publishDurationMs = elapsedMilliseconds(publishStartedAt)
-  assertDuration('publish', publishDurationMs, maxPublishDurationMs)
+  const publishPackagesPerSecond = ratePerSecond(
+    packageCount,
+    publishDurationMs,
+  )
+  const publishLatenciesMs = published.map((publishedRelease) => {
+    return publishedRelease.durationMs
+  })
+  const publishLatencyMs = summarizeDurations(publishLatenciesMs)
+  assertDurationBudget('publish', publishDurationMs, maxPublishDurationMs)
+  assertOptionalDurationBudget(
+    'publish p95',
+    publishLatencyMs.p95,
+    maxPublishP95Ms,
+  )
 
   const readRequests = readLoadRequests(app, published)
+  const readCategories = sortedUniqueCategories(readRequests)
+  const readRequestsPerIteration = readRequests.length
+  const maxReadRequestConcurrency = readConcurrency * readRequestsPerIteration
   const readStartedAt = performance.now()
 
-  for (let index = 0; index < readIterations; index += 1) {
-    await Promise.all(
-      readRequests.map(async (readRequest) => {
-        const response = await app.request(readRequest.url)
-        await readRequest.assert(response)
-      }),
-    )
-  }
-  const readDurationMs = elapsedMilliseconds(readStartedAt)
-  assertDuration('read', readDurationMs, maxReadDurationMs)
-
-  console.info(
-    JSON.stringify(
-      {
-        kind: 'regesta.load-smoke',
-        maxPublishDurationMs,
-        maxReadDurationMs,
-        packages: packageCount,
-        profile: profileName,
-        publishDurationMs,
-        readDurationMs,
-        readIterations,
-        readRequests: readRequests.length * readIterations,
-      },
-      null,
-      2,
-    ),
+  const readLatencySamples = await runReadLoad(
+    app,
+    readRequests,
+    readIterations,
+    readConcurrency,
   )
+  const readDurationMs = elapsedMilliseconds(readStartedAt)
+  const readRequestsTotal = readRequestsPerIteration * readIterations
+  const readRequestsPerSecond = ratePerSecond(readRequestsTotal, readDurationMs)
+  const readLatencyMs = summarizeDurations(
+    readLatencySamples.map((sample) => sample.durationMs),
+  )
+  assertDurationBudget('read', readDurationMs, maxReadDurationMs)
+  assertOptionalDurationBudget('read p95', readLatencyMs.p95, maxReadP95Ms)
+
+  const result = {
+    kind: 'regesta.load-smoke',
+    startedAt,
+    completedAt: new Date().toISOString(),
+    totalDurationMs: elapsedMilliseconds(runStartedAt),
+    maxPublishDurationMs,
+    maxPublishP95Ms,
+    maxReadDurationMs,
+    maxReadP95Ms,
+    packages: packageCount,
+    profile: profileName,
+    deploymentTarget: 'local-in-process',
+    storage: {
+      checkpoints: 'filesystem',
+      database: 'sqlite',
+      objects: 'filesystem',
+      queue: 'filesystem-ndjson',
+      signer: 'local',
+    },
+    durability: {
+      root: 'temporary-filesystem',
+    },
+    cache: {
+      state: 'warm-after-publish',
+    },
+    runtime: {
+      name: 'node',
+      version: process.versions.node,
+    },
+    publishConcurrency,
+    publishDurationMs,
+    publishLatencyMs,
+    publishPackagesPerSecond,
+    readDurationMs,
+    readCategories,
+    readLatencyMs,
+    readLatencyByCategoryMs: summarizeSamplesByCategory(readLatencySamples),
+    readRequestsPerSecond,
+    readConcurrency,
+    readIterations,
+    readRequests: readRequestsTotal,
+    readRequestsPerIteration,
+    maxReadRequestConcurrency,
+  }
+  const resultJson = JSON.stringify(result, null, 2)
+
+  if (resultFile) {
+    await writeFile(resultFile, `${resultJson}\n`)
+  }
+
+  console.info(resultJson)
 } finally {
   await rm(temporaryRoot, { force: true, recursive: true })
 }
@@ -243,6 +273,7 @@ function readLoadRequests(app, published) {
           },
         })
       },
+      category: 'root',
       url: '/',
     },
     {
@@ -256,6 +287,7 @@ function readLoadRequests(app, published) {
           ok: true,
         })
       },
+      category: 'readiness',
       url: '/ready',
     },
     {
@@ -274,6 +306,7 @@ function readLoadRequests(app, published) {
           )
         }
       },
+      category: 'object-inventory',
       url: '/objects?limit=1',
     },
   ]
@@ -312,6 +345,7 @@ function readLoadRequests(app, published) {
               id: packageId,
             })
           },
+          category: 'package-state',
           url: `/packages/${packagePath}`,
         },
         {
@@ -327,6 +361,7 @@ function readLoadRequests(app, published) {
               },
             })
           },
+          category: 'channel-release',
           url: `/packages/${packagePath}/channels/latest`,
         },
         {
@@ -342,6 +377,7 @@ function readLoadRequests(app, published) {
               },
             })
           },
+          category: 'release',
           url: `/packages/${packagePath}/releases/${version}`,
         },
         {
@@ -352,6 +388,7 @@ function readLoadRequests(app, published) {
               id: eventId,
             })
           },
+          category: 'event',
           url: `/events/${eventPath}`,
         },
         {
@@ -365,6 +402,7 @@ function readLoadRequests(app, published) {
               throw new TypeError('Event log page event did not include an id')
             }
           },
+          category: 'event-page',
           url: '/events?limit=1',
         },
         {
@@ -374,6 +412,7 @@ function readLoadRequests(app, published) {
               throw new Error(`Object response was empty: ${manifestDigest}`)
             }
           },
+          category: 'object',
           url: `/objects/${manifestDigest}`,
         },
         {
@@ -393,6 +432,7 @@ function readLoadRequests(app, published) {
               },
             })
           },
+          category: 'npm-packument',
           url: npmBase,
         },
         {
@@ -415,6 +455,7 @@ function readLoadRequests(app, published) {
               )
             }
           },
+          category: 'npm-version',
           url: `${npmBase}/latest`,
         },
         {
@@ -428,6 +469,7 @@ function readLoadRequests(app, published) {
               )
             }
           },
+          category: 'npm-tarball-redirect',
           url: npmTarballUrl,
         },
       ]
@@ -439,6 +481,56 @@ function assertStatus(response, expectedStatus) {
   if (response.status !== expectedStatus) {
     throw new Error(`Expected ${expectedStatus}, got ${response.status}`)
   }
+}
+
+async function publishPreparedRelease(app, prepared, key) {
+  const startedAt = performance.now()
+  const response = await app.request('/releases', {
+    body: createSignedPublishForm(prepared, key),
+    method: 'POST',
+  })
+
+  if (response.status !== 201) {
+    throw new Error(
+      `Publish returned ${response.status}: ${await response.text()}`,
+    )
+  }
+
+  return {
+    body: await response.json(),
+    durationMs: elapsedMilliseconds(startedAt),
+    prepared,
+  }
+}
+
+async function runReadLoad(app, readRequests, readIterations, readConcurrency) {
+  const latenciesMs = []
+
+  for (let index = 0; index < readIterations; index += readConcurrency) {
+    const batchSize = Math.min(readConcurrency, readIterations - index)
+    const batchLatenciesMs = await Promise.all(
+      Array.from({ length: batchSize }, () =>
+        runReadIteration(app, readRequests),
+      ),
+    )
+    latenciesMs.push(...batchLatenciesMs.flat())
+  }
+
+  return latenciesMs
+}
+
+function runReadIteration(app, readRequests) {
+  return Promise.all(
+    readRequests.map(async (readRequest) => {
+      const startedAt = performance.now()
+      const response = await app.request(readRequest.url)
+      await readRequest.assert(response)
+      return {
+        category: readRequest.category,
+        durationMs: elapsedMilliseconds(startedAt),
+      }
+    }),
+  )
 }
 
 function assertObjectMatch(value, expected) {
@@ -472,42 +564,6 @@ function assertObjectMatch(value, expected) {
   }
 }
 
-function assertDuration(name, actualMs, maxMs) {
-  if (actualMs > maxMs) {
-    throw new Error(
-      `Load smoke ${name} phase exceeded threshold: ${actualMs}ms > ${maxMs}ms`,
-    )
-  }
-}
-
-function readPositiveIntegerEnv(name, defaultValue) {
-  const raw = process.env[name]
-
-  if (raw === undefined || raw === '') {
-    return defaultValue
-  }
-
-  if (!/^[1-9]\d*$/u.test(raw)) {
-    throw new TypeError(`${name} must be a positive integer`)
-  }
-
-  return Number(raw)
-}
-
-function readLoadProfileEnv() {
-  const raw = process.env.REGESTA_LOAD_PROFILE ?? 'smoke'
-
-  if (raw in loadProfiles) {
-    return raw
-  }
-
-  throw new TypeError(
-    `REGESTA_LOAD_PROFILE must be one of: ${Object.keys(loadProfiles).join(
-      ', ',
-    )}`,
-  )
-}
-
 function toArrayBuffer(bytes) {
   const copy = new Uint8Array(bytes.byteLength)
   copy.set(bytes)
@@ -516,4 +572,16 @@ function toArrayBuffer(bytes) {
 
 function elapsedMilliseconds(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100
+}
+
+function ratePerSecond(count, durationMs) {
+  if (durationMs <= 0) {
+    return count
+  }
+
+  return roundMilliseconds((count / durationMs) * 1000)
+}
+
+function roundMilliseconds(value) {
+  return Math.round(value * 100) / 100
 }
