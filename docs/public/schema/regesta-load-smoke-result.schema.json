@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://regesta.dev/schema/regesta-load-smoke-result.schema.json",
+  "title": "Regesta Load Smoke Result",
+  "description": "Machine-readable schema for the local load smoke result artifact. This is an operations artifact, not a Regesta protocol object.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "startedAt",
+    "completedAt",
+    "totalDurationMs",
+    "maxPublishDurationMs",
+    "maxReadDurationMs",
+    "packages",
+    "profile",
+    "deploymentTarget",
+    "storage",
+    "durability",
+    "cache",
+    "runtime",
+    "publishConcurrency",
+    "publishDurationMs",
+    "publishLatencyMs",
+    "publishPackagesPerSecond",
+    "readDurationMs",
+    "readCategories",
+    "readLatencyMs",
+    "readLatencyByCategoryMs",
+    "readRequestsPerSecond",
+    "readConcurrency",
+    "readIterations",
+    "readRequests",
+    "readRequestsPerIteration",
+    "maxReadRequestConcurrency"
+  ],
+  "properties": {
+    "kind": { "const": "regesta.load-smoke" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "totalDurationMs": { "$ref": "#/$defs/nonNegativeNumber" },
+    "maxPublishDurationMs": { "$ref": "#/$defs/positiveInteger" },
+    "maxPublishP95Ms": { "$ref": "#/$defs/positiveInteger" },
+    "maxReadDurationMs": { "$ref": "#/$defs/positiveInteger" },
+    "maxReadP95Ms": { "$ref": "#/$defs/positiveInteger" },
+    "packages": { "$ref": "#/$defs/positiveInteger" },
+    "profile": { "enum": ["local", "smoke"] },
+    "deploymentTarget": { "const": "local-in-process" },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkpoints", "database", "objects", "queue", "signer"],
+      "properties": {
+        "checkpoints": { "const": "filesystem" },
+        "database": { "const": "sqlite" },
+        "objects": { "const": "filesystem" },
+        "queue": { "const": "filesystem-ndjson" },
+        "signer": { "const": "local" }
+      }
+    },
+    "durability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root"],
+      "properties": {
+        "root": { "const": "temporary-filesystem" }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": { "const": "warm-after-publish" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "node" },
+        "version": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "publishConcurrency": { "$ref": "#/$defs/positiveInteger" },
+    "publishDurationMs": { "$ref": "#/$defs/nonNegativeNumber" },
+    "publishLatencyMs": { "$ref": "#/$defs/latencySummary" },
+    "publishPackagesPerSecond": { "$ref": "#/$defs/nonNegativeNumber" },
+    "readDurationMs": { "$ref": "#/$defs/nonNegativeNumber" },
+    "readCategories": {
+      "type": "array",
+      "minItems": 12,
+      "prefixItems": [
+        { "const": "channel-release" },
+        { "const": "event" },
+        { "const": "event-page" },
+        { "const": "npm-packument" },
+        { "const": "npm-tarball-redirect" },
+        { "const": "npm-version" },
+        { "const": "object" },
+        { "const": "object-inventory" },
+        { "const": "package-state" },
+        { "const": "readiness" },
+        { "const": "release" },
+        { "const": "root" }
+      ],
+      "items": false
+    },
+    "readLatencyMs": { "$ref": "#/$defs/latencySummary" },
+    "readLatencyByCategoryMs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "channel-release",
+        "event",
+        "event-page",
+        "npm-packument",
+        "npm-tarball-redirect",
+        "npm-version",
+        "object",
+        "object-inventory",
+        "package-state",
+        "readiness",
+        "release",
+        "root"
+      ],
+      "properties": {
+        "channel-release": { "$ref": "#/$defs/latencySummary" },
+        "event": { "$ref": "#/$defs/latencySummary" },
+        "event-page": { "$ref": "#/$defs/latencySummary" },
+        "npm-packument": { "$ref": "#/$defs/latencySummary" },
+        "npm-tarball-redirect": { "$ref": "#/$defs/latencySummary" },
+        "npm-version": { "$ref": "#/$defs/latencySummary" },
+        "object": { "$ref": "#/$defs/latencySummary" },
+        "object-inventory": { "$ref": "#/$defs/latencySummary" },
+        "package-state": { "$ref": "#/$defs/latencySummary" },
+        "readiness": { "$ref": "#/$defs/latencySummary" },
+        "release": { "$ref": "#/$defs/latencySummary" },
+        "root": { "$ref": "#/$defs/latencySummary" }
+      }
+    },
+    "readRequestsPerSecond": { "$ref": "#/$defs/nonNegativeNumber" },
+    "readConcurrency": { "$ref": "#/$defs/positiveInteger" },
+    "readIterations": { "$ref": "#/$defs/positiveInteger" },
+    "readRequests": { "$ref": "#/$defs/positiveInteger" },
+    "readRequestsPerIteration": { "$ref": "#/$defs/positiveInteger" },
+    "maxReadRequestConcurrency": { "$ref": "#/$defs/positiveInteger" }
+  },
+  "$defs": {
+    "latencySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["average", "count", "max", "min", "p50", "p95"],
+      "properties": {
+        "average": { "$ref": "#/$defs/nonNegativeNumber" },
+        "count": { "$ref": "#/$defs/positiveInteger" },
+        "max": { "$ref": "#/$defs/nonNegativeNumber" },
+        "min": { "$ref": "#/$defs/nonNegativeNumber" },
+        "p50": { "$ref": "#/$defs/nonNegativeNumber" },
+        "p95": { "$ref": "#/$defs/nonNegativeNumber" }
+      }
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nonNegativeNumber": {
+      "type": "number",
+      "minimum": 0
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  }
+}

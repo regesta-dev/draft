@@ -4,6 +4,7 @@ coverage
 .nitro
 .output
 .regesta-data
+docs/.vitepress/.temp
 docs/.vitepress/cache
 temp
 

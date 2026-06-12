@@ -152,6 +152,16 @@ reports `readRequestsPerIteration` and `maxReadRequestConcurrency` so operators
 can see the effective maximum read request fanout for the run.
 Set `REGESTA_LOAD_RESULT_FILE` to write the same JSON result to a file for CI
 artifacts or deployment baseline records.
+Use `pnpm smoke:load:validate <result-file>` to validate a saved result before
+publishing it as a CI artifact or deployment baseline.
+Use `pnpm smoke:load:ci` when CI should run the load smoke and validate the
+saved result in one command. If `REGESTA_LOAD_RESULT_FILE` is not set, the CI
+wrapper writes to a temporary result file.
+
+The load-smoke JSON result has an operations-only schema at
+[`/schema/regesta-load-smoke-result.schema.json`](/schema/regesta-load-smoke-result.schema.json).
+That schema describes the local benchmark result artifact; it is not a Regesta
+protocol object and does not define registry data-model semantics.
 
 The result also includes `readCategories`, which currently lists:
 `channel-release`, `event`, `event-page`, `npm-packument`,
@@ -167,7 +177,7 @@ Minimum pre-production gates:
 
 | Gate                 | Purpose                         | Required checks                                                                                                                   |
 | -------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `ci-smoke`           | Fast pull-request signal        | `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm docs:build`, `pnpm smoke:load` with the `smoke` profile                         |
+| `ci-smoke`           | Fast pull-request signal        | `pnpm ci:smoke`, which runs tests, typecheck, lint, format check, docs build, and `pnpm smoke:load:ci` with the `smoke` profile   |
 | `container-smoke`    | OCI portability and persistence | `pnpm smoke:docker` on a persistent volume                                                                                        |
 | `adapter-local`      | Local adapter regression        | `REGESTA_LOAD_PROFILE=local pnpm smoke:load`                                                                                      |
 | `adapter-production` | Production backend validation   | the same load shape against the intended database, object store, queue, signer, optional checkpoint store, and deployment runtime |

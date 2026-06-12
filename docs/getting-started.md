@@ -240,4 +240,21 @@ statistics, core package state, releases, events, objects, npm packuments, npm
 version manifests, and npm tarball redirects plus redirected object downloads.
 It is an operational smoke check, not a benchmark.
 
+For CI, use the wrapper that also writes and validates the machine-readable
+result artifact:
+
+```sh
+pnpm smoke:load:ci
+```
+
+Before opening a pull request or promoting a demo deployment, run the full
+preflight gate:
+
+```sh
+pnpm ci:smoke
+```
+
+This runs tests, typecheck, lint, format check, docs build, and the load smoke
+CI wrapper in sequence.
+
 For storage and recovery boundaries, see [Operations](/operations).

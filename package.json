@@ -6,6 +6,7 @@
   "packageManager": "pnpm@11.5.0",
   "scripts": {
     "build": "pnpm -r build",
+    "ci:smoke": "pnpm test -- --run && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm docs:build && pnpm smoke:load:ci",
     "docs:build": "vitepress build docs",
     "docs:dev": "vitepress dev docs",
     "docs:preview": "vitepress preview docs",
@@ -13,8 +14,11 @@
     "lint": "eslint --cache .",
     "lint:fix": "pnpm run lint --fix",
     "format": "prettier --cache --write .",
+    "format:check": "prettier --cache --check .",
     "smoke:docker": "node scripts/docker-smoke.mjs",
     "smoke:load": "node --conditions=regesta-source scripts/load-smoke.mjs",
+    "smoke:load:ci": "node scripts/load-smoke-ci.mjs",
+    "smoke:load:validate": "node scripts/validate-load-smoke-result.mjs",
     "test": "vitest",
     "typecheck": "tsgo --noEmit && pnpm --filter @regesta/server typecheck"
   },

@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 const docsRoot = new URL('./', import.meta.url)
 const workspaceRoot = new URL('../', docsRoot)
 const schemaPath = 'public/schema/regesta-v0.schema.json'
+const loadSmokeResultSchemaPath =
+  'public/schema/regesta-load-smoke-result.schema.json'
 const openapiPath = 'public/openapi/regesta-v0.openapi.json'
 const expectedOpenapiRouteMethods = {
   '/': ['get', 'head'],
@@ -40,6 +42,9 @@ describe('documentation references', () => {
     )
     await expect(readText('api.md')).resolves.toContain(
       '/openapi/regesta-v0.openapi.json',
+    )
+    await expect(readText('operations.md')).resolves.toContain(
+      '/schema/regesta-load-smoke-result.schema.json',
     )
   })
 
@@ -125,6 +130,7 @@ describe('documentation references', () => {
 
   it('publishes parseable JSON Schema and OpenAPI references', async () => {
     const schema = await readJson(schemaPath)
+    const loadSmokeResultSchema = await readJson(loadSmokeResultSchemaPath)
     const openapi = await readJson(openapiPath)
 
     expect(member(schema, '$schema')).toBe(
@@ -133,7 +139,87 @@ describe('documentation references', () => {
     expect(member(schema, '$id')).toBe(
       'https://regesta.dev/schema/regesta-v0.schema.json',
     )
+    expect(member(loadSmokeResultSchema, '$schema')).toBe(
+      'https://json-schema.org/draft/2020-12/schema',
+    )
+    expect(member(loadSmokeResultSchema, '$id')).toBe(
+      'https://regesta.dev/schema/regesta-load-smoke-result.schema.json',
+    )
     expect(member(openapi, 'openapi')).toBe('3.1.0')
+  })
+
+  it('publishes an operations-only schema for load smoke result artifacts', async () => {
+    const schema = await readJson(loadSmokeResultSchemaPath)
+    const operations = await readText('operations.md')
+    const normalizedOperations = operations.replaceAll(/\s+/gu, ' ')
+    const properties = member(schema, 'properties')
+    const definitions = member(schema, '$defs')
+    const readCategoryItems = member(
+      member(properties, 'readCategories'),
+      'prefixItems',
+    )
+    const latencyByCategory = member(
+      member(properties, 'readLatencyByCategoryMs'),
+      'properties',
+    )
+
+    if (!Array.isArray(readCategoryItems)) {
+      throw new TypeError('Load smoke readCategories must use prefixItems')
+    }
+
+    expect(member(schema, 'description')).toContain(
+      'operations artifact, not a Regesta protocol object',
+    )
+    expect(member(member(properties, 'kind'), 'const')).toBe(
+      'regesta.load-smoke',
+    )
+    expect(member(member(properties, 'deploymentTarget'), 'const')).toBe(
+      'local-in-process',
+    )
+    expect(member(member(properties, 'profile'), 'enum')).toEqual([
+      'local',
+      'smoke',
+    ])
+    expect(member(properties, 'maxPublishP95Ms')).toEqual({
+      $ref: '#/$defs/positiveInteger',
+    })
+    expect(member(properties, 'maxReadP95Ms')).toEqual({
+      $ref: '#/$defs/positiveInteger',
+    })
+    expect(member(member(properties, 'readCategories'), 'items')).toBe(false)
+    expect(readCategoryItems.map((item) => member(item, 'const'))).toEqual([
+      'channel-release',
+      'event',
+      'event-page',
+      'npm-packument',
+      'npm-tarball-redirect',
+      'npm-version',
+      'object',
+      'object-inventory',
+      'package-state',
+      'readiness',
+      'release',
+      'root',
+    ])
+
+    for (const category of readCategoryItems.map((item) =>
+      String(member(item, 'const')),
+    )) {
+      expect(member(latencyByCategory, category)).toEqual({
+        $ref: '#/$defs/latencySummary',
+      })
+    }
+
+    expect(member(member(definitions, 'latencySummary'), 'required')).toEqual([
+      'average',
+      'count',
+      'max',
+      'min',
+      'p50',
+      'p95',
+    ])
+    expect(normalizedOperations).toContain('operations-only schema')
+    expect(normalizedOperations).toContain('not a Regesta protocol object')
   })
 
   it('documents structured public error responses in OpenAPI', async () => {
@@ -624,7 +710,14 @@ describe('documentation references', () => {
     const loadSmokeOptions = await readWorkspaceText(
       'scripts/load-smoke-options.mjs',
     )
-    const loadSmokeSources = `${loadSmokeScript}\n${loadSmokeOptions}`
+    const loadSmokeCi = await readWorkspaceText('scripts/load-smoke-ci.mjs')
+    const loadSmokeValidator = await readWorkspaceText(
+      'scripts/validate-load-smoke-result.mjs',
+    )
+    const loadSmokeValidatorTest = await readWorkspaceText(
+      'scripts/validate-load-smoke-result.test.mjs',
+    )
+    const loadSmokeSources = `${loadSmokeScript}\n${loadSmokeOptions}\n${loadSmokeCi}\n${loadSmokeValidator}`
     const gettingStarted = await readText('getting-started.md')
     const normalizedGettingStarted = gettingStarted.replaceAll(/\s+/gu, ' ')
     const operations = await readText('operations.md')
@@ -636,9 +729,17 @@ describe('documentation references', () => {
       throw new TypeError('workspace package.json scripts must be an object')
     }
 
+    expect(scripts['ci:smoke']).toBe(
+      'pnpm test -- --run && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm docs:build && pnpm smoke:load:ci',
+    )
+    expect(scripts['format:check']).toBe('prettier --cache --check .')
     expect(scripts['smoke:docker']).toBe('node scripts/docker-smoke.mjs')
     expect(scripts['smoke:load']).toBe(
       'node --conditions=regesta-source scripts/load-smoke.mjs',
+    )
+    expect(scripts['smoke:load:ci']).toBe('node scripts/load-smoke-ci.mjs')
+    expect(scripts['smoke:load:validate']).toBe(
+      'node scripts/validate-load-smoke-result.mjs',
     )
     expect(dockerSmokeScript).toContain(
       'Docker smoke requires a running Docker daemon.',
@@ -685,10 +786,24 @@ describe('documentation references', () => {
     expect(loadSmokeSources).toContain("name: 'node'")
     expect(loadSmokeSources).toContain('process.versions.node')
     expect(loadSmokeSources).toContain('positive safe integer')
+    expect(loadSmokeCi).toContain('resolveLoadSmokeCiResultFile')
+    expect(loadSmokeCi).toContain('validateLoadSmokeResultFile')
+    expect(loadSmokeCi).toContain('REGESTA_LOAD_RESULT_FILE')
+    expect(loadSmokeValidator).toContain('validateLoadSmokeResultFile')
+    expect(loadSmokeValidator).toContain('loadSmokeReadCategories')
+    expect(loadSmokeValidator).toContain('Invalid load smoke result')
+    expect(loadSmokeValidator).toContain(
+      'readLatencyByCategoryMs must be an object',
+    )
+    expect(loadSmokeValidatorTest).toContain('validLoadSmokeResult')
 
     for (const text of [
+      'pnpm ci:smoke',
       'pnpm smoke:docker',
       'pnpm smoke:load',
+      'pnpm smoke:load:ci',
+      '`pnpm smoke:load:ci` with the `smoke` profile',
+      'pnpm smoke:load:validate <result-file>',
       'REGESTA_LOAD_PROFILE=local pnpm smoke:load',
       'SQLite/filesystem',
       'reads root deployment statistics',
@@ -763,6 +878,10 @@ describe('documentation references', () => {
       '`maxReadRequestConcurrency`',
       'effective maximum read request fanout',
       'write the same JSON result to a file',
+      'runs tests, typecheck, lint, format check, docs build',
+      'run the load smoke and validate the saved result in one command',
+      'operations-only schema',
+      'not a Regesta protocol object',
     ]) {
       expect(normalizedOperations).toContain(text)
     }
@@ -780,6 +899,14 @@ describe('documentation references', () => {
     expect(normalizedGettingStarted).toContain('verifies deployment statistics')
     expect(normalizedGettingStarted).toContain(
       'reads root deployment statistics',
+    )
+    expect(normalizedGettingStarted).toContain('pnpm smoke:load:ci')
+    expect(normalizedGettingStarted).toContain(
+      'writes and validates the machine-readable result artifact',
+    )
+    expect(normalizedGettingStarted).toContain('pnpm ci:smoke')
+    expect(normalizedGettingStarted).toContain(
+      'runs tests, typecheck, lint, format check, docs build, and the load smoke CI wrapper in sequence',
     )
   })
 
