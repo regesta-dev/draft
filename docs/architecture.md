@@ -211,8 +211,10 @@ For npm, that means the npm projection may serve Regesta packages first and
 fall back to `registry.npmjs.org` when a package is not present in Regesta.
 Fallback metadata is compatibility behavior, not core registry state. When the
 server projection handles fallback, upstream npm metadata is returned without
-rewriting `dist.tarball`; tarball bytes still come from the upstream URL, not
-from a Regesta proxy.
+rewriting `dist.tarball`. Regesta-hosted npm metadata points at npm projection
+tarball routes, which redirect to core object URLs; missing packages and
+versions redirect to upstream tarball URLs. The npm projection never proxies
+tarball bytes.
 
 The same fallback can also happen in the client or package manager instead of
 the server projection. For example, a client can try Regesta for domain-owned

@@ -2,6 +2,7 @@ import {
   createNpmPackument,
   npmInstallArtifact,
   npmPackageIdFromName,
+  tarballFileName,
   type NpmPackument,
   type NpmPackumentVersion,
 } from '@regesta/npm'
@@ -113,52 +114,26 @@ function createLocalNpmPackument(
   channels: Record<string, string>,
   modifiedAt?: string,
 ): NpmPackument {
-  return rewriteLocalNpmTarballUrls(
-    requestUrl,
-    createNpmPackument(
-      packageId,
-      releases,
-      requestUrl.origin,
-      channels,
-      modifiedAt,
-    ),
+  return createNpmPackument(
+    packageId,
     releases,
+    requestUrl.origin,
+    channels,
+    modifiedAt,
   )
 }
 
-function rewriteLocalNpmTarballUrls(
+export function localNpmTarballObjectUrl(
   requestUrl: URL,
-  packument: NpmPackument,
-  releases: Array<{ manifest: ReleaseManifest }>,
-): NpmPackument {
-  const tarballUrls = new Map(
-    releases.map((release) => [
-      release.manifest.version,
-      coreObjectUrl(requestUrl, npmInstallArtifact(release.manifest).digest),
-    ]),
-  )
-
-  return {
-    ...packument,
-    versions: Object.fromEntries(
-      Object.entries(packument.versions).map(([version, manifest]) => {
-        const tarball = tarballUrls.get(version)
-
-        return [
-          version,
-          tarball === undefined
-            ? manifest
-            : {
-                ...manifest,
-                dist: {
-                  ...manifest.dist,
-                  tarball,
-                },
-              },
-        ]
-      }),
-    ),
+  packageId: PackageId,
+  release: { manifest: ReleaseManifest },
+  file: string,
+): string | undefined {
+  if (tarballFileName(packageId, release.manifest.version) !== file) {
+    return undefined
   }
+
+  return coreObjectUrl(requestUrl, npmInstallArtifact(release.manifest).digest)
 }
 
 function coreObjectUrl(requestUrl: URL, digest: string): string {

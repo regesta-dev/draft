@@ -299,7 +299,7 @@ function readLoadRequests(app, published) {
       const installArtifactDigest = sha256(installArtifact.bytes)
       const installArtifactObjectUrl = `http://registry.test/objects/${installArtifactDigest}`
       const npmBase = `http://npm.registry.test/@dev.localhost/${name}`
-      const upstreamNpmTarballUrl = `https://registry.npmjs.org/%40dev.localhost%2F${name}/-/${name}-${version}.tgz`
+      const npmTarballUrl = `${npmBase}/-/${name}-${version}.tgz`
 
       return [
         {
@@ -387,7 +387,7 @@ function readLoadRequests(app, published) {
               versions: {
                 [version]: {
                   dist: {
-                    tarball: installArtifactObjectUrl,
+                    tarball: npmTarballUrl,
                   },
                 },
               },
@@ -401,7 +401,7 @@ function readLoadRequests(app, published) {
             const manifest = await response.json()
             assertObjectMatch(manifest, {
               dist: {
-                tarball: installArtifactObjectUrl,
+                tarball: npmTarballUrl,
               },
               name: `@dev.localhost/${name}`,
               version,
@@ -422,13 +422,13 @@ function readLoadRequests(app, published) {
             assertStatus(response, 302)
             const location = response.headers.get('location')
 
-            if (location !== upstreamNpmTarballUrl) {
+            if (location !== installArtifactObjectUrl) {
               throw new Error(
-                `Expected npm tarball redirect to ${upstreamNpmTarballUrl}, got ${location}`,
+                `Expected npm tarball redirect to ${installArtifactObjectUrl}, got ${location}`,
               )
             }
           },
-          url: `${npmBase}/-/${name}-${version}.tgz`,
+          url: npmTarballUrl,
         },
       ]
     }),

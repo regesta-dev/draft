@@ -731,11 +731,22 @@ describe('documentation references', () => {
     )
     expect(tarballSchema).toEqual(
       expect.objectContaining({
+        description: expect.stringContaining('npm projection tarball URL'),
+      }),
+    )
+    expect(tarballSchema).toEqual(
+      expect.objectContaining({
         description: expect.stringContaining('without rewriting'),
       }),
     )
     expect(redirectDescription).toEqual(
       expect.stringContaining('direct npm projection tarball requests'),
+    )
+    expect(redirectDescription).toEqual(
+      expect.stringContaining('Local releases redirect'),
+    )
+    expect(redirectDescription).toEqual(
+      expect.stringContaining('missing packages and versions redirect'),
     )
     expect(redirectDescription).toEqual(
       expect.stringContaining('never serves or proxies tarball bytes'),

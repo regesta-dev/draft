@@ -344,7 +344,8 @@ describe('createNpmRegistryRoutes', () => {
       versions: {
         '1.0.0': {
           dist: {
-            tarball: `https://registry.test/objects/${installArtifactDigest(manifest)}`,
+            tarball:
+              'https://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-1.0.0.tgz',
           },
           name: '@example.com/hello-regesta',
           version: '1.0.0',
@@ -454,7 +455,8 @@ describe('createNpmRegistryRoutes', () => {
     expect(response.headers.get('last-modified')).toBeNull()
     await expect(response.json()).resolves.toMatchObject({
       dist: {
-        tarball: `https://registry.test/objects/${installArtifactDigest(manifest)}`,
+        tarball:
+          'https://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-1.0.0.tgz',
       },
       name: '@example.com/hello-regesta',
       version: '1.0.0',
@@ -593,7 +595,7 @@ describe('createNpmRegistryRoutes', () => {
     expect(upstreamFetch).not.toHaveBeenCalled()
   })
 
-  it('redirects direct npm tarball routes without fetching bytes or storage state', async () => {
+  it('redirects direct npm tarball routes without fetching bytes or listing release state', async () => {
     const upstreamFetch = vi.fn<typeof fetch>(() => {
       throw new Error('tarball routes must not proxy upstream bytes')
     })
@@ -626,19 +628,20 @@ describe('createNpmRegistryRoutes', () => {
     expect(scoped.status).toBe(302)
     expect(scoped.headers.get('cache-control')).toBe('no-cache')
     expect(scoped.headers.get('location')).toBe(
-      'https://registry.npmjs.org/%40example.com%2Fhello-regesta/-/hello-regesta-1.0.0.tgz',
+      `https://registry.test/objects/${sha256('install-artifact')}`,
     )
     await expect(scoped.text()).resolves.toBe('')
 
     expect(scopedHead.status).toBe(302)
     expect(scopedHead.headers.get('location')).toBe(
-      'https://registry.npmjs.org/%40example.com%2Fhello-regesta/-/hello-regesta-1.0.0.tgz',
+      `https://registry.test/objects/${sha256('install-artifact')}`,
     )
     await expect(scopedHead.text()).resolves.toBe('')
 
     expect(reader.database.getPackageChannels).not.toHaveBeenCalled()
     expect(reader.database.getPackageEventState).not.toHaveBeenCalled()
-    expect(reader.database.getRelease).not.toHaveBeenCalled()
+    expect(reader.database.getRelease).toHaveBeenCalledTimes(2)
+    expect(reader.database.getRelease).toHaveBeenCalledWith(packageId, '1.0.0')
     expect(reader.database.hasPackage).not.toHaveBeenCalled()
     expect(reader.database.listPackageReleases).not.toHaveBeenCalled()
     expect(upstreamFetch).not.toHaveBeenCalled()
@@ -672,15 +675,6 @@ function releaseManifest(): ReleaseManifest {
     },
     version: '1.0.0',
   }
-}
-
-function installArtifactDigest(manifest: ReleaseManifest): string {
-  const artifact = manifest.artifacts.find((item) => item.role === 'install')
-  if (!artifact) {
-    throw new Error('Expected install artifact')
-  }
-
-  return artifact.digest
 }
 
 function publishEvent(manifest: ReleaseManifest): RegistryEvent {
@@ -748,6 +742,9 @@ function missingNpmPackageReader() {
 }
 
 function storageFreeNpmTarballReader() {
+  const manifest = releaseManifest()
+  const event = publishEvent(manifest)
+
   return {
     database: {
       getPackageChannels: vi.fn(() => {
@@ -756,8 +753,12 @@ function storageFreeNpmTarballReader() {
       getPackageEventState: vi.fn(() => {
         throw new Error('tarball routes must not read package event state')
       }),
-      getRelease: vi.fn(() => {
-        throw new Error('tarball routes must not read releases')
+      getRelease: vi.fn((id, version) => {
+        if (id === packageId && version === manifest.version) {
+          return Promise.resolve({ event, manifest })
+        }
+
+        return Promise.resolve(undefined)
       }),
       hasPackage: vi.fn(() => {
         throw new Error('tarball routes must not check package existence')

@@ -194,7 +194,7 @@ describe('server layer boundaries', () => {
     expect(projectionSource).not.toContain('getPackageChannels')
   })
 
-  it('keeps npm tarball routes redirect-only and storage-free', async () => {
+  it('keeps npm tarball routes redirect-only and byte-storage-free', async () => {
     const routeSource = await readFile(
       join(serverSourceRoot, 'npm/app.ts'),
       'utf8',
@@ -207,15 +207,15 @@ describe('server layer boundaries', () => {
 
     expect(tarballSource).toContain('redirectToTarball')
     expect(tarballSource).toContain('upstream.tarballUrl')
+    expect(tarballSource).toContain('getRelease')
+    expect(tarballSource).toContain('localNpmTarballObjectUrl')
     expect(tarballSource).toContain('status: 302')
     for (const text of [
-      'adapters',
-      'database',
       'getPackageChannels',
       'getPackageEventState',
-      'getRelease',
       'hasPackage',
       'listPackageReleases',
+      'objects.',
       'upstreamFetch',
       'fetch(',
     ]) {
@@ -507,10 +507,11 @@ describe('server layer boundaries', () => {
     expect(tarballStart).toBeGreaterThanOrEqual(0)
     expect(tarballEnd).toBeGreaterThan(tarballStart)
     expect(tarballSource).toContain('upstream.tarballUrl')
-    expect(tarballSource).not.toContain('adapters')
-    expect(tarballSource).not.toContain('database')
+    expect(tarballSource).toContain('getRelease')
+    expect(tarballSource).toContain('localNpmPackageId')
+    expect(tarballSource).toContain('localNpmTarballObjectUrl')
     expect(tarballSource).not.toContain('fetch')
-    expect(tarballSource).not.toContain('localNpmPackageId')
+    expect(tarballSource).not.toContain('objects.')
   })
 
   it('keeps npm upstream fallback mechanics outside projection route handlers', async () => {

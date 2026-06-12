@@ -208,8 +208,8 @@ client/package manager instead of the server projection.
 
 Fallback packuments and version manifests preserve upstream npm metadata,
 including upstream `dist.tarball` URLs. The npm projection does not proxy
-tarball bytes; direct npm projection tarball routes redirect to npmjs.org when
-requested.
+tarball bytes; direct npm projection tarball routes redirect local releases to
+core objects and missing packages or versions to npmjs.org.
 
 ## Docker Smoke Test
 

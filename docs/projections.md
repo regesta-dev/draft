@@ -103,11 +103,12 @@ artifact metadata fields stay inside the Regesta artifact metadata and are not
 copied into npm version manifests. This keeps artifact inspection data from
 silently becoming package-manager behavior.
 
-Regesta-hosted npm metadata should point `dist.tarball` at the core object URL,
-where the object layer serves the immutable artifact. Fallback metadata should
-preserve the upstream npm metadata, including upstream `dist.tarball` URLs,
-instead of rewriting it to Regesta URLs. Byte serving, range handling, cache
-validators, and integrity checks remain object-layer responsibilities.
+Regesta-hosted npm metadata should point `dist.tarball` at the npm projection
+tarball URL. That route should redirect to the immutable core object URL and
+must not proxy artifact bytes. Fallback metadata should preserve the upstream
+npm metadata, including upstream `dist.tarball` URLs, instead of rewriting it
+to Regesta URLs. Byte serving, range handling, cache validators, and integrity
+checks remain object-layer responsibilities.
 
 Future PyPI, Cargo, Go, OCI, and other processors should follow the same
 pattern: understand their artifacts, write projection metadata to the artifact,
@@ -125,9 +126,10 @@ then resolving missing packages from the ecosystem's default registry.
 Fallback metadata should not be committed as Regesta package state. When the
 server projection handles fallback, upstream packument, version-manifest, and
 dist-tag metadata are validated and returned without rewriting. Direct npm
-projection tarball routes still redirect to upstream tarballs and the npm
-projection never proxies tarball bytes. The projection forwards only metadata
-negotiation and cache validation headers to the upstream registry; client
+projection tarball routes redirect local releases to core object URLs and
+missing releases to upstream tarballs; the npm projection never proxies tarball
+bytes. The projection forwards only metadata negotiation and cache validation
+headers to the upstream registry; client
 credentials such as `Authorization`, `Cookie`, and npm token headers stay local
 to the Regesta request. It also returns only cache and content metadata headers
 from upstream responses, so upstream cookies, redirects, authentication

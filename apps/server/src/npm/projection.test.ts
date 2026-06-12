@@ -105,12 +105,14 @@ describe('local npm projection', () => {
         '1.0.0': {
           description: 'Regesta hello package',
           dist: {
-            tarball: `https://registry.test/objects/${installArtifactDigest(first)}`,
+            tarball:
+              'https://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-1.0.0.tgz',
           },
         },
         '2.0.0': {
           dist: {
-            tarball: `https://registry.test/objects/${installArtifactDigest(second)}`,
+            tarball:
+              'https://npm.registry.test/@example.com/hello-regesta/-/hello-regesta-2.0.0.tgz',
           },
         },
       },
@@ -154,15 +156,6 @@ function release(version: string, createdAt: string): ReleaseManifest {
     },
     version,
   }
-}
-
-function installArtifactDigest(manifest: ReleaseManifest): string {
-  const artifact = manifest.artifacts.find((item) => item.role === 'install')
-  if (!artifact) {
-    throw new Error('Expected install artifact')
-  }
-
-  return artifact.digest
 }
 
 function publish(

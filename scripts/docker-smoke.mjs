@@ -97,8 +97,7 @@ try {
     description: 'Minimal Regesta v0 example package.',
     name: '@dev.localhost/hello-regesta',
   })
-  await assertPackumentObjectTarball(packument, new URL(baseUrl).port)
-  await assertNpmTarballRedirect(baseUrl)
+  await assertPackumentTarballRedirect(packument, baseUrl)
 
   await npmInstallSmoke(baseUrl)
 
@@ -236,7 +235,8 @@ async function npmInstallSmoke(baseUrl) {
   })
 }
 
-async function assertPackumentObjectTarball(packument, port) {
+async function assertPackumentTarballRedirect(packument, baseUrl) {
+  const port = new URL(baseUrl).port
   const tarball = packument.versions?.['0.0.5']?.dist?.tarball
   if (typeof tarball !== 'string') {
     throw new TypeError('npm packument version did not include dist.tarball')
@@ -244,40 +244,40 @@ async function assertPackumentObjectTarball(packument, port) {
 
   const tarballUrl = new URL(tarball)
   if (
-    tarballUrl.hostname !== 'localhost' ||
+    tarballUrl.hostname !== 'npm.localhost' ||
     tarballUrl.port !== port ||
-    !tarballUrl.pathname.startsWith('/objects/sha256:')
+    tarballUrl.pathname !==
+      '/@dev.localhost/hello-regesta/-/hello-regesta-0.0.5.tgz'
   ) {
     throw new Error(
-      `Expected npm metadata tarball to be a core object URL: ${tarball}`,
+      `Expected npm metadata tarball to be an npm projection tarball URL: ${tarball}`,
     )
   }
 
-  const response = await fetch(tarballUrl)
+  const location = await getRedirectWithHostHeader(
+    `${baseUrl}${tarballUrl.pathname}`,
+    `npm.localhost:${port}`,
+  )
+  const objectUrl = new URL(location)
+  if (
+    objectUrl.hostname !== 'localhost' ||
+    objectUrl.port !== port ||
+    !objectUrl.pathname.startsWith('/objects/sha256:')
+  ) {
+    throw new Error(
+      `Expected npm tarball route to redirect to a core object URL, got ${location}`,
+    )
+  }
+
+  const response = await fetch(objectUrl)
   if (!response.ok) {
     throw new Error(
-      `${tarball} returned ${response.status}: ${await response.text()}`,
+      `${location} returned ${response.status}: ${await response.text()}`,
     )
   }
 
   if ((await response.arrayBuffer()).byteLength === 0) {
-    throw new Error(`Core object tarball was empty: ${tarball}`)
-  }
-}
-
-async function assertNpmTarballRedirect(baseUrl) {
-  const port = new URL(baseUrl).port
-  const location = await getRedirectWithHostHeader(
-    `${baseUrl}/@dev.localhost/hello-regesta/-/hello-regesta-0.0.5.tgz`,
-    `npm.localhost:${port}`,
-  )
-  const expected =
-    'https://registry.npmjs.org/%40dev.localhost%2Fhello-regesta/-/hello-regesta-0.0.5.tgz'
-
-  if (location !== expected) {
-    throw new Error(
-      `Expected npm tarball route to redirect to ${expected}, got ${location}`,
-    )
+    throw new Error(`Core object tarball was empty: ${location}`)
   }
 }
 

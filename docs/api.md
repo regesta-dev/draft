@@ -469,10 +469,10 @@ through an explicit supported-field allowlist. Unknown npm artifact metadata
 fields remain artifact inspection data and are not copied into local npm
 version manifests.
 
-Regesta-hosted npm metadata points `dist.tarball` at the core object URL, where
-the object layer serves the immutable artifact. Fallback metadata is returned
-from the upstream npm registry without rewriting `dist.tarball`; the npm
-projection never proxies artifact bytes.
+Regesta-hosted npm metadata points `dist.tarball` at the npm projection tarball
+URL. That route redirects to the immutable core object URL and never proxies
+artifact bytes. Fallback metadata is returned from the upstream npm registry
+without rewriting `dist.tarball`.
 
 ### Progressive Migration And Fallback
 
@@ -488,7 +488,8 @@ then asks the ecosystem's default registry for missing packages.
 When the server projection handles fallback, packument, version-manifest, and
 dist-tag metadata are validated and then returned without rewriting. Upstream
 `dist.tarball` URLs remain upstream URLs. Direct npm projection tarball routes
-still redirect to upstream npmjs.org tarballs and never proxy tarball bytes.
+redirect local releases to core object URLs, redirect missing releases to
+upstream npmjs.org tarballs, and never proxy tarball bytes.
 Client metadata validators such as `If-None-Match` and `If-Modified-Since` are
 forwarded to the upstream npm registry; upstream `304` responses preserve
 upstream cache headers and do not include a response body. Client credentials,

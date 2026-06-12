@@ -4,6 +4,7 @@ import { errorResponse, matchesIfNoneMatch } from '../responses.ts'
 import {
   createLocalNpmVersionManifest,
   localNpmPackageId,
+  localNpmTarballObjectUrl,
   npmDistTagsEtag,
   npmVersionManifestEtag,
   readLocalNpmPackageProjection,
@@ -77,6 +78,7 @@ export function createNpmRegistryRoutes(
   app.get('/:scope/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
+      adapters,
       upstream,
       scopedNpmPackageName(
         context.req.param('scope'),
@@ -88,6 +90,7 @@ export function createNpmRegistryRoutes(
   app.on('HEAD', '/:scope/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
+      adapters,
       upstream,
       scopedNpmPackageName(
         context.req.param('scope'),
@@ -99,6 +102,7 @@ export function createNpmRegistryRoutes(
   app.get('/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
+      adapters,
       upstream,
       encodedNpmPackageName(context.req.param('name')),
     )
@@ -107,6 +111,7 @@ export function createNpmRegistryRoutes(
   app.on('HEAD', '/:name/-/:file', (context) => {
     return serveNpmTarball(
       context,
+      adapters,
       upstream,
       encodedNpmPackageName(context.req.param('name')),
     )
@@ -260,7 +265,7 @@ async function serveNpmPackageManifest(
           : 'no-cache'
       return serveNpmProjectionJson(
         context,
-        createLocalNpmVersionManifest(new URL(context.req.url), packageId, {
+        createLocalNpmVersionManifest(publicRequestUrl(context), packageId, {
           manifest: release.manifest,
         }),
         npmVersionManifestEtag(release.event.id),
@@ -303,7 +308,7 @@ async function serveNpmPackument(
       adapters,
       packageId,
       releases,
-      new URL(context.req.url),
+      publicRequestUrl(context),
     )
     return serveNpmProjectionJson(
       context,
@@ -404,14 +409,65 @@ function serveNpmUtilityJson(context: Context, body: unknown): Response {
     : new Response(bytes, { headers })
 }
 
-function serveNpmTarball(
+function publicRequestUrl(context: Context): URL {
+  const url = new URL(context.req.url)
+  const host = context.req.header('host')
+
+  if (host) {
+    url.host = host
+  }
+
+  return url
+}
+
+async function serveNpmTarball(
   context: Context,
+  adapters: NpmRegistryReader,
   upstream: NpmUpstreamFallback,
   packageName: string,
-): Response {
+): Promise<Response> {
   const file = requiredParam(context.req.param('file'), 'file')
+  const packageId = localNpmPackageId(packageName)
+
+  if (packageId) {
+    const version = npmTarballVersion(packageName, file)
+    const release = version
+      ? await adapters.database.getRelease(packageId, version)
+      : undefined
+    const objectUrl = release
+      ? localNpmTarballObjectUrl(
+          publicRequestUrl(context),
+          packageId,
+          { manifest: release.manifest },
+          file,
+        )
+      : undefined
+
+    if (objectUrl) {
+      return redirectToTarball(objectUrl)
+    }
+  }
 
   return redirectToTarball(upstream.tarballUrl(packageName, file))
+}
+
+function npmTarballVersion(
+  packageName: string,
+  file: string,
+): string | undefined {
+  const name = packageName.split('/').at(-1)
+  if (!name) {
+    return undefined
+  }
+
+  const prefix = `${name}-`
+  const suffix = '.tgz'
+  if (!file.startsWith(prefix) || !file.endsWith(suffix)) {
+    return undefined
+  }
+
+  const version = file.slice(prefix.length, -suffix.length)
+  return version || undefined
 }
 
 function redirectToTarball(location: string): Response {
