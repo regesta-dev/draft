@@ -459,15 +459,36 @@ describe('server layer boundaries', () => {
     ])
   })
 
-  it('keeps artifact helpers independent from server routes', async () => {
+  it('keeps artifact helpers independent from server routes, transport, and storage', async () => {
     await expectNoForbiddenImports('artifacts', [
+      '@regesta/adapters',
       '@regesta/core',
+      'hono',
+      'node:fs',
+      'node:fs/promises',
+      'node:path',
+      'node:sqlite',
+      'valibot',
       '../auth/',
       '../core/',
       '../dev/',
       '../npm/',
+      '../responses',
+      '../storage/',
       '../transport/',
       '../trust/',
+    ])
+    await expectNoForbiddenSourcePatterns('artifacts', [
+      { label: 'full registry adapter type', pattern: /\bRegistryAdapters\b/u },
+      { label: 'SQLite implementation', pattern: /\bDatabaseSync\b/u },
+      {
+        label: 'local adapter factory',
+        pattern: /createLocalRegistryAdapters/u,
+      },
+      {
+        label: 'memory adapter factory',
+        pattern: /createMemoryRegistryAdapters/u,
+      },
     ])
   })
 

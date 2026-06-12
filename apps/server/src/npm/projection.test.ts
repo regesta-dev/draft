@@ -139,6 +139,54 @@ describe('local npm projection', () => {
     })
   })
 
+  it('rejects invalid adapter package states before projecting npm metadata', async () => {
+    const first = release('1.0.0', '2025-01-01T00:00:00.000Z')
+    const firstPublished = publish(first, 'latest', '2025-01-01T00:00:00.000Z')
+    const snapshot = packageStateSnapshot(firstPublished)
+    const reader = {
+      database: {
+        getPackageEventHead: vi.fn(() => {
+          throw new Error('uncached reads should not read package event heads')
+        }),
+        getPackageEventState: vi.fn(() =>
+          Promise.resolve({
+            ...snapshot,
+            state: {
+              ...snapshot.state,
+              channels: {
+                latest: '9.9.9',
+              },
+            },
+          }),
+        ),
+        getPackageReleaseHead: vi.fn(() =>
+          Promise.resolve({
+            modifiedAt: first.createdAt,
+            releaseCount: 1,
+          }),
+        ),
+        listPackageReleases: vi.fn(() =>
+          Promise.resolve([
+            {
+              event: firstPublished,
+              manifest: first,
+            },
+          ]),
+        ),
+      },
+    } satisfies NpmProjectionStateReader
+
+    await expect(
+      readLocalNpmPackageProjection(
+        reader,
+        packageId,
+        new URL('https://npm.registry.test/@example.com/hello-regesta'),
+      ),
+    ).rejects.toThrow(
+      'Adapter package state channels latest must target an existing release version: 9.9.9',
+    )
+  })
+
   it('builds version manifest etags from release event ids', () => {
     expect(npmVersionManifestEtag(sha256('release-event'))).toBe(
       `W/"regesta.npm-version:${sha256('release-event')}"`,
@@ -185,7 +233,10 @@ describe('local npm projection', () => {
   it('does not read an extra empty release page at the page-size boundary', async () => {
     const releases = Array.from({ length: 999 }, (_, index) => {
       const version = `1.0.${index}`
-      const manifest = release(version, '2025-01-01T00:00:00.000Z')
+      const manifest = release(
+        version,
+        new Date(Date.UTC(2025, 0, 1, 0, 0, index)).toISOString(),
+      )
       const event = publish(manifest, 'latest', manifest.createdAt)
 
       return {

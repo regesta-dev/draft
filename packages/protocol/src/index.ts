@@ -16,7 +16,9 @@ export {
 export {
   assertPackageChannel,
   assertPackageVersion,
+  comparePackageReleaseOrder,
   defaultPackageChannel,
+  parsePackageChannels,
   parsePackageState,
 } from './package.ts'
 export {

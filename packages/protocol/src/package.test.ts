@@ -3,6 +3,8 @@ import { sha256 } from './digest.ts'
 import {
   assertPackageChannel,
   assertPackageVersion,
+  comparePackageReleaseOrder,
+  parsePackageChannels,
   parsePackageState,
   type PackageState,
 } from './package.ts'
@@ -43,6 +45,60 @@ describe('assertPackageVersion', () => {
     expect(() => assertPackageVersion('1.0.0\r\nx')).toThrow(
       'Package version must not include control characters',
     )
+  })
+})
+
+describe('parsePackageChannels', () => {
+  it('parses ecosystem-defined channels', () => {
+    expect(
+      parsePackageChannels(
+        {
+          beta: '2.0.0-beta.1',
+          latest: '1.0.0',
+        },
+        'Package channels',
+      ),
+    ).toEqual({
+      beta: '2.0.0-beta.1',
+      latest: '1.0.0',
+    })
+  })
+
+  it('rejects invalid channel values', () => {
+    expect(() =>
+      parsePackageChannels(
+        {
+          latest: 1,
+        },
+        'Package channels',
+      ),
+    ).toThrow('Package channels latest must be a non-empty string')
+  })
+})
+
+describe('comparePackageReleaseOrder', () => {
+  it('sorts releases by creation timestamp first', () => {
+    const releases = [
+      { createdAt: '2026-06-02T00:00:00.000Z', version: '1.0.0' },
+      { createdAt: '2026-06-01T00:00:00.000Z', version: '2.0.0' },
+    ]
+
+    expect(releases.toSorted(comparePackageReleaseOrder)).toEqual([
+      { createdAt: '2026-06-01T00:00:00.000Z', version: '2.0.0' },
+      { createdAt: '2026-06-02T00:00:00.000Z', version: '1.0.0' },
+    ])
+  })
+
+  it('uses release version as a deterministic tie-breaker', () => {
+    const releases = [
+      { createdAt: '2026-06-01T00:00:00.000Z', version: '2.0.0' },
+      { createdAt: '2026-06-01T00:00:00.000Z', version: '1.0.0' },
+    ]
+
+    expect(releases.toSorted(comparePackageReleaseOrder)).toEqual([
+      { createdAt: '2026-06-01T00:00:00.000Z', version: '1.0.0' },
+      { createdAt: '2026-06-01T00:00:00.000Z', version: '2.0.0' },
+    ])
   })
 })
 
@@ -89,6 +145,87 @@ describe('parsePackageState', () => {
         operatorHint: 'not verified',
       }),
     ).toThrow('Package state must not include unknown field: operatorHint')
+  })
+
+  it('rejects package states whose releases are not ordered by timestamp', () => {
+    const state = packageState()
+
+    expect(() =>
+      parsePackageState({
+        ...state,
+        releases: [
+          {
+            createdAt: '2026-06-02T00:00:00.000Z',
+            manifestDigest: sha256(bytes('manifest 2')),
+            version: '2.0.0',
+          },
+          {
+            createdAt: '2026-06-01T00:00:00.000Z',
+            manifestDigest: sha256(bytes('manifest 1')),
+            version: '1.0.0',
+          },
+        ],
+      }),
+    ).toThrow('Package state releases must be ordered by createdAt and version')
+  })
+
+  it('rejects package states whose releases do not use version as the tie-breaker', () => {
+    const state = packageState()
+
+    expect(() =>
+      parsePackageState({
+        ...state,
+        releases: [
+          {
+            createdAt: '2026-06-01T00:00:00.000Z',
+            manifestDigest: sha256(bytes('manifest 2')),
+            version: '2.0.0',
+          },
+          {
+            createdAt: '2026-06-01T00:00:00.000Z',
+            manifestDigest: sha256(bytes('manifest 1')),
+            version: '1.0.0',
+          },
+        ],
+      }),
+    ).toThrow('Package state releases must be ordered by createdAt and version')
+  })
+
+  it('rejects package states with duplicate release versions', () => {
+    const state = packageState()
+
+    expect(() =>
+      parsePackageState({
+        ...state,
+        releases: [
+          {
+            createdAt: '2026-06-01T00:00:00.000Z',
+            manifestDigest: sha256(bytes('manifest 1')),
+            version: '1.0.0',
+          },
+          {
+            createdAt: '2026-06-02T00:00:00.000Z',
+            manifestDigest: sha256(bytes('manifest 2')),
+            version: '1.0.0',
+          },
+        ],
+      }),
+    ).toThrow(
+      'Package state releases must not include duplicate version: 1.0.0',
+    )
+  })
+
+  it('rejects package states whose channels target missing release versions', () => {
+    expect(() =>
+      parsePackageState({
+        ...packageState(),
+        channels: {
+          latest: '2.0.0',
+        },
+      }),
+    ).toThrow(
+      'Package state channels latest must target an existing release version: 2.0.0',
+    )
   })
 
   it('rejects invalid release manifest digests', () => {

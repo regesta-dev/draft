@@ -2,6 +2,7 @@ import {
   assertCanonicalTimestamp,
   assertPackageChannel,
   assertPackageVersion,
+  comparePackageReleaseOrder,
   parsePackageId,
   registryEventDigest,
   type ChannelDeletedEvent,
@@ -77,12 +78,7 @@ export function replayPackageState(
     id: packageId,
     name: parsed.name,
     object: 'regesta.package-state',
-    releases: [...releases.values()].toSorted((left, right) => {
-      return (
-        left.createdAt.localeCompare(right.createdAt) ||
-        left.version.localeCompare(right.version)
-      )
-    }),
+    releases: [...releases.values()].toSorted(comparePackageReleaseOrder),
   }
 }
 

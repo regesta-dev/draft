@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import {
+  comparePackageReleaseOrder,
   parsePackageId,
   type ArtifactEcosystemMetadata,
   type PackageId,
@@ -98,10 +99,7 @@ export function createNpmPackument(
     assertNpmReleaseMatchesPackage(packageId, release.manifest)
   }
   const sortedReleases = releases.toSorted((left, right) => {
-    return (
-      left.manifest.createdAt.localeCompare(right.manifest.createdAt) ||
-      left.manifest.version.localeCompare(right.manifest.version)
-    )
+    return comparePackageReleaseOrder(left.manifest, right.manifest)
   })
   const latest = sortedReleases.at(-1)
   const knownVersions = new Set(

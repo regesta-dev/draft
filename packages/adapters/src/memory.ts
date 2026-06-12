@@ -12,6 +12,7 @@ import {
 import {
   assertObjectMediaType,
   canonicalJson,
+  comparePackageReleaseOrder,
   parsePackageId,
   sha256,
   type ChannelDeletedEvent,
@@ -224,10 +225,7 @@ function compareStoredReleaseByCreatedAtAndVersion(
   left: StoredRelease,
   right: StoredRelease,
 ): number {
-  return (
-    left.manifest.createdAt.localeCompare(right.manifest.createdAt) ||
-    left.manifest.version.localeCompare(right.manifest.version)
-  )
+  return comparePackageReleaseOrder(left.manifest, right.manifest)
 }
 
 function packageReleasePageStartIndex(
@@ -404,12 +402,7 @@ export class MemoryRegistryDatabase implements RegistryDatabase {
     const parsed = parsePackageId(packageId)
     const releases = [...(this.eventReleases.get(packageId)?.values() ?? [])]
       .map((release) => ({ ...release }))
-      .toSorted((left, right) => {
-        return (
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.version.localeCompare(right.version)
-        )
-      })
+      .toSorted(comparePackageReleaseOrder)
     const channels = Object.fromEntries(
       this.eventChannels.get(packageId)?.entries() ?? [],
     )

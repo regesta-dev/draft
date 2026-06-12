@@ -189,6 +189,11 @@ Returns an event-derived package state snapshot:
 Package state is mutable. Later channel events can change channel pointers, and
 later publish events can add releases.
 
+Package state `releases` are ordered by `createdAt` ascending, using `version`
+as the deterministic tie-breaker. Release versions are unique within one
+package state, and every channel value points to a release version listed in
+that state.
+
 The served state is a convenience view over Regesta-native events. A production
 server may materialize it from adapter-owned indexes for performance, but the
 event log remains the source of truth. Auditors should replay public events and

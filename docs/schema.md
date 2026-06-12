@@ -87,6 +87,14 @@ source of truth. The event log is. Servers can materialize this object from
 event-derived indexes for read performance; verifiers should still reconstruct
 package state from public events when auditing it.
 
+`releases` are ordered by `createdAt` ascending, with `version` as the
+deterministic tie-breaker when multiple releases share the same timestamp.
+Release versions are unique within one package state.
+Every channel value must target a release version listed in the same package
+state.
+Channel names and channel values are non-empty strings without control
+characters.
+
 ## Release Manifest
 
 A release manifest records immutable release facts.

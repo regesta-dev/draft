@@ -116,7 +116,8 @@ The V0 CLI can audit registry state without private database access:
 - `verify-log` reads public event pages, fetches immutable event endpoints, and
   checks event replay.
 - `verify-package` replays public events for one package and compares the
-  result with `/packages/<id>`.
+  result with `/packages/<id>`, including the deterministic order of package
+  state `releases`.
 - `verify` checks one release envelope, its event, and its referenced objects.
 - `mirror` stores public events, release envelopes, and object bytes in a local
   mirror directory.

@@ -2601,7 +2601,8 @@ describe('verifyPackageStateFromRegistry', () => {
     const state: PackageState = {
       ...expected,
       channels: {
-        latest: '9.9.9',
+        beta: fixture.release.manifest.version,
+        latest: fixture.release.manifest.version,
       },
     }
 
@@ -2621,6 +2622,149 @@ describe('verifyPackageStateFromRegistry', () => {
     expect(result.problems).toEqual([
       'Public package state does not match public event log replay',
     ])
+  })
+
+  it('reports public package state channels that target missing release versions', async () => {
+    const fixture = releaseFixture()
+    const expected = replayPackageState(
+      [fixture.release.event],
+      fixture.release.manifest.id,
+    )
+    const state: PackageState = {
+      ...expected,
+      channels: {
+        latest: '9.9.9',
+      },
+    }
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          state,
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      problems: [
+        'Public package state response channels latest must target an existing release version: 9.9.9',
+      ],
+    })
+  })
+
+  it('reports public package state channel versions with control characters', async () => {
+    const fixture = releaseFixture()
+    const expected = replayPackageState(
+      [fixture.release.event],
+      fixture.release.manifest.id,
+    )
+    const state: PackageState = {
+      ...expected,
+      channels: {
+        latest: `${fixture.release.manifest.version}\r\nx`,
+      },
+    }
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          state,
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      problems: [
+        'Public package state response channels latest must not include control characters',
+      ],
+    })
+  })
+
+  it('reports public package state releases that are not deterministically ordered', async () => {
+    const fixture = releaseFixture()
+    const secondEvent = publishedEventForVersion(fixture.release.event, {
+      timestamp: '2026-06-10T00:00:00.000Z',
+      version: '2.0.0',
+    })
+    const expected = replayPackageState(
+      [fixture.release.event, secondEvent],
+      fixture.release.manifest.id,
+    )
+    const state: PackageState = {
+      ...expected,
+      releases: [expected.releases[1]!, expected.releases[0]!],
+    }
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event, secondEvent],
+        {
+          state,
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      problems: [
+        'Public package state response releases must be ordered by createdAt and version',
+      ],
+    })
+  })
+
+  it('reports public package state releases with duplicate versions', async () => {
+    const fixture = releaseFixture()
+    const expected = replayPackageState(
+      [fixture.release.event],
+      fixture.release.manifest.id,
+    )
+    const state: PackageState = {
+      ...expected,
+      releases: [
+        ...expected.releases,
+        {
+          createdAt: '2026-06-10T00:00:00.000Z',
+          manifestDigest: sha256(bytes('duplicate manifest')),
+          version: fixture.release.manifest.version,
+        },
+      ],
+    }
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          state,
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      problems: [
+        'Public package state response releases must not include duplicate version: 1.0.0',
+      ],
+    })
   })
 
   it('reports public package state responses without Content-Length headers', async () => {
@@ -3007,6 +3151,33 @@ function channelUpdatedEvent(
     package: publishEvent.release.id,
     timestamp: options.timestamp,
     version: options.version,
+  }
+
+  return {
+    ...payload,
+    id: registryEventDigest(payload),
+  }
+}
+
+function publishedEventForVersion(
+  publishEvent: PublishReleaseEvent,
+  options: {
+    timestamp: string
+    version: string
+  },
+): PublishReleaseEvent {
+  const payload: Omit<PublishReleaseEvent, 'id'> = {
+    artifactDigests: [sha256(bytes(`artifact ${options.version}`))],
+    channel: defaultPackageChannel,
+    eventType: 'release.published',
+    object: 'regesta.event',
+    release: {
+      id: publishEvent.release.id,
+      manifestDigest: sha256(bytes(`manifest ${options.version}`)),
+      version: options.version,
+    },
+    sourceDigest: sha256(bytes(`source ${options.version}`)),
+    timestamp: options.timestamp,
   }
 
   return {

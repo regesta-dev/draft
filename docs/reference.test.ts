@@ -1655,6 +1655,9 @@ describe('documentation references', () => {
     expect(mirroring).toContain(
       '`verify-package` intentionally reads event-log pages until it reaches the tail',
     )
+    expect(mirroring).toMatch(
+      /including the deterministic order of package\s+state `releases`/u,
+    )
     expect(mirroring).toContain(
       'hash the exact manifest object bytes, including the trailing newline',
     )
@@ -1674,6 +1677,52 @@ describe('documentation references', () => {
       'should fail verification instead of being accepted as weak evidence',
     )
     expect(mirroring).toContain('proofs are future protocol work')
+  })
+
+  it('documents deterministic package-state release ordering', async () => {
+    const api = await readText('api.md')
+    const schema = await readText('schema.md')
+    const channelDescription = await schemaValueAtPointer(
+      '#/$defs/packageState/properties/channels/description',
+    )
+    const nonEmptyStringPattern = await schemaValueAtPointer(
+      '#/$defs/nonEmptyString/pattern',
+    )
+    const channelPropertyNames = await schemaValueAtPointer(
+      '#/$defs/packageState/properties/channels/propertyNames',
+    )
+    const releaseDescription = await schemaValueAtPointer(
+      '#/$defs/packageState/properties/releases/description',
+    )
+
+    expect(schema).toContain('`releases` are ordered by `createdAt` ascending')
+    expect(schema).toContain(
+      'Release versions are unique within one package state.',
+    )
+    expect(schema).toContain(
+      'Every channel value must target a release version listed in the same package',
+    )
+    expect(schema).toMatch(
+      /Channel names and channel values are non-empty strings without control\s+characters\./u,
+    )
+    expect(api).toContain(
+      'Package state `releases` are ordered by `createdAt` ascending',
+    )
+    expect(api).toContain('Release versions are unique within one')
+    expect(api).toContain('every channel value points to a release version')
+    expect(channelDescription).toContain(
+      'Every value targets a release version listed in this package state.',
+    )
+    expect(channelPropertyNames).toEqual({
+      $ref: '#/$defs/nonEmptyString',
+    })
+    expect(releaseDescription).toContain(
+      'version as the deterministic tie-breaker',
+    )
+    expect(releaseDescription).toContain(
+      'Release versions are unique within one package state.',
+    )
+    expect(nonEmptyStringPattern).toBe(String.raw`^[^\u0000-\u001f\u007f]+$`)
   })
 
   it('documents operational request and audit logging boundaries', async () => {

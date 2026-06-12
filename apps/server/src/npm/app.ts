@@ -1,3 +1,4 @@
+import { parsePackageChannels, type PackageId } from '@regesta/protocol'
 import { Hono, type Context } from 'hono'
 import {
   decodeRequestComponent,
@@ -27,7 +28,6 @@ import {
   type NpmUpstreamFallbackOptions,
 } from './upstream.ts'
 import type { NpmRegistryReader } from './reader.ts'
-import type { PackageId } from '@regesta/protocol'
 
 export type NpmRegistryRouteOptions = NpmUpstreamFallbackOptions
 
@@ -246,7 +246,10 @@ async function serveNpmDistTags(
     const releaseHead = await adapters.database.getPackageReleaseHead(packageId)
 
     if (releaseHead.releaseCount > 0) {
-      const channels = await adapters.database.getPackageChannels(packageId)
+      const channels = parsePackageChannels(
+        await adapters.database.getPackageChannels(packageId),
+        'Adapter package channels',
+      )
 
       return serveNpmProjectionJson(
         context,

@@ -241,6 +241,7 @@
     },
     "nonEmptyString": {
       "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
       "type": "string"
     },
     "objectDescriptor": {
@@ -284,6 +285,8 @@
       "properties": {
         "channels": {
           "additionalProperties": { "$ref": "#/$defs/nonEmptyString" },
+          "description": "Mutable channel pointers. Every value targets a release version listed in this package state.",
+          "propertyNames": { "$ref": "#/$defs/nonEmptyString" },
           "type": "object"
         },
         "ecosystem": { "$ref": "#/$defs/nonEmptyString" },
@@ -291,6 +294,7 @@
         "name": { "$ref": "#/$defs/nonEmptyString" },
         "object": { "const": "regesta.package-state" },
         "releases": {
+          "description": "Package releases ordered by createdAt ascending, with version as the deterministic tie-breaker. Release versions are unique within one package state.",
           "items": {
             "additionalProperties": false,
             "properties": {

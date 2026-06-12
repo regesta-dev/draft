@@ -21,6 +21,7 @@ import {
   canonicalJson,
   defaultPackageChannel,
   parsePackageId,
+  parsePackageState,
   sha256,
   type ObjectDescriptor,
   type PackageId,
@@ -693,14 +694,15 @@ async function servePackageStateRequest(
 
   const { lastEventId, lastEventTimestamp, state } =
     await adapters.database.getPackageEventState(packageId)
-  if (state.releases.length === 0) {
+  const parsedState = parseAdapterPackageState(state, packageId)
+  if (parsedState.releases.length === 0) {
     return context.json(
       errorResponse('package_not_found', 'Package not found'),
       404,
     )
   }
 
-  return servePackageState(context, state, {
+  return servePackageState(context, parsedState, {
     lastEventId,
     lastModified: lastEventTimestamp,
   })
@@ -930,6 +932,21 @@ function servePackageState(
   }
 
   return serveJson(context, state, headers)
+}
+
+function parseAdapterPackageState(
+  value: PackageState,
+  packageId: PackageId,
+): PackageState {
+  const state = parsePackageState(value, 'Adapter package state')
+
+  if (state.id !== packageId) {
+    throw new TypeError(
+      `Adapter package state id must match requested package id: ${packageId}`,
+    )
+  }
+
+  return state
 }
 
 function packageStateNotModified(head: PackageEventHead): Response {

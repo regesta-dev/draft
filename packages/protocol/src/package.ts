@@ -59,6 +59,21 @@ export interface PackageStateRelease {
   version: string
 }
 
+export interface PackageReleaseOrderInput {
+  createdAt: string
+  version: string
+}
+
+export function comparePackageReleaseOrder(
+  left: PackageReleaseOrderInput,
+  right: PackageReleaseOrderInput,
+): number {
+  return (
+    left.createdAt.localeCompare(right.createdAt) ||
+    left.version.localeCompare(right.version)
+  )
+}
+
 export function parsePackageState(
   value: unknown,
   label = 'Package state',
@@ -82,12 +97,26 @@ export function parsePackageState(
     throw new TypeError(`${label} name must match package id`)
   }
 
+  const releases = readArray(record.releases, `${label} releases`).map(
+    (release, index) => {
+      return parsePackageStateRelease(release, `${label} releases[${index}]`)
+    },
+  )
+
+  assertPackageStateReleaseOrder(releases, `${label} releases`)
+  assertPackageStateReleaseVersionsAreUnique(releases, `${label} releases`)
+  const channels =
+    record.channels === undefined
+      ? undefined
+      : parsePackageChannels(record.channels, `${label} channels`)
+  assertPackageStateChannelsTargetReleases(
+    channels,
+    releases,
+    `${label} channels`,
+  )
+
   return {
-    ...(record.channels === undefined
-      ? {}
-      : {
-          channels: parsePackageChannels(record.channels, `${label} channels`),
-        }),
+    ...(channels === undefined ? {} : { channels }),
     ecosystem,
     id: parsedId.id,
     name,
@@ -96,15 +125,70 @@ export function parsePackageState(
       'regesta.package-state',
       `${label} object`,
     ),
-    releases: readArray(record.releases, `${label} releases`).map(
-      (release, index) => {
-        return parsePackageStateRelease(release, `${label} releases[${index}]`)
-      },
-    ),
+    releases,
   }
 }
 
-function parsePackageChannels(
+function assertPackageStateChannelsTargetReleases(
+  channels: Record<string, string> | undefined,
+  releases: readonly PackageStateRelease[],
+  label: string,
+): void {
+  if (channels === undefined) {
+    return
+  }
+
+  const releaseVersions = new Set(
+    releases.map((release) => {
+      return release.version
+    }),
+  )
+
+  for (const [channel, version] of Object.entries(channels)) {
+    if (!releaseVersions.has(version)) {
+      throw new TypeError(
+        `${label} ${channel} must target an existing release version: ${version}`,
+      )
+    }
+  }
+}
+
+function assertPackageStateReleaseVersionsAreUnique(
+  releases: readonly PackageStateRelease[],
+  label: string,
+): void {
+  const versions = new Set<string>()
+
+  for (const release of releases) {
+    if (versions.has(release.version)) {
+      throw new TypeError(
+        `${label} must not include duplicate version: ${release.version}`,
+      )
+    }
+
+    versions.add(release.version)
+  }
+}
+
+function assertPackageStateReleaseOrder(
+  releases: readonly PackageStateRelease[],
+  label: string,
+): void {
+  for (let index = 1; index < releases.length; index += 1) {
+    const previous = releases[index - 1]
+    const current = releases[index]
+
+    if (
+      previous &&
+      current &&
+      comparePackageReleaseOrder(previous, current) > 0
+    ) {
+      throw new TypeError(`${label} must be ordered by createdAt and version`)
+    }
+  }
+}
+
+export function parsePackageChannels(
   value: unknown,
   label: string,
 ): Record<string, string> {

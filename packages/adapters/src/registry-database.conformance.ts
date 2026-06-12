@@ -228,6 +228,35 @@ export function describeRegistryDatabaseConformance<
       })
     })
 
+    it('uses release version as a stable package release page tie-breaker', async () => {
+      await withDatabase(target, async (database) => {
+        const packageId: PackageId = 'npm:example.com/release-page-order'
+        const secondRelease = storedRelease(packageId, '0.0.2', {
+          createdAt: '2026-06-01T00:00:00.000Z',
+        })
+        const firstRelease = storedRelease(packageId, '0.0.1', {
+          createdAt: '2026-06-01T00:00:00.000Z',
+        })
+        const thirdRelease = storedRelease(packageId, '0.0.3', {
+          createdAt: '2026-06-01T00:01:00.000Z',
+        })
+
+        await database.commitPublishedRelease(secondRelease, 'latest')
+        await database.commitPublishedRelease(thirdRelease, 'latest')
+        await database.commitPublishedRelease(firstRelease, 'latest')
+
+        await expect(
+          database.listPackageReleases(packageId, { limit: 2 }),
+        ).resolves.toEqual([firstRelease, secondRelease])
+        await expect(
+          database.listPackageReleases(packageId, {
+            after: firstRelease.manifest.version,
+            limit: 2,
+          }),
+        ).resolves.toEqual([secondRelease, thirdRelease])
+      })
+    })
+
     it('stores package state for future ecosystem keys without adapter-specific assumptions', async () => {
       await withDatabase(target, async (database) => {
         const release = storedRelease(
@@ -920,8 +949,13 @@ function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value)
 }
 
-function storedRelease(packageId: PackageId, version: string): StoredRelease {
+function storedRelease(
+  packageId: PackageId,
+  version: string,
+  options: { createdAt?: string } = {},
+): StoredRelease {
   const parsedPackageId = parsePackageId(packageId)
+  const createdAt = options.createdAt ?? '2026-06-01T00:00:00.000Z'
   const source = {
     digest: sha256(bytes('source')),
     mediaType: 'application/vnd.regesta.source-archive+tgz',
@@ -940,7 +974,7 @@ function storedRelease(packageId: PackageId, version: string): StoredRelease {
       },
     ],
     configDigest: sha256(bytes('config')),
-    createdAt: '2026-06-01T00:00:00.000Z',
+    createdAt,
     ecosystem: parsedPackageId.ecosystem,
     id: parsedPackageId.id,
     name: parsedPackageId.name,
@@ -969,7 +1003,7 @@ function storedRelease(packageId: PackageId, version: string): StoredRelease {
       version,
     },
     sourceDigest: source.digest,
-    timestamp: '2026-06-01T00:00:00.000Z',
+    timestamp: createdAt,
   })
 
   return {

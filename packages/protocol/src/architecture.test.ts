@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const protocolSourceRoot = new URL('.', import.meta.url).pathname
 const protocolPackageRoot = join(protocolSourceRoot, '..')
+const workspaceRoot = join(protocolPackageRoot, '..', '..')
 
 describe('protocol package architecture', () => {
   it('keeps production protocol source independent from implementation layers', async () => {
@@ -54,6 +55,30 @@ describe('protocol package architecture', () => {
 
     expect(manifest.dependencies).toBeUndefined()
     expect(manifest.peerDependencies).toBeUndefined()
+  })
+
+  it('keeps package release ordering centralized in the protocol layer', async () => {
+    const allowedComparatorFile = join(protocolSourceRoot, 'package.ts')
+    const violations: string[] = []
+
+    for (const file of [
+      ...(await productionSourceFiles(join(workspaceRoot, 'packages'))),
+      ...(await productionSourceFiles(join(workspaceRoot, 'apps/server/src'))),
+    ]) {
+      if (file === allowedComparatorFile) {
+        continue
+      }
+
+      const source = await readFile(file, 'utf8')
+      if (
+        source.includes('createdAt.localeCompare') ||
+        source.includes('version.localeCompare')
+      ) {
+        violations.push(relative(workspaceRoot, file))
+      }
+    }
+
+    expect(violations).toEqual([])
   })
 })
 

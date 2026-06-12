@@ -8,6 +8,7 @@ import {
 } from '@regesta/npm'
 import {
   canonicalJson,
+  parsePackageState,
   sha256,
   type PackageId,
   type PackageState,
@@ -198,7 +199,10 @@ async function readFreshLocalNpmPackageProjectionInput(
       return undefined
     }
 
-    const snapshot = await reader.database.getPackageEventState(packageId)
+    const snapshot = parseAdapterPackageStateSnapshot(
+      await reader.database.getPackageEventState(packageId),
+      packageId,
+    )
     latest = { releases, snapshot }
 
     if (
@@ -259,6 +263,21 @@ async function listLocalNpmPackageReleases(
   }
 
   return releases
+}
+
+function parseAdapterPackageStateSnapshot(
+  snapshot: NpmPackageStateSnapshot,
+  packageId: PackageId,
+): NpmPackageStateSnapshot {
+  const state = parsePackageState(snapshot.state, 'Adapter package state')
+
+  if (state.id !== packageId) {
+    throw new TypeError(
+      `Adapter package state id must match requested package id: ${packageId}`,
+    )
+  }
+
+  return { ...snapshot, state }
 }
 
 function localNpmProjectionReadIsDirectProjectionOnly(

@@ -3664,6 +3664,163 @@ describe('createRegestaApp', () => {
     expect(await conditional.text()).toBe('')
   })
 
+  it('validates adapter package state at the transport boundary', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const packageId = 'npm:example.com/invalid-adapter-state'
+    const eventId = sha256(bytes('invalid adapter state event'))
+    adapters.database.getPackageEventState = () => {
+      return Promise.resolve({
+        lastEventId: eventId,
+        lastEventTimestamp: '2026-06-01T00:00:00.000Z',
+        state: {
+          channels: {
+            latest: '9.9.9',
+          },
+          ecosystem: 'npm',
+          id: packageId,
+          name: 'example.com/invalid-adapter-state',
+          object: 'regesta.package-state',
+          releases: [
+            {
+              createdAt: '2026-06-01T00:00:00.000Z',
+              manifestDigest: sha256(bytes('invalid adapter state manifest')),
+              version: '1.0.0',
+            },
+          ],
+        },
+      })
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}`,
+        {
+          headers: {
+            'x-request-id': 'invalid-adapter-package-state-001',
+          },
+        },
+      )
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              'Adapter package state channels latest must target an existing release version: 9.9.9',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-adapter-package-state-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('rejects adapter package state for a different package id', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    const packageId = 'npm:example.com/requested-package-state'
+    adapters.database.getPackageEventState = () => {
+      return Promise.resolve({
+        state: {
+          ecosystem: 'npm',
+          id: 'npm:example.com/other-package-state',
+          name: 'example.com/other-package-state',
+          object: 'regesta.package-state',
+          releases: [],
+        },
+      })
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(
+        `/packages/${encodeURIComponent(packageId)}`,
+        {
+          headers: {
+            'x-request-id': 'mismatched-adapter-package-state-001',
+          },
+        },
+      )
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              'Adapter package state id must match requested package id: npm:example.com/requested-package-state',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'mismatched-adapter-package-state-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('validates adapter package channels before serving npm dist-tags', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const adapters = createMemoryRegistryAdapters()
+    adapters.database.getPackageReleaseHead = () => {
+      return Promise.resolve({
+        releaseCount: 1,
+      })
+    }
+    adapters.database.getPackageChannels = () => {
+      return Promise.resolve({
+        latest: '1.0.0\r\nx',
+      })
+    }
+    const app = createRegestaApp(adapters)
+
+    try {
+      const response = await app.request(
+        'http://npm.registry.test/-/package/@example.com/invalid-dist-tags/dist-tags',
+        {
+          headers: {
+            'x-request-id': 'invalid-adapter-dist-tags-001',
+          },
+        },
+      )
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        code: 'internal_server_error',
+        error: 'Internal Server Error',
+        message: 'Internal Server Error',
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'Unexpected transport error',
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message:
+              'Adapter package channels latest must not include control characters',
+          }),
+          kind: 'regesta.unexpected-error',
+          requestId: 'invalid-adapter-dist-tags-001',
+        }),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it('serves package channel releases from indexed channel state', async () => {
     const adapters = createMemoryRegistryAdapters()
     const app = createRegestaApp(adapters)
