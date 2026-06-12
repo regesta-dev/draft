@@ -17,6 +17,7 @@ import {
   type ReleaseManifest,
   type Sha256Digest,
 } from '@regesta/protocol'
+import { cacheControlHasDirective } from './http-headers.ts'
 import { normalizeRegistryUrl } from './registry-url.ts'
 
 export interface MirrorRegistryInput {
@@ -1234,7 +1235,7 @@ function validateObjectResponseMetadata(
   if (!cacheControl) {
     throw new Error(`Missing object Cache-Control header: ${descriptor.digest}`)
   }
-  if (!cacheControlHas(cacheControl, 'immutable')) {
+  if (!cacheControlHasDirective(cacheControl, 'immutable')) {
     throw new Error(
       `Object Cache-Control must include immutable: ${descriptor.digest}`,
     )
@@ -1585,13 +1586,6 @@ function validatePositiveInteger(value: number, label: string): void {
   }
 }
 
-function cacheControlHas(value: string, directive: string): boolean {
-  return value.split(',').some((part) => {
-    const name = part.split('=', 1)[0]?.trim().toLowerCase()
-    return name === directive
-  })
-}
-
 function mutableJsonPageHeaderProblem(
   headers: Headers,
   label: string,
@@ -1606,7 +1600,7 @@ function mutableJsonPageHeaderProblem(
     return `${label} response is missing Cache-Control`
   }
 
-  if (!cacheControlHas(cacheControl, 'no-cache')) {
+  if (!cacheControlHasDirective(cacheControl, 'no-cache')) {
     return `${label} response Cache-Control must include no-cache`
   }
 
@@ -1686,7 +1680,7 @@ function validateImmutableCacheControl(url: string, response: Response): void {
     throw new TypeError(`Missing immutable JSON Cache-Control header: ${url}`)
   }
 
-  if (!cacheControlHas(cacheControl, 'immutable')) {
+  if (!cacheControlHasDirective(cacheControl, 'immutable')) {
     throw new TypeError(
       `Immutable JSON Cache-Control must include immutable: ${url}`,
     )

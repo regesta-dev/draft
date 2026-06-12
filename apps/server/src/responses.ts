@@ -45,12 +45,9 @@ export function matchesIfNoneMatch(
   const normalizedEtag = stripWeakPrefix(etag)
 
   return (
-    header
-      ?.split(',')
-      .map((value) => value.trim())
-      .some((value) => {
-        return value === '*' || stripWeakPrefix(value) === normalizedEtag
-      }) ?? false
+    ifNoneMatchValues(header).some((value) => {
+      return value === '*' || stripWeakPrefix(value) === normalizedEtag
+    }) ?? false
   )
 }
 
@@ -140,6 +137,46 @@ export function immutableDescriptorResponse(
 
 function stripWeakPrefix(value: string): string {
   return value.startsWith('W/') ? value.slice(2) : value
+}
+
+function ifNoneMatchValues(header: string | undefined): string[] {
+  if (!header) {
+    return []
+  }
+
+  const values: string[] = []
+  let value = ''
+  let quoted = false
+
+  for (const character of header) {
+    if (character === '"') {
+      value += character
+      quoted = !quoted
+      continue
+    }
+
+    if (!quoted && character === ',') {
+      pushIfCompleteEntityTag(values, value)
+      value = ''
+      continue
+    }
+
+    value += character
+  }
+
+  pushIfCompleteEntityTag(values, value)
+  return values
+}
+
+function pushIfCompleteEntityTag(values: string[], value: string): void {
+  const trimmed = value.trim()
+  if (
+    trimmed === '*' ||
+    /^W\/"[^"]*"$/u.test(trimmed) ||
+    /^"[^"]*"$/u.test(trimmed)
+  ) {
+    values.push(trimmed)
+  }
 }
 
 export interface ByteRange {

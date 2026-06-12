@@ -98,6 +98,30 @@ describe('server layer boundaries', () => {
     ])
   })
 
+  it('keeps conditional request validators on quote-aware entity-tag parsing', async () => {
+    const source = await readFile(
+      join(serverSourceRoot, 'responses.ts'),
+      'utf8',
+    )
+    const matchSource = sourceBetween(
+      source,
+      'export function matchesIfNoneMatch',
+      'export function immutableBytesResponse',
+    )
+    const parserSource = sourceBetween(
+      source,
+      'function ifNoneMatchValues',
+      'function pushIfCompleteEntityTag',
+    )
+
+    expect(matchSource).toContain('ifNoneMatchValues(header)')
+    expect(matchSource).not.toContain(".split(',')")
+    expect(parserSource).toContain('quoted')
+    expect(parserSource).toContain("character === ','")
+    expect(source).toContain('function pushIfCompleteEntityTag')
+    expect(source).toContain(String.raw`^W\/"[^"]*"$`)
+  })
+
   it('keeps shared request helpers independent from protocol and business layers', async () => {
     await expectNoForbiddenImports('request.ts', [
       '@regesta/adapters',
@@ -658,6 +682,33 @@ describe('server layer boundaries', () => {
     expect(devBinding).toContain(
       "import.meta.dev && process.env.NODE_ENV !== 'development'",
     )
+  })
+
+  it('keeps fixed dev.localhost demo credentials scoped to the dev layer', async () => {
+    const violations: string[] = []
+
+    for (const file of await sourceFiles(serverSourceRoot)) {
+      const relativePath = relative(serverSourceRoot, file)
+      if (relativePath.startsWith('dev/')) {
+        continue
+      }
+
+      const source = await readFile(file, 'utf8')
+      for (const text of [
+        'domain-binding.json',
+        'private-key.json',
+        'public-key.json',
+        'devLocalhostPrivateKeyFile',
+        'devLocalhostPrivateKeyFileText',
+        'devLocalhostPublicKeyFileText',
+      ]) {
+        if (source.includes(text)) {
+          violations.push(`${relativePath} references ${text}`)
+        }
+      }
+    }
+
+    expect(violations).toEqual([])
   })
 })
 

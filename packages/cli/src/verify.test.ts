@@ -769,6 +769,51 @@ describe('verifyReleaseFromRegistry', () => {
     )
   })
 
+  it('does not accept immutable as a public object Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+    const sourceDigest = fixture.release.manifest.source.digest
+    const fetch = publicRegistryFetch(fixture)
+    const substringObjectCacheFetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+        if (
+          init?.method !== 'HEAD' &&
+          url.endsWith(sourceDigest.slice('sha256:'.length))
+        ) {
+          fetch.requests.push(url)
+          const source = fixture.objects.get(sourceDigest)
+
+          return Promise.resolve(
+            new Response(source?.bytes, {
+              headers: {
+                'cache-control': 'public, max-age=60, not-immutable',
+                'content-length': String(source?.descriptor.size),
+                'content-type':
+                  source?.descriptor.mediaType ?? 'application/octet-stream',
+                etag: `"${sourceDigest}"`,
+              },
+            }),
+          )
+        }
+
+        return fetch(input, init)
+      },
+      { headRequests: fetch.headRequests, requests: fetch.requests },
+    )
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: substringObjectCacheFetch,
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain(
+      `Source object read failed: Object Cache-Control must include immutable: https://registry.example/objects/sha256/${sourceDigest.slice('sha256:'.length)}`,
+    )
+  })
+
   it('reports public object HEAD responses without Accept-Ranges headers as verification problems', async () => {
     const fixture = releaseFixture()
     const sourceDigest = fixture.release.manifest.source.digest
@@ -1069,6 +1114,56 @@ describe('verifyReleaseFromRegistry', () => {
       ok: false,
       problems: [
         'Public release request failed: Missing immutable JSON Cache-Control header: https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
+      ],
+    })
+  })
+
+  it('reports mutable public release Cache-Control headers', async () => {
+    const fixture = releaseFixture()
+    const result = await verifyReleaseFromRegistry({
+      fetch: () =>
+        Promise.resolve(
+          canonicalJsonResponse(fixture.release, {
+            headers: {
+              'cache-control': 'public, max-age=60',
+              etag: `"${fixture.release.event.id}"`,
+            },
+          }),
+        ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      problems: [
+        'Public release request failed: Immutable JSON Cache-Control must include immutable: https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
+      ],
+    })
+  })
+
+  it('does not accept immutable as a public release Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+    const result = await verifyReleaseFromRegistry({
+      fetch: () =>
+        Promise.resolve(
+          canonicalJsonResponse(fixture.release, {
+            headers: {
+              'cache-control': 'public, max-age=60, not-immutable',
+              etag: `"${fixture.release.event.id}"`,
+            },
+          }),
+        ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      problems: [
+        'Public release request failed: Immutable JSON Cache-Control must include immutable: https://registry.example/packages/npm%3Aexample.com%2Fhello-regesta/releases/1.0.0',
       ],
     })
   })
@@ -1473,6 +1568,82 @@ describe('verifyReleaseFromRegistry', () => {
     ])
   })
 
+  it('reports missing immutable public event Cache-Control headers', async () => {
+    const fixture = releaseFixture()
+    const fetch = publicRegistryFetch(fixture)
+    const missingEventCacheFetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+        if (url.includes('/events/')) {
+          fetch.requests.push(url)
+
+          const body = `${canonicalJson(fixture.release.event)}\n`
+          return Promise.resolve(
+            new Response(body, {
+              headers: {
+                'content-length': String(bytes(body).byteLength),
+                'content-type': 'application/json; charset=utf-8',
+                etag: `"${fixture.release.event.id}"`,
+              },
+            }),
+          )
+        }
+
+        return fetch(input, init)
+      },
+      { headRequests: fetch.headRequests, requests: fetch.requests },
+    )
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: missingEventCacheFetch,
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toEqual([
+      `Public event request failed: Missing immutable JSON Cache-Control header: https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+    ])
+  })
+
+  it('reports public event Cache-Control headers without immutable', async () => {
+    const fixture = releaseFixture()
+    const fetch = publicRegistryFetch(fixture)
+    const mutableEventCacheFetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+        if (url.includes('/events/')) {
+          fetch.requests.push(url)
+
+          return Promise.resolve(
+            canonicalJsonResponse(fixture.release.event, {
+              headers: {
+                'cache-control': 'public, max-age=60',
+                etag: `"${fixture.release.event.id}"`,
+              },
+            }),
+          )
+        }
+
+        return fetch(input, init)
+      },
+      { headRequests: fetch.headRequests, requests: fetch.requests },
+    )
+
+    const result = await verifyReleaseFromRegistry({
+      fetch: mutableEventCacheFetch,
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+      version: fixture.release.manifest.version,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toEqual([
+      `Public event request failed: Immutable JSON Cache-Control must include immutable: https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+    ])
+  })
+
   it('reports missing public event Content-Length headers', async () => {
     const fixture = releaseFixture()
     const fetch = publicRegistryFetch(fixture)
@@ -1805,6 +1976,93 @@ describe('verifyEventLogFromRegistry', () => {
     })
   })
 
+  it('rejects immutable event endpoint responses without Cache-Control', async () => {
+    const fixture = releaseFixture()
+    const baseFetch = publicEventLogFetch([fixture.release.event])
+    const fetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+
+        if (url.includes('/events/sha256/')) {
+          baseFetch.requests.push(url)
+
+          const body = `${canonicalJson(fixture.release.event)}\n`
+          return Promise.resolve(
+            new Response(body, {
+              headers: {
+                'content-length': String(bytes(body).byteLength),
+                'content-type': 'application/json; charset=utf-8',
+                etag: `"${fixture.release.event.id}"`,
+              },
+            }),
+          )
+        }
+
+        return baseFetch(input, init)
+      },
+      {
+        headRequests: baseFetch.headRequests,
+        requests: baseFetch.requests,
+      },
+    )
+
+    const result = await verifyEventLogFromRegistry({
+      fetch,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      packages: 0,
+      problems: [
+        `Public event endpoint request failed: Missing immutable JSON Cache-Control header: https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+      ],
+    })
+  })
+
+  it('rejects immutable event endpoint responses without immutable Cache-Control', async () => {
+    const fixture = releaseFixture()
+    const baseFetch = publicEventLogFetch([fixture.release.event])
+    const fetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = String(input)
+
+        if (url.includes('/events/sha256/')) {
+          baseFetch.requests.push(url)
+          return Promise.resolve(
+            canonicalJsonResponse(fixture.release.event, {
+              headers: {
+                'cache-control': 'public, max-age=60',
+                etag: `"${fixture.release.event.id}"`,
+              },
+            }),
+          )
+        }
+
+        return baseFetch(input, init)
+      },
+      {
+        headRequests: baseFetch.headRequests,
+        requests: baseFetch.requests,
+      },
+    )
+
+    const result = await verifyEventLogFromRegistry({
+      fetch,
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      packages: 0,
+      problems: [
+        `Public event endpoint request failed: Immutable JSON Cache-Control must include immutable: https://registry.example/events/sha256/${fixture.release.event.id.slice('sha256:'.length)}`,
+      ],
+    })
+  })
+
   it('rejects immutable event endpoint Content-Length mismatches', async () => {
     const fixture = releaseFixture()
     const baseFetch = publicEventLogFetch([fixture.release.event])
@@ -2086,6 +2344,26 @@ describe('verifyEventLogFromRegistry', () => {
     const result = await verifyEventLogFromRegistry({
       fetch: publicEventLogFetch([fixture.release.event], {
         pageCacheControl: 'public, max-age=60',
+      }),
+      registry: 'https://registry.example',
+    })
+
+    expect(result).toEqual({
+      checkedEvents: 0,
+      ok: false,
+      packages: 0,
+      problems: [
+        'Public event log response Cache-Control must include no-cache',
+      ],
+    })
+  })
+
+  it('does not accept no-cache as an event log Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+
+    const result = await verifyEventLogFromRegistry({
+      fetch: publicEventLogFetch([fixture.release.event], {
+        pageCacheControl: 'public, max-age=60, no-cacheable',
       }),
       registry: 'https://registry.example',
     })
@@ -2429,6 +2707,27 @@ describe('verifyPackageStateFromRegistry', () => {
         [fixture.release.event],
         {
           stateCacheControl: 'public, max-age=60',
+        },
+      ),
+      packageId: fixture.release.manifest.id,
+      registry: 'https://registry.example',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toEqual([
+      'Public package state response Cache-Control must include no-cache',
+    ])
+  })
+
+  it('does not accept no-cache as a public package state Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+
+    const result = await verifyPackageStateFromRegistry({
+      fetch: publicPackageStateFetch(
+        fixture.release.manifest.id,
+        [fixture.release.event],
+        {
+          stateCacheControl: 'public, max-age=60, no-cacheable',
         },
       ),
       packageId: fixture.release.manifest.id,

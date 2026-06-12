@@ -25,6 +25,7 @@ import {
   type ReleaseManifest,
   type Sha256Digest,
 } from '@regesta/protocol'
+import { cacheControlHasDirective } from './http-headers.ts'
 import { normalizeRegistryUrl } from './registry-url.ts'
 
 export interface VerifyReleaseFromRegistryInput {
@@ -809,7 +810,7 @@ function publicMutableJsonCacheControlProblem(
     return `${label} is missing Cache-Control`
   }
 
-  return cacheControlHas(cacheControl, 'no-cache')
+  return cacheControlHasDirective(cacheControl, 'no-cache')
     ? undefined
     : `${label} Cache-Control must include no-cache`
 }
@@ -1339,7 +1340,7 @@ function validateImmutableCacheControl(url: string, response: Response): void {
     throw new TypeError(`Missing immutable JSON Cache-Control header: ${url}`)
   }
 
-  if (!cacheControlHas(cacheControl, 'immutable')) {
+  if (!cacheControlHasDirective(cacheControl, 'immutable')) {
     throw new TypeError(
       `Immutable JSON Cache-Control must include immutable: ${url}`,
     )
@@ -1493,7 +1494,7 @@ function validateObjectCacheControl(url: string, response: Response): void {
     throw new TypeError(`Missing object Cache-Control header: ${url}`)
   }
 
-  if (!cacheControlHas(cacheControl, 'immutable')) {
+  if (!cacheControlHasDirective(cacheControl, 'immutable')) {
     throw new TypeError(`Object Cache-Control must include immutable: ${url}`)
   }
 }
@@ -1538,13 +1539,6 @@ function etagMatchesOpaqueValue(etag: string, value: string): boolean {
 
 function stripWeakEtag(etag: string): string {
   return etag.startsWith('W/') ? etag.slice(2) : etag
-}
-
-function cacheControlHas(value: string, directive: string): boolean {
-  return value.split(',').some((part) => {
-    const name = part.split('=', 1)[0]?.trim().toLowerCase()
-    return name === directive
-  })
 }
 
 function releaseUrl(

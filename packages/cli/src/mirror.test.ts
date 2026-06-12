@@ -216,6 +216,33 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('does not accept immutable as an object Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectCacheControls: new Map([
+            [
+              fixture.manifest.source.digest,
+              'public, max-age=60, not-immutable',
+            ],
+          ]),
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror object request failed: Object Cache-Control must include immutable: ${fixture.manifest.source.digest}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects object responses without Accept-Ranges', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -404,6 +431,28 @@ describe('mirrorRegistry', () => {
     }
   })
 
+  it('does not accept no-cache as an event log Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          eventPageCacheControl: 'public, max-age=60, no-cacheable',
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror event log response Cache-Control must include no-cache',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it('rejects object inventory pages that are not digest ordered', async () => {
     const fixture = releaseFixture()
     const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
@@ -434,6 +483,28 @@ describe('mirrorRegistry', () => {
       const result = await mirrorRegistry({
         fetch: mirrorFetch(fixture, {
           objectInventoryCacheControl: 'public, max-age=60',
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        'Mirror object inventory response Cache-Control must include no-cache',
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('does not accept no-cache as an object inventory Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          objectInventoryCacheControl: 'public, max-age=60, no-cacheable',
         }),
         outputDir,
         registry: 'https://registry.example',
@@ -817,6 +888,30 @@ describe('mirrorRegistry', () => {
       const result = await mirrorRegistry({
         fetch: mirrorFetch(fixture, {
           releaseEnvelopeCacheControl: 'public, max-age=60',
+        }),
+        outputDir,
+        registry: 'https://registry.example',
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.problems).toEqual([
+        `Mirror JSON request failed: Immutable JSON Cache-Control must include immutable: https://registry.example/packages/${encodeURIComponent(
+          fixture.manifest.id,
+        )}/releases/${fixture.manifest.version}`,
+      ])
+    } finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
+  it('does not accept immutable as an immutable release Cache-Control substring', async () => {
+    const fixture = releaseFixture()
+    const outputDir = await mkdtemp(join(tmpdir(), 'regesta-mirror-test-'))
+
+    try {
+      const result = await mirrorRegistry({
+        fetch: mirrorFetch(fixture, {
+          releaseEnvelopeCacheControl: 'public, max-age=60, not-immutable',
         }),
         outputDir,
         registry: 'https://registry.example',

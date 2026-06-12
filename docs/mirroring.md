@@ -68,6 +68,11 @@ Immutable event and release-envelope reads should include immutable caching, an
 body. Missing or mismatched metadata is a mirror problem because it weakens
 replay, cache validation, and byte-for-byte comparison.
 
+The V0 CLI verifier treats those metadata checks as part of public
+verification. Release envelopes, immutable event reads, event-log pages, and
+object-inventory pages that omit required cache policy, validator, or length
+headers should fail verification instead of being accepted as weak evidence.
+
 ## Synchronization Profile
 
 V0 synchronization has two cursors:

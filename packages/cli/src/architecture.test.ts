@@ -44,6 +44,53 @@ describe('cli package architecture', () => {
     expect(violations).toEqual([])
   })
 
+  it('keeps Cache-Control directive parsing centralized', async () => {
+    const helperSource = await readFile(
+      join(cliSourceRoot, 'http-headers.ts'),
+      'utf8',
+    )
+    const mirrorSource = await readFile(
+      join(cliSourceRoot, 'mirror.ts'),
+      'utf8',
+    )
+    const verifySource = await readFile(
+      join(cliSourceRoot, 'verify.ts'),
+      'utf8',
+    )
+    const violations: string[] = []
+
+    expect(helperSource).toContain('export function cacheControlHasDirective')
+    expect(helperSource).toContain('function cacheControlParts')
+    expect(helperSource).toContain("character === ','")
+    expect(helperSource).toContain('quoted')
+    expect(mirrorSource).toContain(
+      "import { cacheControlHasDirective } from './http-headers.ts'",
+    )
+    expect(verifySource).toContain(
+      "import { cacheControlHasDirective } from './http-headers.ts'",
+    )
+
+    for (const file of await productionSourceFiles(cliSourceRoot)) {
+      const relativePath = relative(cliSourceRoot, file)
+      if (relativePath === 'http-headers.ts') {
+        continue
+      }
+
+      const source = await readFile(file, 'utf8')
+      for (const text of [
+        'function cacheControlHas',
+        "split(',').some",
+        "part.split('=', 1)",
+      ]) {
+        if (source.includes(text)) {
+          violations.push(`${relativePath} contains ${text}`)
+        }
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
   it('keeps the CLI package manifest free from server and storage dependencies', async () => {
     const manifest = JSON.parse(
       await readFile(join(cliPackageRoot, 'package.json'), 'utf8'),

@@ -1461,6 +1461,12 @@ describe('documentation references', () => {
       'Immutable event and release-envelope reads should include immutable caching',
     )
     expect(mirroring).toContain('`Content-Length` for the exact canonical JSON')
+    expect(mirroring).toContain(
+      'The V0 CLI verifier treats those metadata checks as part of public',
+    )
+    expect(mirroring).toContain(
+      'should fail verification instead of being accepted as weak evidence',
+    )
     expect(mirroring).toContain('proofs are future protocol work')
   })
 
